@@ -1,41 +1,52 @@
-# crawler.py
 import requests
 from bs4 import BeautifulSoup
 from supabase import create_client
 
-# معلومات الاتصال بـ Supabase
+# معلومات Supabase
 SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
 SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
 
-# إنشاء العميل للتواصل مع Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# الموقع الذي سيتم جمع الإعلانات منه
-site = "https://edition.cnn.com"
+# قائمة المواقع
+sites = [
+    "https://www.tag24.de",
+    "https://www.trucs-et-astuces.co",
+    "https://www.topbunt.com",
+    "https://www.gameswaka.com",
+    "https://www.citizen.co.za",
+    "https://www.tips-and-tricks.co",
+    "https://www.articleskill.com",
+    "https://www.articlesvally.com",
+    "https://www.dailysportx.com"
+]
 
-# جلب الصفحة
-html = requests.get(site).text
-soup = BeautifulSoup(html,"html.parser")
+# زيارة كل موقع وجمع الإعلانات
+for site in sites:
+    print(f"🔍 Visiting {site} ...")
+    try:
+        html = requests.get(site, timeout=10).text
+        soup = BeautifulSoup(html,"html.parser")
 
-# البحث عن عناصر الإعلانات
-ads = soup.select(".trc_spotlight_item")
+        # تحديد عناصر الإعلانات (يمكن تعديل هذا حسب الموقع)
+        ads = soup.select(".trc_spotlight_item")
 
-# حفظ كل إعلان في قاعدة البيانات
-for ad in ads:
-    title = ad.get_text(strip=True)
-    img = ad.find("img")
-    image = img["src"] if img else ""
-    link = ad.find("a")
-    landing = link["href"] if link else ""
-    
-    # تحضير البيانات للحفظ
-    data = {
-        "title": title,
-        "image": image,
-        "landing": landing,
-        "source": site
-    }
-    
-    # إدخال البيانات في جدول ads
-    supabase.table("ads").insert(data).execute()
-    print("Saved:", title)
+        for ad in ads:
+            title = ad.get_text(strip=True)
+            img = ad.find("img")
+            image = img["src"] if img else ""
+            link = ad.find("a")
+            landing = link["href"] if link else ""
+
+            data = {
+                "title": title,
+                "image": image,
+                "landing": landing,
+                "source": site
+            }
+
+            supabase.table("ads").insert(data).execute()
+            print("Saved:", title)
+
+    except Exception as e:
+        print(f"❌ Failed to crawl {site}: {e}")
