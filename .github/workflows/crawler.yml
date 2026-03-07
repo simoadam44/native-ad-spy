@@ -1,0 +1,19 @@
+name: Run Crawler
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+
+jobs:
+  run-crawler:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+
+      - name: Run crawler
+        run: python crawler.py
