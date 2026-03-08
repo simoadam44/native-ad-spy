@@ -10,6 +10,17 @@ SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
 SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# قاموس لتحديد الشبكة بناءً على الـ Selector
+NETWORK_MAP = {
+    ".trc_spotlight_item": "Taboola",
+    ".taboola-main-container": "Taboola",
+    "[id*='taboola']": "Taboola",
+    ".mg-item": "MGID",
+    ".item-container-mgid": "MGID",
+    ".outbrain-column": "Outbrain",
+    ".ob-dynamic-rec-container": "Outbrain"
+}
+
 async def run_spy():
     sites = [
         "https://www.tips-and-tricks.co/online/sisterrevenge/2/",
@@ -39,40 +50,38 @@ async def run_spy():
                 content = await page.content()
                 soup = BeautifulSoup(content, "html.parser")
                 
-                ad_selectors = [
-                    ".trc_spotlight_item", ".ob-dynamic-rec-container", 
-                    ".mg-item", ".taboola-main-container", "[id*='taboola']",
-                    ".item-container-mgid", ".outbrain-column"
-                ]
-                
+                # البحث عن الإعلانات
                 found_elements = []
-                for selector in ad_selectors:
+                for selector in NETWORK_MAP.keys():
                     found_elements.extend(soup.select(selector))
                 
                 unique_ads = list(set(found_elements))
                 print(f"✅ تم العثور على {len(unique_ads)} عنصر محتمل.")
 
                 for ad in unique_ads:
+                    # تحديد الشبكة
+                    network = "Unknown"
+                    for selector, name in NETWORK_MAP.items():
+                        if ad.select_one(selector) or (selector.strip('.') in ad.get('class', [])):
+                            network = name
+                            break
+
                     title = ad.get_text(strip=True)
                     image_url = ""
 
-                    # 1. البحث الشامل عن الصورة: داخل العنصر نفسه أو أي عنصر فرعي (span/div)
-                    # هذا الجزء يبحث عن أي عنصر يحتوي على background-image داخل الإعلان
                     bg_elements = ad.find_all(style=re.compile("background-image"))
                     for el in bg_elements:
                         style = el.get("style", "")
                         match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
                         if match:
                             image_url = match.group(1)
-                            break # وجدنا الصورة، نخرج من حلقة البحث
+                            break
                     
-                    # 2. الخطة البديلة: البحث عن img
                     if not image_url:
                         img_tag = ad.find("img")
                         if img_tag:
-                            image_url = img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src") or ""
+                            image_url = img_tag.get("src") or img_tag.get("data-src") or ""
 
-                    # تصحيح الرابط
                     if image_url:
                         image_url = urljoin(site, image_url)
                         if image_url.startswith("//"): image_url = "https:" + image_url
@@ -82,9 +91,16 @@ async def run_spy():
 
                     if title and len(title) > 15 and landing:
                         landing = urljoin(site, landing)
-                        data = {"title": title[:200], "image": image_url, "landing": landing, "source": site}
+                        # تم إضافة الحقل الجديد 'network'
+                        data = {
+                            "title": title[:200], 
+                            "image": image_url, 
+                            "landing": landing, 
+                            "source": site,
+                            "network": network 
+                        }
                         supabase.table("ads").insert(data).execute()
-                        print(f"📥 تم الحفظ: {title[:30]}...")
+                        print(f"📥 تم الحفظ ({network}): {title[:30]}...")
 
             except Exception as e:
                 print(f"❌ خطأ في {site}: {e}")
