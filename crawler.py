@@ -13,6 +13,7 @@ async def run_spy():
     # مواقع تحتوي على إعلانات ناتيف بوضوح
     sites = [
         "https://www.tips-and-tricks.co/online/sisterrevenge/2/",
+        "https://www.tag24.de/anzeige/unglaublich-podcast-spotify-medien-macht-wahrheit-ankuendigung-abnonnieren-3475140",
         "https://www.standard.co.uk/news/world/ukraine-war-russia-putin-b1100000.html"
     ]
 
