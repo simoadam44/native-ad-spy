@@ -1,10 +1,10 @@
 import streamlit as st
 from supabase import create_client
+import pandas as pd # مكتبة أساسية لتحليل البيانات
 
 # إعدادات الاتصال بـ Supabase
 SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
 SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # إعدادات الصفحة
@@ -12,60 +12,62 @@ st.set_page_config(page_title="Simo Native Spy", layout="wide")
 
 st.title("🕵️‍♂️ Simo Native Spy Tool")
 
-# إضافة زر لتحديث البيانات يدوياً في الشريط الجانبي
 if st.sidebar.button("🔄 تحديث البيانات الآن"):
     st.cache_data.clear()
     st.rerun()
 
 st.sidebar.header("إعدادات الفلترة")
 
-# 1. جلب البيانات من Supabase
-@st.cache_data(ttl=300) # تقليل الوقت لـ 5 دقائق لسرعة التحديث
+@st.cache_data(ttl=300)
 def load_data():
     try:
-        response = supabase.table("ads").select("*").order("created_at", desc=True).execute()
+        response = supabase.table("ads").select("*").execute()
         return response.data
     except Exception as e:
-        st.error(f"خطأ في جلب البيانات: {e}")
+        st.error(f"خطأ: {e}")
         return []
 
 ads_data = load_data()
 
 if ads_data:
-    # --- قسم الفلترة في الشريط الجانبي ---
+    # --- تحويل البيانات إلى DataFrame لتسهيل التجميع ---
+    df = pd.DataFrame(ads_data)
+    
+    # تجميع البيانات حسب رابط الإعلان (Landing) وحساب عدد مرات التكرار (Impressions)
+    # نأخذ أول عنوان وأول صورة وجدناها لهذا الرابط
+    grouped_df = df.groupby(['landing']).agg({
+        'title': 'first',
+        'image': 'first',
+        'source': 'first',
+        'landing': 'count' # يحسب عدد التكرارات
+    }).rename(columns={'landing': 'impressions'}).reset_index()
+
+    # ترتيب حسب الأكثر تكراراً
+    grouped_df = grouped_df.sort_values(by='impressions', ascending=False)
+
+    # --- الفلترة ---
     search_query = st.sidebar.text_input("🔍 ابحث عن كلمة مفتاحية", "")
-    
-    all_sources = sorted(list(set([ad["source"] for ad in ads_data])))
-    source_filter = st.sidebar.multiselect("🌐 اختر مواقع محددة:", all_sources, default=all_sources)
+    filtered_df = grouped_df[grouped_df['title'].str.contains(search_query, case=False, na=False)]
 
-    # --- تطبيق الفلترة ---
-    filtered_ads = [
-        ad for ad in ads_data 
-        if (search_query.lower() in ad["title"].lower()) and (ad["source"] in source_filter)
-    ]
+    st.write(f"تم العثور على **{len(filtered_df)}** إعلان فريد.")
 
-    st.write(f"تم العثور على **{len(filtered_ads)}** إعلان.")
-
-    # --- عرض الإعلانات في شبكة (Grid) ---
-    # استخدام columns من Streamlit لعرض الصور بشكل أفضل
+    # --- العرض ---
     cols = st.columns(3) 
-    
-    for index, ad in enumerate(filtered_ads):
+    for index, row in filtered_df.iterrows():
         with cols[index % 3]:
-            # إنشاء حاوية لكل إعلان
             with st.container(border=True):
-                # عرض الصورة باستخدام دالة سريم ليت الرسمية
-                if ad.get('image') and ad['image'].startswith('http'):
-                    st.image(ad['image'], use_container_width=True)
+                if row['image'] and row['image'].startswith('http'):
+                    st.image(row['image'], use_container_width=True)
                 else:
-                    st.image("https://via.placeholder.com/400x250?text=No+Image+Found", use_container_width=True)
+                    st.image("https://via.placeholder.com/400x250?text=No+Image", use_container_width=True)
                 
-                # العنوان والبيانات
-                st.subheader(ad['title'][:60] + "..." if len(ad['title']) > 60 else ad['title'])
-                st.caption(f"📍 المصدر: {ad['source']}")
+                st.subheader(row['title'][:50] + "..." if len(row['title']) > 50 else row['title'])
                 
-                # زر الزيارة
-                st.link_button("🚀 زيارة العرض", ad['landing'], use_container_width=True)
+                # إضافة عداد مرات الظهور
+                st.metric(label="📊 مرات الظهور (Impressions)", value=int(row['impressions']))
+                
+                st.caption(f"📍 المصدر: {row['source']}")
+                st.link_button("🚀 زيارة العرض", row['landing'], use_container_width=True)
 
 else:
-    st.info("لم يتم العثور على بيانات في قاعدة البيانات حالياً. تأكد من تشغيل الكراولر.")
+    st.info("لا توجد بيانات حالياً.")
