@@ -1,85 +1,88 @@
-from playwright.sync_api import sync_playwright
+import asyncio
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from supabase import create_client
-import time
 
-# --- ضع بيانات السوبابيز الخاصة بك هنا ---
-SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co" # من الصورة السابقة
-SUPABASE_KEY = "ضع_هنا_المفتاح_الطويل_جدا_anon_public_key"
-# ------------------------------------------
+# إعداداتك
+SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
+SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def run_spy():
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    
-    # قائمة ببعض المواقع التي تحتوي دائماً على إعلانات Taboola و Outbrain
+async def run_spy():
+    # استعملنا رابط مقال مباشر لأنه يحتوي دائماً على إعلانات في الأسفل
     sites = [
-        "https://www.mirror.co.uk",
-        "https://www.express.co.uk",
-        "https://edition.cnn.com"
+        "https://www.tips-and-tricks.co/online/sisterrevenge/2/",
+        "https://www.standard.co.uk/news/world/ukraine-war-russia-putin-b1100000.html"
     ]
 
-    print("🚀 بدء عملية التجسس...")
-
-    with sync_playwright() as p:
-        # فتح متصفح كروم مخفي
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        # إضافة User-Agent قوي جداً
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+        page = await context.new_page()
 
         for site in sites:
-            print(f"\n🔍 جاري فحص : {site}")
+            print(f"\n🔍 فحص الموقع: {site}")
             try:
-                # الذهاب للموقع والانتظار حتى يكتمل تحميل كل شيء
-                page.goto(site, timeout=60000, wait_until="networkidle")
+                # لا ننتظر networkidle لأنه يأخذ وقتاً طويلاً، ننتظر فقط تحميل المحتوى الأساسي
+                await page.goto(site, timeout=45000, wait_until="domcontentloaded")
                 
-                # خدعة المحترفين: النزول لأسفل الصفحة ببطء لتفعيل إعلانات الناتيف
-                print("⏬ جاري النزول لأسفل الصفحة لتحفيز ظهور الإعلانات...")
-                for i in range(5):
-                    page.evaluate("window.scrollBy(0, 1000);")
-                    time.sleep(1)
+                print("⏬ جاري النزول لأسفل الصفحة (Scroll) بقوة...")
+                # ننزل للأسفل عدة مرات لضمان ظهور الإعلانات
+                for _ in range(5):
+                    await page.mouse.wheel(0, 1500)
+                    await asyncio.sleep(1)
                 
-                # انتظار الإعلانات لتظهر بالكامل
-                time.sleep(5)
+                # انتظار إضافي بسيط
+                await asyncio.sleep(5)
 
-                # سحب كود HTML بعد ظهور الإعلانات
-                html = page.content()
-                soup = BeautifulSoup(html, "html.parser")
+                content = await page.content()
+                soup = BeautifulSoup(content, "html.parser")
+                
+                # محددات "عامة" جداً تبحث عن أي رابط داخل حاوية إعلانات مشهورة
+                # هذه المحددات تغطي Taboola و Outbrain و MGID بشكل أفضل
+                ad_selectors = [
+                    ".trc_spotlight_item", ".ob-dynamic-rec-container", 
+                    ".mg-item", ".taboola-main-container", "[id*='taboola']",
+                    ".item-container-mgid", ".outbrain-column"
+                ]
+                
+                found_ads = []
+                for selector in ad_selectors:
+                    found_ads.extend(soup.select(selector))
+                
+                # إزالة التكرار
+                found_ads = list(set(found_ads))
+                print(f"✅ تم العثور على {len(found_ads)} عنصر إعلاني محتمل.")
 
-                # البحث عن كلاسات إعلانات تابولا، أوت براين، أو MGID وغيرها
-                # دمجنا عدة محددات برمجية لضمان التقاط الاعلانات من أكثر من شبكة
-                ads = soup.select(".trc_spotlight_item, .ob-dynamic-rec-container, .mgid-ad-item, .mgbox")
-
-                print(f"✅ تم العثور على {len(ads)} عنصر يحمل اسم إعلان.")
-
-                for ad in ads:
+                for ad in found_ads:
                     title = ad.get_text(strip=True)
+                    img = ad.find("img")
+                    # محاولة جلب الصورة من src أو data-src (لأنها تكون مخفية أحياناً)
+                    image = ""
+                    if img:
+                        image = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
                     
-                    img_tag = ad.find("img")
-                    image = img_tag["src"] if img_tag and "src" in img_tag.attrs else "No Image"
-                    
-                    # استخراج رابط الإعلان
-                    link_tag = ad.find("a")
-                    landing = link_tag["href"] if link_tag and "href" in link_tag.attrs else ""
+                    link = ad.find("a")
+                    landing = link.get("href") if link else ""
 
-                    # فلترة: إذا كان العنوان موجوداً وأطول من 10 حروف (للتأكد أنه إعلان حقيقي)
-                    if title and len(title) > 10 and landing:
-                        data = {
-                            "title": title[:200], # أخذ أول 200 حرف حتى لا تقع مشكلة
-                            "image": image,
-                            "landing": landing,
-                            "source": site
-                        }
+                    if title and len(title) > 15 and landing:
+                        # تنظيف الرابط إذا كان ناقصاً
+                        if landing.startswith("//"): landing = "https:" + landing
                         
-                        # إرسال البيانات فوراً إلى قادة البيانات
+                        data = {"title": title[:200], "image": image, "landing": landing, "source": site}
+                        
+                        # الحفظ في سوبابيز
                         supabase.table("ads").insert(data).execute()
-                        print(f"📥 تم الحفظ بنجاح: {title[:30]}...")
+                        print(f"📥 تم الحفظ بنجاح: {title[:40]}...")
 
             except Exception as e:
-                print(f"❌ حدث خطأ في الموقع {site}: {e}")
+                print(f"❌ خطأ في {site}: {e}")
 
-        # إغلاق المتصفح عند الانتهاء
-        browser.close()
-        print("\n🏁 انتهت عملية السحب بنجاح!")
+        await browser.close()
+        print("\n🏁 انتهت المهمة!")
 
-if __name__ == "__main__":
-    run_spy()
-
+# تشغيل في Colab
+await run_spy()
