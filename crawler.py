@@ -37,7 +37,6 @@ async def run_spy():
                 content = await page.content()
                 soup = BeautifulSoup(content, "html.parser")
                 
-                # المحددات
                 ad_selectors = [
                     ".trc_spotlight_item", ".ob-dynamic-rec-container", 
                     ".mg-item", ".taboola-main-container", "[id*='taboola']",
@@ -55,18 +54,21 @@ async def run_spy():
                     title = ad.get_text(strip=True)
                     image_url = ""
 
-                    # 1. محاولة جلب الصورة من background-image في الـ style
-                    style = ad.get("style", "")
-                    if "background-image" in style:
+                    # 1. البحث الشامل عن الصورة: داخل العنصر نفسه أو أي عنصر فرعي (span/div)
+                    # هذا الجزء يبحث عن أي عنصر يحتوي على background-image داخل الإعلان
+                    bg_elements = ad.find_all(style=re.compile("background-image"))
+                    for el in bg_elements:
+                        style = el.get("style", "")
                         match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
                         if match:
                             image_url = match.group(1)
-
-                    # 2. إذا لم يجد، ابحث عن img (الخطة ب)
+                            break # وجدنا الصورة، نخرج من حلقة البحث
+                    
+                    # 2. الخطة البديلة: البحث عن img
                     if not image_url:
                         img_tag = ad.find("img")
                         if img_tag:
-                            image_url = img_tag.get("src") or img_tag.get("data-src") or ""
+                            image_url = img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src") or ""
 
                     # تصحيح الرابط
                     if image_url:
