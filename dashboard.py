@@ -1,3 +1,4 @@
+
 import streamlit as st
 from supabase import create_client
 import pandas as pd
@@ -9,13 +10,22 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # إعدادات الصفحة
 st.set_page_config(page_title="Simo Native Spy", layout="wide")
-st.title("🕵️‍♂️ Simo Native Spy Tool")
+
+# نظام اللغات
+lang = st.sidebar.selectbox("🌐 Language / اللغة", ["ar", "fr"])
+trans = {
+    "ar": {"title": "🕵️‍♂️ Simo Native Spy Tool", "search": "🔍 ابحث عن كلمة مفتاحية", "net_filter": "📊 اختر شبكة الإعلانات:", "count": "تم العثور على", "ads": "إعلان فريد", "imp": "الظهور", "net": "الشبكة", "first": "أول ظهور", "last": "آخر ظهور", "btn": "🚀 زيارة العرض"},
+    "fr": {"title": "🕵️‍♂️ Simo Native Spy Tool", "search": "🔍 Rechercher par mot-clé", "net_filter": "📊 Choisir le réseau :", "count": "Nombre d'annonces :", "ads": "annonces uniques", "imp": "Impressions", "net": "Réseau", "first": "1ère apparition", "last": "Dernière apparition", "btn": "🚀 Voir l'offre"}
+}
+t = trans[lang]
+
+st.title(t["title"])
 
 if st.sidebar.button("🔄 تحديث البيانات الآن"):
     st.cache_data.clear()
     st.rerun()
 
-st.sidebar.header("إعدادات الفلترة")
+st.sidebar.header("⚙️ إعدادات الفلترة")
 
 @st.cache_data(ttl=300)
 def load_data():
@@ -30,32 +40,30 @@ ads_data = load_data()
 
 if ads_data:
     df = pd.DataFrame(ads_data)
+    df['created_at'] = pd.to_datetime(df['created_at']) # تحويل التاريخ
     
-    # --- الفلترة المتقدمة ---
-    search_query = st.sidebar.text_input("🔍 ابحث عن كلمة مفتاحية", "")
-    
-    # اختيار الشبكات
+    # الفلترة
+    search_query = st.sidebar.text_input(t["search"], "")
     available_networks = sorted(df['network'].dropna().unique().tolist())
-    selected_networks = st.sidebar.multiselect("📊 اختر شبكة الإعلانات:", available_networks, default=available_networks)
+    selected_networks = st.sidebar.multiselect(t["net_filter"], available_networks, default=available_networks)
     
-    # تصفية البيانات أولاً
     df_filtered = df[df['network'].isin(selected_networks)]
     if search_query:
         df_filtered = df_filtered[df_filtered['title'].str.contains(search_query, case=False, na=False)]
 
-    # --- تجميع البيانات (Groupby) ---
+    # تجميع البيانات
     grouped_df = df_filtered.groupby(['landing', 'network']).agg({
         'title': 'first',
         'image': 'first',
         'source': 'first',
-        'landing': 'count'
-    }).rename(columns={'landing': 'impressions'}).reset_index()
+        'created_at': ['count', 'min', 'max']
+    })
+    grouped_df.columns = ['title', 'image', 'source', 'impressions', 'first_seen', 'last_seen']
+    grouped_df = grouped_df.reset_index().sort_values(by='impressions', ascending=False)
 
-    grouped_df = grouped_df.sort_values(by='impressions', ascending=False)
+    st.write(f"{t['count']} **{len(grouped_df)}** {t['ads']}.")
 
-    st.write(f"تم العثور على **{len(grouped_df)}** إعلان فريد.")
-
-    # --- عرض الإعلانات ---
+    # العرض
     cols = st.columns(3) 
     for index, row in grouped_df.iterrows():
         with cols[index % 3]:
@@ -65,15 +73,17 @@ if ads_data:
                 else:
                     st.image("https://via.placeholder.com/400x250?text=No+Image", use_container_width=True)
                 
-                st.subheader(row['title'][:50] + "..." if len(row['title']) > 50 else row['title'])
+                st.subheader(row['title'][:45] + "..." if len(row['title']) > 45 else row['title'])
                 
-                # عرض الشبكة ومرات الظهور
-                col1, col2 = st.columns(2)
-                col1.metric("📊 الظهور", int(row['impressions']))
-                col2.markdown(f"**الشبكة:**\n{row['network']}")
+                # عرض البيانات بتنسيق صغير وأنيق
+                st.markdown(f"""
+                <small>
+                📊 <b>{t['imp']}:</b> {int(row['impressions'])} | 🌐 <b>{t['net']}:</b> {row['network']} <br>
+                🗓️ <b>{t['first']}:</b> {str(row['first_seen'])[:10]} <br>
+                ⏳ <b>{t['last']}:</b> {str(row['last_seen'])[:10]}
+                </small>
+                """, unsafe_allow_html=True)
                 
-                st.caption(f"📍 المصدر: {row['source']}")
-                st.link_button("🚀 زيارة العرض", row['landing'], use_container_width=True)
-
+                st.link_button(t['btn'], row['landing'], use_container_width=True)
 else:
-    st.info("لا توجد بيانات حالياً. تأكد من تشغيل الكراولر.")
+    st.info("لا توجد بيانات حالياً.")
