@@ -3,14 +3,14 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin
+import re
 
-# --- إعدادات سوبابيز الخاصة بك ---
+# --- إعدادات سوبابيز ---
 SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
 SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 async def run_spy():
-    # مواقع تحتوي على إعلانات ناتيف بوضوح
     sites = [
         "https://www.tips-and-tricks.co/online/sisterrevenge/2/",
         "https://www.tag24.de/anzeige/unglaublich-podcast-spotify-medien-macht-wahrheit-ankuendigung-abnonnieren-3475140",
@@ -28,17 +28,16 @@ async def run_spy():
             print(f"\n🔍 فحص الموقع: {site}")
             try:
                 await page.goto(site, timeout=60000, wait_until="domcontentloaded")
-                
-                print("⏬ جاري النزول لأسفل الصفحة (Scroll)...")
+                print("⏬ جاري النزول لأسفل الصفحة...")
                 for _ in range(5):
                     await page.mouse.wheel(0, 1500)
                     await asyncio.sleep(1)
                 
                 await asyncio.sleep(5) 
-
                 content = await page.content()
                 soup = BeautifulSoup(content, "html.parser")
                 
+                # المحددات
                 ad_selectors = [
                     ".trc_spotlight_item", ".ob-dynamic-rec-container", 
                     ".mg-item", ".taboola-main-container", "[id*='taboola']",
@@ -54,39 +53,32 @@ async def run_spy():
 
                 for ad in unique_ads:
                     title = ad.get_text(strip=True)
-                    
-                    # --- التعديل الجديد لجلب الصور بذكاء ---
-                    img_tag = ad.find("img")
                     image_url = ""
-                    if img_tag:
-                        # البحث في كل السمات الممكنة للصور (تجاوز الـ Lazy Loading)
-                        image_url = (
-                            img_tag.get("src") or 
-                            img_tag.get("data-src") or 
-                            img_tag.get("data-lazy-src") or 
-                            img_tag.get("srcset") or ""
-                        )
-                        
-                        # تصحيح الروابط النسبية (مثلاً /img.jpg تصبح https://site.com/img.jpg)
-                        if image_url:
-                            image_url = urljoin(site, image_url)
-                            if image_url.startswith("//"):
-                                image_url = "https:" + image_url
+
+                    # 1. محاولة جلب الصورة من background-image في الـ style
+                    style = ad.get("style", "")
+                    if "background-image" in style:
+                        match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
+                        if match:
+                            image_url = match.group(1)
+
+                    # 2. إذا لم يجد، ابحث عن img (الخطة ب)
+                    if not image_url:
+                        img_tag = ad.find("img")
+                        if img_tag:
+                            image_url = img_tag.get("src") or img_tag.get("data-src") or ""
+
+                    # تصحيح الرابط
+                    if image_url:
+                        image_url = urljoin(site, image_url)
+                        if image_url.startswith("//"): image_url = "https:" + image_url
 
                     link_tag = ad.find("a")
                     landing = link_tag.get("href") if link_tag else ""
 
                     if title and len(title) > 15 and landing:
-                        if landing.startswith("//"): landing = "https:" + landing
                         landing = urljoin(site, landing)
-                        
-                        data = {
-                            "title": title[:200], 
-                            "image": image_url, 
-                            "landing": landing, 
-                            "source": site
-                        }
-                        
+                        data = {"title": title[:200], "image": image_url, "landing": landing, "source": site}
                         supabase.table("ads").insert(data).execute()
                         print(f"📥 تم الحفظ: {title[:30]}...")
 
