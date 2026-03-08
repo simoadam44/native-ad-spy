@@ -2,6 +2,7 @@ import asyncio
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from supabase import create_client
+from urllib.parse import urljoin
 
 # --- إعدادات سوبابيز الخاصة بك ---
 SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
@@ -16,7 +17,6 @@ async def run_spy():
     ]
 
     async with async_playwright() as p:
-        # تشغيل المتصفح مع إعدادات تخطي الحماية
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -26,21 +26,18 @@ async def run_spy():
         for site in sites:
             print(f"\n🔍 فحص الموقع: {site}")
             try:
-                # محاولة فتح الموقع
                 await page.goto(site, timeout=60000, wait_until="domcontentloaded")
                 
-                # النزول لأسفل لتفعيل الإعلانات
                 print("⏬ جاري النزول لأسفل الصفحة (Scroll)...")
                 for _ in range(5):
                     await page.mouse.wheel(0, 1500)
                     await asyncio.sleep(1)
                 
-                await asyncio.sleep(5) # انتظار أخير للتحميل
+                await asyncio.sleep(5) 
 
                 content = await page.content()
                 soup = BeautifulSoup(content, "html.parser")
                 
-                # محددات الإعلانات الشاملة
                 ad_selectors = [
                     ".trc_spotlight_item", ".ob-dynamic-rec-container", 
                     ".mg-item", ".taboola-main-container", "[id*='taboola']",
@@ -51,26 +48,44 @@ async def run_spy():
                 for selector in ad_selectors:
                     found_elements.extend(soup.select(selector))
                 
-                # تنظيف القائمة من العناصر المتكررة
                 unique_ads = list(set(found_elements))
                 print(f"✅ تم العثور على {len(unique_ads)} عنصر محتمل.")
 
                 for ad in unique_ads:
                     title = ad.get_text(strip=True)
-                    img = ad.find("img")
-                    image = ""
-                    if img:
-                        image = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
                     
-                    link = ad.find("a")
-                    landing = link.get("href") if link else ""
+                    # --- التعديل الجديد لجلب الصور بذكاء ---
+                    img_tag = ad.find("img")
+                    image_url = ""
+                    if img_tag:
+                        # البحث في كل السمات الممكنة للصور (تجاوز الـ Lazy Loading)
+                        image_url = (
+                            img_tag.get("src") or 
+                            img_tag.get("data-src") or 
+                            img_tag.get("data-lazy-src") or 
+                            img_tag.get("srcset") or ""
+                        )
+                        
+                        # تصحيح الروابط النسبية (مثلاً /img.jpg تصبح https://site.com/img.jpg)
+                        if image_url:
+                            image_url = urljoin(site, image_url)
+                            if image_url.startswith("//"):
+                                image_url = "https:" + image_url
+
+                    link_tag = ad.find("a")
+                    landing = link_tag.get("href") if link_tag else ""
 
                     if title and len(title) > 15 and landing:
                         if landing.startswith("//"): landing = "https:" + landing
+                        landing = urljoin(site, landing)
                         
-                        data = {"title": title[:200], "image": image, "landing": landing, "source": site}
+                        data = {
+                            "title": title[:200], 
+                            "image": image_url, 
+                            "landing": landing, 
+                            "source": site
+                        }
                         
-                        # إرسال البيانات لسوبابيز
                         supabase.table("ads").insert(data).execute()
                         print(f"📥 تم الحفظ: {title[:30]}...")
 
@@ -79,6 +94,5 @@ async def run_spy():
 
         await browser.close()
 
-# --- الجزء الذي تم إصلاحه ليعمل في GitHub ---
 if __name__ == "__main__":
     asyncio.run(run_spy())
