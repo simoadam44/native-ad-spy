@@ -20,87 +20,98 @@ NETWORK_MAP = {
     ".ob-dynamic-rec-container": "Outbrain"
 }
 
-# دالة لحفظ أو تحديث الإعلان (منع التكرار + زيادة الـ Impressions)
 async def save_or_update_ad(data):
     try:
-        # التحقق إذا كان الرابط (landing) موجود مسبقاً
+        # البحث عن الإعلان لمنع التكرار
         existing = supabase.table("ads").select("id, impressions").eq("landing", data['landing']).execute()
         
         if existing.data:
-            # تحديث الإعلان الموجود: زيادة الـ impressions وتحديث وقت آخر ظهور
             new_count = (existing.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({
                 "impressions": new_count,
                 "last_seen": "now()" 
             }).eq("id", existing.data[0]['id']).execute()
-            print(f"📈 تم تحديث الظهور ({new_count}): {data['title'][:30]}")
+            print(f"📈 Updated: {data['title'][:30]}")
         else:
-            # إدراج إعلان جديد
             data["impressions"] = 1
             supabase.table("ads").insert(data).execute()
-            print(f"✨ إعلان جديد مكتشف: {data['title'][:30]}")
+            print(f"✨ New Ad: {data['title'][:30]}")
     except Exception as e:
-        print(f"⚠️ خطأ أثناء حفظ البيانات: {e}")
+        print(f"⚠️ Database Error: {e}")
 
 async def scrape_site(browser, url):
-    print(f"🔍 فحص الموقع: {url}")
-    context = await browser.new_context(user_agent="Mozilla/5.0...")
+    # إنشاء Context مستقل لكل موقع لتفادي أخطاء الـ Logs السابقة
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    )
     page = await context.new_page()
     
     try:
-        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        print(f"🚀 Starting: {url}")
+        # استخدام networkidle لضمان تحميل الإعلانات بالكامل
+        await page.goto(url, timeout=90000, wait_until="networkidle")
         
-        # النزول لأسفل لتفعيل تحميل الإعلانات (Lazy Loading)
         for _ in range(3):
             await page.mouse.wheel(0, 1000)
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
         
-        await asyncio.sleep(3)
         content = await page.content()
         soup = BeautifulSoup(content, "html.parser")
         
-        # استخراج الإعلانات
         for selector, network_name in NETWORK_MAP.items():
             elements = soup.select(selector)
             for ad in elements:
-                title = ad.get_text(strip=True)
-                link_tag = ad.find("a")
-                landing = urljoin(url, link_tag.get("href")) if link_tag else ""
-                
-                # استخراج الصورة
-                img_tag = ad.find("img")
-                image_url = img_tag.get("src") or img_tag.get("data-src") or ""
-                image_url = urljoin(url, image_url) if image_url else ""
+                try:
+                    # حماية ضد 'NoneType' object has no attribute 'get'
+                    link_tag = ad.find("a")
+                    if not link_tag: continue
+                    
+                    landing_url = link_tag.get("href")
+                    if not landing_url: continue
+                    
+                    landing = urljoin(url, landing_url)
+                    title = ad.get_text(strip=True)
+                    
+                    # استخراج الصورة مع الحماية
+                    img_tag = ad.find("img")
+                    image_raw = ""
+                    if img_tag:
+                        image_raw = img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src") or ""
+                    
+                    image_url = urljoin(url, image_raw) if image_raw else ""
 
-                if title and len(title) > 15 and landing:
-                    ad_obj = {
-                        "title": title[:200],
-                        "image": image_url,
-                        "landing": landing,
-                        "source": url,
-                        "network": network_name
-                    }
-                    await save_or_update_ad(ad_obj)
+                    if title and len(title) > 10:
+                        ad_obj = {
+                            "title": title[:200],
+                            "image": image_url,
+                            "landing": landing,
+                            "source": url,
+                            "network": network_name
+                        }
+                        await save_or_update_ad(ad_obj)
+                except Exception as inner_e:
+                    continue # تجاهل الإعلان المكسور والانتقال للتالي
                     
     except Exception as e:
-        print(f"❌ خطأ في {url}: {e}")
+        print(f"❌ Failed {url}: {e}")
     finally:
         await page.close()
         await context.close()
 
 async def run_spy():
-    # قائمة المواقع المستهدفة
-    main_sites = [
+    sites = [
         "https://www.tips-and-tricks.co/online/sisterrevenge/2/",
         "https://www.dailysportx.com/news/vveins",
-        "https://www.tag24.de/anzeige/unglaublich-podcast-spotify-medien-macht-wahrheit-ankuendigung-abnonnieren-3475140"
+        "https://www.tag24.de/anzeige/unglaublich-podcast-spotify-medien-macht-wahrheit-ankuendigung-abnonnieren-3475140",
+        "https://www.standard.co.uk/news/world/ukraine-war-russia-putin-b1100000.html"
     ]
 
     async with async_playwright() as p:
+        # تشغيل المتصفح مرة واحدة فقط لجميع المهام
         browser = await p.chromium.launch(headless=True)
         
-        # تشغيل الفحص لكل المواقع في وقت واحد (Parallel)
-        tasks = [scrape_site(browser, site) for site in main_sites]
+        # تنفيذ المهام بشكل متوازي (السرعة القصوى)
+        tasks = [scrape_site(browser, site) for site in sites]
         await asyncio.gather(*tasks)
         
         await browser.close()
