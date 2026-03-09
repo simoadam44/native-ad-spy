@@ -22,7 +22,7 @@ NETWORK_MAP = {
 
 async def save_or_update_ad(data):
     try:
-        # البحث عن الإعلان لمنع التكرار
+        # منع التكرار: البحث عن الإعلان بواسطة الرابط
         existing = supabase.table("ads").select("id, impressions").eq("landing", data['landing']).execute()
         
         if existing.data:
@@ -37,66 +37,60 @@ async def save_or_update_ad(data):
             supabase.table("ads").insert(data).execute()
             print(f"✨ New Ad: {data['title'][:30]}")
     except Exception as e:
-        print(f"⚠️ Database Error: {e}")
+        print(f"⚠️ DB Error: {e}")
 
-async def scrape_site(browser, url):
-    # إنشاء Context مستقل لكل موقع لتفادي أخطاء الـ Logs السابقة
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    )
-    page = await context.new_page()
-    
-    try:
-        print(f"🚀 Starting: {url}")
-        # استخدام networkidle لضمان تحميل الإعلانات بالكامل
-        await page.goto(url, timeout=90000, wait_until="networkidle")
+async def scrape_site(browser, url, semaphore):
+    # التحكم في عدد المواقع المتوازية (مثلاً 2 في نفس الوقت) لتفادي الـ Timeout
+    async with semaphore:
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+        page = await context.new_page()
         
-        for _ in range(3):
-            await page.mouse.wheel(0, 1000)
+        try:
+            print(f"🚀 Starting: {url}")
+            # استخدام domcontentloaded لسرعة الاستجابة وتفادي فشل الانتظار الطويل
+            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            
+            # انتظار بسيط بدلاً من سكون الشبكة الكامل (networkidle) الذي سبب الفشل سابقاً
+            await asyncio.sleep(5) 
+            
+            # تمرير سريع لتحفيز ظهور الإعلانات
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
             await asyncio.sleep(2)
-        
-        content = await page.content()
-        soup = BeautifulSoup(content, "html.parser")
-        
-        for selector, network_name in NETWORK_MAP.items():
-            elements = soup.select(selector)
-            for ad in elements:
-                try:
-                    # حماية ضد 'NoneType' object has no attribute 'get'
-                    link_tag = ad.find("a")
-                    if not link_tag: continue
-                    
-                    landing_url = link_tag.get("href")
-                    if not landing_url: continue
-                    
-                    landing = urljoin(url, landing_url)
-                    title = ad.get_text(strip=True)
-                    
-                    # استخراج الصورة مع الحماية
-                    img_tag = ad.find("img")
-                    image_raw = ""
-                    if img_tag:
-                        image_raw = img_tag.get("src") or img_tag.get("data-src") or img_tag.get("data-lazy-src") or ""
-                    
-                    image_url = urljoin(url, image_raw) if image_raw else ""
 
-                    if title and len(title) > 10:
-                        ad_obj = {
-                            "title": title[:200],
-                            "image": image_url,
-                            "landing": landing,
-                            "source": url,
-                            "network": network_name
-                        }
-                        await save_or_update_ad(ad_obj)
-                except Exception as inner_e:
-                    continue # تجاهل الإعلان المكسور والانتقال للتالي
+            content = await page.content()
+            soup = BeautifulSoup(content, "html.parser")
+            
+            for selector, network_name in NETWORK_MAP.items():
+                elements = soup.select(selector)
+                for ad in elements:
+                    try:
+                        link_tag = ad.find("a")
+                        if not link_tag or not link_tag.get("href"): continue
+                        
+                        landing = urljoin(url, link_tag.get("href"))
+                        title = ad.get_text(strip=True)
+                        
+                        img_tag = ad.find("img")
+                        image_raw = img_tag.get("src") or img_tag.get("data-src") or "" if img_tag else ""
+                        image_url = urljoin(url, image_raw) if image_raw else ""
+
+                        if title and len(title) > 10:
+                            await save_or_update_ad({
+                                "title": title[:200],
+                                "image": image_url,
+                                "landing": landing,
+                                "source": url,
+                                "network": network_name
+                            })
+                    except: continue
                     
-    except Exception as e:
-        print(f"❌ Failed {url}: {e}")
-    finally:
-        await page.close()
-        await context.close()
+        except Exception as e:
+            print(f"⚠️ Timeout/Error at {url}: {str(e)[:50]}")
+        finally:
+            await page.close()
+            await context.close()
 
 async def run_spy():
     sites = [
@@ -106,14 +100,13 @@ async def run_spy():
         "https://www.standard.co.uk/news/world/ukraine-war-russia-putin-b1100000.html"
     ]
 
+    # السماح لموقعين فقط بالعمل معاً لتخفيف الضغط على GitHub Actions
+    semaphore = asyncio.Semaphore(2)
+
     async with async_playwright() as p:
-        # تشغيل المتصفح مرة واحدة فقط لجميع المهام
         browser = await p.chromium.launch(headless=True)
-        
-        # تنفيذ المهام بشكل متوازي (السرعة القصوى)
-        tasks = [scrape_site(browser, site) for site in sites]
+        tasks = [scrape_site(browser, site, semaphore) for site in sites]
         await asyncio.gather(*tasks)
-        
         await browser.close()
 
 if __name__ == "__main__":
