@@ -10,7 +10,6 @@ SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
 SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# قاموس لتحديد الشبكة بناءً على الـ Selector
 NETWORK_MAP = {
     ".trc_spotlight_item": "Taboola",
     ".taboola-main-container": "Taboola",
@@ -21,90 +20,89 @@ NETWORK_MAP = {
     ".ob-dynamic-rec-container": "Outbrain"
 }
 
+# دالة لحفظ أو تحديث الإعلان (منع التكرار + زيادة الـ Impressions)
+async def save_or_update_ad(data):
+    try:
+        # التحقق إذا كان الرابط (landing) موجود مسبقاً
+        existing = supabase.table("ads").select("id, impressions").eq("landing", data['landing']).execute()
+        
+        if existing.data:
+            # تحديث الإعلان الموجود: زيادة الـ impressions وتحديث وقت آخر ظهور
+            new_count = (existing.data[0].get('impressions') or 1) + 1
+            supabase.table("ads").update({
+                "impressions": new_count,
+                "last_seen": "now()" 
+            }).eq("id", existing.data[0]['id']).execute()
+            print(f"📈 تم تحديث الظهور ({new_count}): {data['title'][:30]}")
+        else:
+            # إدراج إعلان جديد
+            data["impressions"] = 1
+            supabase.table("ads").insert(data).execute()
+            print(f"✨ إعلان جديد مكتشف: {data['title'][:30]}")
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء حفظ البيانات: {e}")
+
+async def scrape_site(browser, url):
+    print(f"🔍 فحص الموقع: {url}")
+    context = await browser.new_context(user_agent="Mozilla/5.0...")
+    page = await context.new_page()
+    
+    try:
+        await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        
+        # النزول لأسفل لتفعيل تحميل الإعلانات (Lazy Loading)
+        for _ in range(3):
+            await page.mouse.wheel(0, 1000)
+            await asyncio.sleep(1)
+        
+        await asyncio.sleep(3)
+        content = await page.content()
+        soup = BeautifulSoup(content, "html.parser")
+        
+        # استخراج الإعلانات
+        for selector, network_name in NETWORK_MAP.items():
+            elements = soup.select(selector)
+            for ad in elements:
+                title = ad.get_text(strip=True)
+                link_tag = ad.find("a")
+                landing = urljoin(url, link_tag.get("href")) if link_tag else ""
+                
+                # استخراج الصورة
+                img_tag = ad.find("img")
+                image_url = img_tag.get("src") or img_tag.get("data-src") or ""
+                image_url = urljoin(url, image_url) if image_url else ""
+
+                if title and len(title) > 15 and landing:
+                    ad_obj = {
+                        "title": title[:200],
+                        "image": image_url,
+                        "landing": landing,
+                        "source": url,
+                        "network": network_name
+                    }
+                    await save_or_update_ad(ad_obj)
+                    
+    except Exception as e:
+        print(f"❌ خطأ في {url}: {e}")
+    finally:
+        await page.close()
+        await context.close()
+
 async def run_spy():
-    sites = [
+    # قائمة المواقع المستهدفة
+    main_sites = [
         "https://www.tips-and-tricks.co/online/sisterrevenge/2/",
         "https://www.dailysportx.com/news/vveins",
-        "https://www.articleskill.com/fitness-health/lazfit",
-        "https://www.tag24.de/anzeige/unglaublich-podcast-spotify-medien-macht-wahrheit-ankuendigung-abnonnieren-3475140",
-        "https://www.standard.co.uk/news/world/ukraine-war-russia-putin-b1100000.html"
+        "https://www.tag24.de/anzeige/unglaublich-podcast-spotify-medien-macht-wahrheit-ankuendigung-abnonnieren-3475140"
     ]
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
-
-        for site in sites:
-            print(f"\n🔍 فحص الموقع: {site}")
-            try:
-                await page.goto(site, timeout=60000, wait_until="domcontentloaded")
-                print("⏬ جاري النزول لأسفل الصفحة...")
-                for _ in range(5):
-                    await page.mouse.wheel(0, 1500)
-                    await asyncio.sleep(1)
-                
-                await asyncio.sleep(5) 
-                content = await page.content()
-                soup = BeautifulSoup(content, "html.parser")
-                
-                # البحث عن الإعلانات
-                found_elements = []
-                for selector in NETWORK_MAP.keys():
-                    found_elements.extend(soup.select(selector))
-                
-                unique_ads = list(set(found_elements))
-                print(f"✅ تم العثور على {len(unique_ads)} عنصر محتمل.")
-
-                for ad in unique_ads:
-                    # تحديد الشبكة
-                    network = "Unknown"
-                    for selector, name in NETWORK_MAP.items():
-                        if ad.select_one(selector) or (selector.strip('.') in ad.get('class', [])):
-                            network = name
-                            break
-
-                    title = ad.get_text(strip=True)
-                    image_url = ""
-
-                    bg_elements = ad.find_all(style=re.compile("background-image"))
-                    for el in bg_elements:
-                        style = el.get("style", "")
-                        match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
-                        if match:
-                            image_url = match.group(1)
-                            break
-                    
-                    if not image_url:
-                        img_tag = ad.find("img")
-                        if img_tag:
-                            image_url = img_tag.get("src") or img_tag.get("data-src") or ""
-
-                    if image_url:
-                        image_url = urljoin(site, image_url)
-                        if image_url.startswith("//"): image_url = "https:" + image_url
-
-                    link_tag = ad.find("a")
-                    landing = link_tag.get("href") if link_tag else ""
-
-                    if title and len(title) > 15 and landing:
-                        landing = urljoin(site, landing)
-                        # تم إضافة الحقل الجديد 'network'
-                        data = {
-                            "title": title[:200], 
-                            "image": image_url, 
-                            "landing": landing, 
-                            "source": site,
-                            "network": network 
-                        }
-                        supabase.table("ads").insert(data).execute()
-                        print(f"📥 تم الحفظ ({network}): {title[:30]}...")
-
-            except Exception as e:
-                print(f"❌ خطأ في {site}: {e}")
-
+        
+        # تشغيل الفحص لكل المواقع في وقت واحد (Parallel)
+        tasks = [scrape_site(browser, site) for site in main_sites]
+        await asyncio.gather(*tasks)
+        
         await browser.close()
 
 if __name__ == "__main__":
