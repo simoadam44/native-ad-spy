@@ -1,13 +1,23 @@
-import asyncio, os, random
+import asyncio, os, random, sys
+sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
 
 # إعداد سوبابيز
-supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
+try:
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    if supabase_url and supabase_key:
+        supabase = create_client(supabase_url, supabase_key)
+    else:
+        supabase = None
+except Exception as e:
+    supabase = None
 
 # ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
 MGID_TARGETS = [url.strip() for url in [
+    "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953",
     "https://www.newsweek.com/world",
     "https://www.standard.co.uk/news",
     "https://www.ibtimes.com/",
@@ -24,13 +34,13 @@ async def save_to_supabase(ad):
         if res.data:
             new_imp = (res.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()"}).eq("id", res.data[0]['id']).execute()
-            print(f"📈 [MGID]: تحديث ({new_imp}): {ad['title'][:40]}...")
+            print(f"[MGID]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
             ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()"})
             supabase.table("ads").insert(ad).execute()
-            print(f"✨ [MGID]: صيد جديد: {ad['title'][:40]}...")
+            print(f"[MGID]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:
-        print(f"⚠️ [DB ERROR]: {e}")
+        print(f"[DB ERROR]: {e}")
 
 async def scrape_mgid(browser, url):
     mgid_ads = []
@@ -83,9 +93,11 @@ async def scrape_mgid(browser, url):
     page.on("response", handle_response)
 
     try:
-        print(f"🚀 [MGID]: فحص الهدف: {url}")
-        # ✅ استخدام domcontentloaded بدلاً من networkidle لتجنب التعليق
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        # استخدام domcontentloaded بدلاً من networkidle لتجنب التعليق
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        except Exception as timeout_error:
+            print(f"[MGID]: Timeout on page load, but continuing extraction... ({timeout_error})")
         
         # انتظار يدوي لضمان تحميل الـ Widgets
         await asyncio.sleep(8)
@@ -97,21 +109,17 @@ async def scrape_mgid(browser, url):
         if not mgid_ads:
             for frame in page.frames:
                 try:
-                    dom_ads = await frame.evaluate("""
-                        () => {
-                            let found = [];
-                            document.querySelectorAll('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a').forEach(el => {
-                                let title = el.innerText.trim();
-                                let href = el.href;
-                                if (title.length > 15 && href && href.startsWith('http')) {
-                                    found.push({title, landing: href});
-                                }
-                            });
-                            return found;
-                        }
-                    """)
-                    for ad in dom_ads:
-                        mgid_ads.append({**ad, "image": "", "source": url, "network": "MGID"})
+                    # استخدام locator الذي يخترق Shadow DOM تلقائياً عكس querySelectorAll
+                    links = frame.locator('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a')
+                    count = await links.count()
+                    for i in range(count):
+                        el = links.nth(i)
+                        title = await el.inner_text()
+                        href = await el.get_attribute("href")
+                        if title and href:
+                            title = title.strip()
+                            if len(title) > 15 and href.startswith('http'):
+                                mgid_ads.append({"title": title, "landing": href, "image": "", "source": url, "network": "MGID"})
                 except:
                     pass
 
@@ -123,23 +131,24 @@ async def scrape_mgid(browser, url):
             
             for ad in unique_ads.values():
                 await save_to_supabase(ad)
-            print(f"✅ [MGID]: صيد {len(unique_ads)} إعلان بنجاح في {url}")
+            print(f"[MGID]: صيد {len(unique_ads)} إعلان بنجاح في {url}")
         else:
-            print(f"ℹ️ [MGID]: لم يتم رصد إعلانات في {url}")
+            print(f"[MGID]: لم يتم رصد إعلانات في {url}")
 
     except Exception as e:
-        print(f"⚠️ [MGID ERROR]: {e}")
+        print(f"[MGID ERROR]: {e}")
     finally:
         await page.close()
         await context.close()
 
 async def run():
     async with async_playwright() as p:
-        # ✅ تقنية CDP: الاتصال بمتصفح جوجل كروم الحقيقي المفتوح حالياً على جهازك
+        # تقنية CDP: الاتصال بمتصفح جوجل كروم الحقيقي المفتوح حالياً على جهازك
         try:
+            print("Connecting to open Chrome browser...")
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
         except Exception as e:
-            print("❌ تعذر الاتصال بكروم. تأكد من إغلاق كروم بالكامل وفتحه بوضع الـ Debugging (راجع التعليمات).")
+            print("Failed to connect to Chrome. Make sure it is open with --remote-debugging-port=9222")
             return
             
         for target in MGID_TARGETS:

@@ -1,4 +1,5 @@
-import asyncio, os, random
+import asyncio, os, random, sys
+sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
@@ -148,11 +149,12 @@ async def scrape_outbrain(browser, url):
 
 async def run():
     async with async_playwright() as p:
-        # ✅ تقنية CDP: الاتصال بمتصفح جوجل كروم الحقيقي المفتوح حالياً على جهازك
+        # تقنية CDP: الاتصال بمتصفح جوجل كروم الحقيقي المفتوح حالياً على جهازك
         try:
+            print("Connecting to open Chrome browser...")
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
         except Exception as e:
-            print("❌ تعذر الاتصال بكروم. تأكد من إغلاق كروم بالكامل وفتحه بوضع الـ Debugging (راجع التعليمات).")
+            print("Failed to connect to Chrome. Make sure it is open with --remote-debugging-port=9222")
             return
             
         for target in OUTBRAIN_TARGETS:
