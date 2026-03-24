@@ -35,17 +35,22 @@ async def save_to_supabase(ad):
 
 async def scrape_outbrain(browser, url):
     outbrain_ads = []
-    # ✅ إعداد سياق مع بصمة متصفح واقعية وضع التخفي
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        locale="en-US",
-        timezone_id="America/New_York",
-        permissions=["geolocation"]
-    )
+    # ✅ استخدام المتصفح الحقيقي للتهرب من الحظر (CDP)
+    if browser.contexts:
+        context = browser.contexts[0]
+    else:
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            locale="en-US",
+            timezone_id="America/New_York",
+            permissions=["geolocation"]
+        )
+    
     page = await context.new_page()
     
-    # ✅ تفعيل وضع التخفي (Stealth)
-    await Stealth().apply_stealth_async(page)
+    # لا نحتاج Stealth إذا كنا نستخدم المتصفح الحقيقي، لكن نطبقه كإجراء احترازي إذا كان سياقاً جديداً
+    if not browser.contexts:
+        await Stealth().apply_stealth_async(page)
 
     # اعتراض استجابات API بشكل موسع
     async def handle_response(response):
@@ -143,7 +148,13 @@ async def scrape_outbrain(browser, url):
 
 async def run():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # ✅ تقنية CDP: الاتصال بمتصفح جوجل كروم الحقيقي المفتوح حالياً على جهازك
+        try:
+            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+        except Exception as e:
+            print("❌ تعذر الاتصال بكروم. تأكد من إغلاق كروم بالكامل وفتحه بوضع الـ Debugging (راجع التعليمات).")
+            return
+            
         for target in OUTBRAIN_TARGETS:
             try:
                 await scrape_outbrain(browser, target)
