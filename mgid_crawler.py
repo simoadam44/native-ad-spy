@@ -89,27 +89,27 @@ async def scrape_mgid(browser, url):
             await page.evaluate(f"window.scrollBy(0, {800 + (i * 100)})")
             await asyncio.sleep(2)
 
-        # ✅ Fallback المطور: البحث في الـ DOM عن بصمات MGID
+        # ✅ Fallback: محاولة قراءة الإعلانات من DOM في كل الفريمات (iframes)
         if not mgid_ads:
-            dom_ads = await page.evaluate("""
-                () => {
-                    let found = [];
-                    // البحث في عناصر MGID المعروفة
-                    document.querySelectorAll('.mgitem, [id*="MG"], [class*="mgid"]').forEach(el => {
-                        let a = el.querySelector('a') || el;
-                        let titleEl = el.querySelector('.mgtitle, .mgtext, .title, a');
-                        let title = titleEl ? titleEl.innerText.trim() : '';
-                        let href = a.href;
-                        if (title.length > 10 && href && href.startsWith('http')) {
-                            found.push({title, landing: href});
+            for frame in page.frames:
+                try:
+                    dom_ads = await frame.evaluate("""
+                        () => {
+                            let found = [];
+                            document.querySelectorAll('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a').forEach(el => {
+                                let title = el.innerText.trim();
+                                let href = el.href;
+                                if (title.length > 15 && href && href.startsWith('http')) {
+                                    found.push({title, landing: href});
+                                }
+                            });
+                            return found;
                         }
-                    });
-                    return found;
-                }
-            """)
-            for ad in dom_ads:
-                # تجربة استخراج الصورة من DOM
-                mgid_ads.append({**ad, "image": "", "source": url, "network": "MGID"})
+                    """)
+                    for ad in dom_ads:
+                        mgid_ads.append({**ad, "image": "", "source": url, "network": "MGID"})
+                except:
+                    pass
 
         if mgid_ads:
             unique_ads = {}

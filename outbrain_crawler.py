@@ -100,23 +100,28 @@ async def scrape_outbrain(browser, url):
             await page.evaluate(f"window.scrollBy(0, {1000 + (i * 200)})")
             await asyncio.sleep(2)
 
-        # ✅ Fallback المطور من الكود مباشرة
+        # ✅ Fallback المطور من الكود ومتقاطع مع الإطارات (iframes)
         if not outbrain_ads:
-            dom_ads = await page.evaluate("""
-                () => {
-                    let found = [];
-                    document.querySelectorAll('a[data-ob-url], .ob-dynamic-rec-container a, .ob-widget-items-container a').forEach(el => {
-                        let title = el.innerText.trim();
-                        let href = el.getAttribute('data-ob-url') || el.href;
-                        if (title.length > 12 && href && (href.includes('outbrain.com') || href.startsWith('http'))) {
-                            found.push({title, landing: href});
+            for frame in page.frames:
+                try:
+                    dom_ads = await frame.evaluate("""
+                        () => {
+                            let found = [];
+                            document.querySelectorAll('a[data-ob-url], .ob-dynamic-rec-container a, .ob-widget-items-container a, .OUTBRAIN a').forEach(el => {
+                                let title = el.innerText.trim();
+                                let href = el.getAttribute('data-ob-url') || el.href;
+                                let src = el.querySelector('img') ? el.querySelector('img').src : '';
+                                if (title.length > 15 && href && href.startsWith('http')) {
+                                    found.push({title, landing: href, image: src});
+                                }
+                            });
+                            return found;
                         }
-                    });
-                    return found;
-                }
-            """)
-            for ad in dom_ads:
-                outbrain_ads.append({**ad, "image": "", "source": url, "network": "OUTBRAIN"})
+                    """)
+                    for ad in dom_ads:
+                        outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
+                except:
+                    pass
 
         if outbrain_ads:
             unique_ads = {}
