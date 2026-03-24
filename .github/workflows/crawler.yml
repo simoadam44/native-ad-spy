@@ -23,8 +23,8 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install playwright beautifulsoup4 supabase
-          playwright install chromium
+          pip install -r requirements.txt
+          python -m playwright install chromium
 
       - name: Run Master Spy
         env:
