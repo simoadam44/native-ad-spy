@@ -1,0 +1,6 @@
+playwright
+streamlit
+requests
+beautifulsoup4
+supabase
+playwright-stealth
