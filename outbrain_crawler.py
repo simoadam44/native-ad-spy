@@ -102,8 +102,9 @@ async def scrape_outbrain(browser, url):
         except: pass
 
         # تمرير الصفحة ببطء للسماح بتحميل الإعلانات
-        for i in range(4):
-            await page.evaluate(f"window.scrollBy(0, {1000 + (i * 200)})")
+        await asyncio.sleep(10)
+        for i in range(8):
+            await page.evaluate(f"window.scrollBy(0, {800 + (i * 200)})")
             await asyncio.sleep(2)
 
         # ✅ Fallback المطور من الكود ومتقاطع مع الإطارات (iframes)

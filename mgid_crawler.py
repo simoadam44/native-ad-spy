@@ -100,9 +100,9 @@ async def scrape_mgid(browser, url):
             print(f"[MGID]: Timeout on page load, but continuing extraction... ({timeout_error})")
         
         # انتظار يدوي لضمان تحميل الـ Widgets
-        await asyncio.sleep(8)
-        for i in range(5):
-            await page.evaluate(f"window.scrollBy(0, {800 + (i * 100)})")
+        await asyncio.sleep(15)
+        for i in range(10):
+            await page.evaluate(f"window.scrollBy(0, {600 + (i * 100)})")
             await asyncio.sleep(2)
 
         # ✅ Fallback: محاولة قراءة الإعلانات من DOM في كل الفريمات (iframes)
