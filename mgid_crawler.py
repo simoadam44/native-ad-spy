@@ -57,9 +57,9 @@ async def scrape_mgid(browser, url):
     
     page = await context.new_page()
     
-    # لا نحتاج Stealth إذا كنا نستخدم المتصفح الحقيقي، لكن نطبقه كإجراء احترازي إذا كان سياقاً جديداً
-    if not browser.contexts:
-        await Stealth().apply_stealth_async(page)
+    # تطبيق التخفي (Stealth) كإجراء احترازي دائم
+    from playwright_stealth import stealth_async
+    await stealth_async(page)
 
     # اعتراض استجابات الـ API بشكل أكثر مرونة
     async def handle_response(response):
