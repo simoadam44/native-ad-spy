@@ -150,20 +150,33 @@ async def scrape_outbrain(browser, url):
 
 async def run():
     async with async_playwright() as p:
-        # تقنية CDP: الاتصال بمتصفح جوجل كروم الحقيقي المفتوح حالياً على جهازك
+        # تشغيل متصفح مستقل (Launch) بدلاً من الاتصال (Connect) بناءً على طلبك
         try:
-            print("Connecting to open Chrome browser...")
-            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
-        except Exception as e:
-            print("Failed to connect to Chrome. Make sure it is open with --remote-debugging-port=9222")
-            return
+            print("Launching independent Chrome browser...")
+            browser = await p.chromium.launch(headless=True)
             
-        for target in OUTBRAIN_TARGETS:
-            try:
-                await scrape_outbrain(browser, target)
-            except: pass
-            await asyncio.sleep(random.uniform(3, 7))
-        await browser.close()
+            # إعداد السياق مع تقنيات التخفي
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
+            
+            # تطبيق التخفي (Stealth)
+            from playwright_stealth import stealth_async
+            page = await context.new_page()
+            await stealth_async(page)
+            
+            for target in OUTBRAIN_TARGETS:
+                print(f"Checking target: {target}")
+                try:
+                    await scrape_outbrain(browser, target)
+                except: pass
+                await asyncio.sleep(random.uniform(3, 7))
+                
+        except Exception as e:
+            print(f"Error launching browser: {e}")
+        finally:
+            if 'browser' in locals():
+                await browser.close()
 
 if __name__ == "__main__":
     asyncio.run(run())

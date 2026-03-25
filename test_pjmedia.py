@@ -4,11 +4,18 @@ from mgid_crawler import scrape_mgid
 
 async def test_pjmedia():
     async with async_playwright() as p:
-        print("Connecting to open Chrome browser (CDP)...")
+        print("Launching independent Chrome browser...")
         try:
-            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+            browser = await p.chromium.launch(headless=True)
+            # إعداد السياق مع تقنيات التخفي
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
+            from playwright_stealth import stealth_async
+            page = await context.new_page()
+            await stealth_async(page)
         except Exception as e:
-            print("Failed to connect to Chrome. Open it with --remote-debugging-port=9222")
+            print(f"Error: {e}")
             return
             
         url = "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953"
