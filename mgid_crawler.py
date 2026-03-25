@@ -58,8 +58,8 @@ async def scrape_mgid(browser, url):
     page = await context.new_page()
     
     # تطبيق التخفي (Stealth) كإجراء احترازي دائم
-    from playwright_stealth import stealth_async
-    await stealth_async(page)
+    from playwright_stealth import Stealth
+    await Stealth().apply_stealth_async(page)
 
     # اعتراض استجابات الـ API بشكل أكثر مرونة
     async def handle_response(response):
@@ -154,9 +154,9 @@ async def run():
             )
             
             # تطبيق التخفي (Stealth) لتقليل رصد الأتمتة
-            from playwright_stealth import stealth_async
+            from playwright_stealth import Stealth
             page = await context.new_page()
-            await stealth_async(page)
+            await Stealth().apply_stealth_async(page)
             
             for target in MGID_TARGETS:
                 print(f"Checking target: {target}")

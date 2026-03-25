@@ -11,9 +11,9 @@ async def test_pjmedia():
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
-            from playwright_stealth import stealth_async
+            from playwright_stealth import Stealth
             page = await context.new_page()
-            await stealth_async(page)
+            await Stealth().apply_stealth_async(page)
         except Exception as e:
             print(f"Error: {e}")
             return

@@ -50,8 +50,8 @@ async def scrape_outbrain(browser, url):
     page = await context.new_page()
     
     # تطبيق التخفي (Stealth) كإجراء احترازي دائم
-    from playwright_stealth import stealth_async
-    await stealth_async(page)
+    from playwright_stealth import Stealth
+    await Stealth().apply_stealth_async(page)
 
     # اعتراض استجابات API بشكل موسع
     async def handle_response(response):
@@ -161,9 +161,9 @@ async def run():
             )
             
             # تطبيق التخفي (Stealth)
-            from playwright_stealth import stealth_async
+            from playwright_stealth import Stealth
             page = await context.new_page()
-            await stealth_async(page)
+            await Stealth().apply_stealth_async(page)
             
             for target in OUTBRAIN_TARGETS:
                 print(f"Checking target: {target}")
