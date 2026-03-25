@@ -102,7 +102,7 @@ async def scrape_outbrain(browser, url):
         except: pass
 
         # تمرير الصفحة ببطء للسماح بتحميل الإعلانات
-        await asyncio.sleep(10)
+        await asyncio.sleep(30)
         for i in range(8):
             await page.evaluate(f"window.scrollBy(0, {800 + (i * 200)})")
             await asyncio.sleep(2)

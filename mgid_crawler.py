@@ -100,7 +100,7 @@ async def scrape_mgid(browser, url):
             print(f"[MGID]: Timeout on page load, but continuing extraction... ({timeout_error})")
         
         # انتظار يدوي لضمان تحميل الـ Widgets
-        await asyncio.sleep(15)
+        await asyncio.sleep(30)
         for i in range(10):
             await page.evaluate(f"window.scrollBy(0, {600 + (i * 100)})")
             await asyncio.sleep(2)
