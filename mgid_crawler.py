@@ -120,8 +120,40 @@ async def scrape_mgid(browser, url):
                         if title and href:
                             title = title.strip()
                             # التحقق من أن الرابط صالح ليكون إعلان
-                            if len(title) > 10 and href.startswith('http'):
-                                mgid_ads.append({"title": title, "landing": href, "image": "", "source": url, "network": "MGID"})
+                            if len(title) > 5 and href.startswith('http'):
+                                # محاولة استخراج الصورة بأمان دون كسر الحلقة
+                                image_url = ""
+                                try:
+                                    image_url = await el.evaluate("""
+                                        (a) => {
+                                            // 1. البحث عن img داخل الرابط
+                                            let img = a.querySelector('img');
+                                            if (img && (img.src || img.dataset.src)) return img.src || img.dataset.src;
+                                            
+                                            // 2. البحث عن أقرب حاوية للإعلان
+                                            let container = a.closest('.mgline, .mgbox, .mgid-widget, .mg-teaser, .image-with-text, [id^="mgid_"]');
+                                            if (!container) container = a.parentElement;
+                                            
+                                            // 3. البحث عن img داخل الحاوية
+                                            let cImg = container.querySelector('img');
+                                            if (cImg && (cImg.src || cImg.dataset.src)) return cImg.src || cImg.dataset.src;
+                                            
+                                            // 4. البحث عن background-image في الحاوية أو أبنائها (مثل .mcimg)
+                                            let searchEls = [container, ...container.querySelectorAll('div, span, a')];
+                                            for (let el of searchEls) {
+                                                let style = window.getComputedStyle(el);
+                                                let bg = style.backgroundImage;
+                                                if (bg && bg !== 'none' && bg.includes('http')) {
+                                                    return bg.replace(/url\\(['"]?(.*?)['"]?\\)/, '$1');
+                                                }
+                                            }
+                                            return '';
+                                        }
+                                    """)
+                                except:
+                                    pass
+                                
+                                mgid_ads.append({"title": title, "landing": href, "image": image_url or "", "source": url, "network": "MGID"})
                 except:
                     pass
 
