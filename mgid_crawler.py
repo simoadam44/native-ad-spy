@@ -105,31 +105,77 @@ async def scrape_mgid(browser, url):
             await page.evaluate(f"window.scrollBy(0, {600 + (i * 100)})")
             await asyncio.sleep(2)
 
-        # ✅ Fallback: محاولة قراءة الإعلانات من DOM في كل الفريمات (iframes)
+        # Fallback: محاولة قراءة الإعلانات من DOM في كل الفريمات (iframes)
         if not mgid_ads:
             for frame in page.frames:
                 try:
-                    # استخدام locator الذي يخترق Shadow DOM تلقائياً عكس querySelectorAll
-                    links = frame.locator('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a')
-                    count = await links.count()
-                    for i in range(count):
-                        el = links.nth(i)
-                        title = await el.inner_text()
-                        href = await el.get_attribute("href")
-                        
-                        # استخراج الصورة من داخل عنصر الرابط
-                        image_url = ""
+                    # استهداف حاويات الإعلان (.mgline) بدلاً من الروابط فقط
+                    teasers = frame.locator('.mgline')
+                    teaser_count = await teasers.count()
+                    
+                    for i in range(teaser_count):
                         try:
-                            img = el.locator("img").first
-                            if await img.count() > 0:
-                                image_url = await img.get_attribute("src") or await img.get_attribute("data-src") or ""
+                            teaser = teasers.nth(i)
+                            
+                            # استخراج الرابط والعنوان
+                            link = teaser.locator('a').first
+                            if await link.count() == 0:
+                                continue
+                            title = (await link.inner_text()).strip()
+                            href = await link.get_attribute("href") or ""
+                            
+                            if not title or len(title) < 15 or not href.startswith('http'):
+                                continue
+                            
+                            # استخراج الصورة بعدة طرق
+                            image_url = ""
+                            
+                            # الطريقة 1: البحث عن background-image في CSS المحسوب
+                            try:
+                                image_url = await teaser.evaluate("""
+                                    (el) => {
+                                        // البحث في .image-with-text أو أي عنصر بداخله له خلفية
+                                        let imgDiv = el.querySelector('.image-with-text') || el;
+                                        let style = window.getComputedStyle(imgDiv);
+                                        let bg = style.backgroundImage;
+                                        if (bg && bg !== 'none') {
+                                            return bg.replace(/url\\(['"]?(.*?)['"]?\\)/, '$1');
+                                        }
+                                        // البحث في أي عنصر فرعي له خلفية
+                                        let allDivs = el.querySelectorAll('div');
+                                        for (let d of allDivs) {
+                                            let s = window.getComputedStyle(d);
+                                            if (s.backgroundImage && s.backgroundImage !== 'none') {
+                                                return s.backgroundImage.replace(/url\\(['"]?(.*?)['"]?\\)/, '$1');
+                                            }
+                                        }
+                                        return '';
+                                    }
+                                """)
+                            except:
+                                pass
+                            
+                            # الطريقة 2: البحث عن عنصر img تقليدي
+                            if not image_url:
+                                try:
+                                    img = teaser.locator("img").first
+                                    if await img.count() > 0:
+                                        image_url = await img.get_attribute("src") or await img.get_attribute("data-src") or ""
+                                except:
+                                    pass
+                            
+                            # الطريقة 3: البحث عن data-src على أي عنصر
+                            if not image_url:
+                                try:
+                                    data_src_el = teaser.locator("[data-src]").first
+                                    if await data_src_el.count() > 0:
+                                        image_url = await data_src_el.get_attribute("data-src") or ""
+                                except:
+                                    pass
+                            
+                            mgid_ads.append({"title": title, "landing": href, "image": image_url, "source": url, "network": "MGID"})
                         except:
-                            pass
-                        
-                        if title and href:
-                            title = title.strip()
-                            if len(title) > 15 and href.startswith('http'):
-                                mgid_ads.append({"title": title, "landing": href, "image": image_url, "source": url, "network": "MGID"})
+                            continue
                 except:
                     pass
 
