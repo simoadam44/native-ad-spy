@@ -18,7 +18,7 @@ except Exception as e:
 # ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
 MGID_TARGETS = [url.strip() for url in [
     "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953",
-    "https://www.newsweek.com/world",
+    "https://www.ibtimes.com/us-secured-secret-deal-cameroon-deport-migrants-using-aid-leverage-report-3800110",
     "https://www.standard.co.uk/news",
     "https://www.ibtimes.com/",
     "https://www.thegatewaypundit.com/",
