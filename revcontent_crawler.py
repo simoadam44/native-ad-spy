@@ -1,15 +1,25 @@
-import asyncio
+import asyncio, os, random, sys, re
+sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin
-import os
-import re
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ✅ قائمة أهداف احتياطية في حال فراغ قاعدة البيانات
+REVCONTENT_TARGETS = [
+    "https://joehoft.com/",
+    "https://wltreport.com/",
+    "https://protrumpnews.com/",
+    "https://gatewayhispanic.com/",
+    "https://100percentfedup.com/",
+    "https://conservativebrief.com/"
+]
 
 # محددات Revcontent المتطورة
 REV_SELECTORS = [
@@ -20,6 +30,7 @@ REV_SELECTORS = [
 
 async def save_or_update_ad(data):
     try:
+        if not data.get('title') or not data.get('landing'): return
         # تنظيف رابط الهبوط من الـ Tracking لضمان دقة الإحصائيات
         clean_landing = data['landing'].split('?')[0].split('#')[0]
         data["landing"] = clean_landing
@@ -38,7 +49,7 @@ async def save_or_update_ad(data):
             supabase.table("ads").insert(data).execute()
             print(f"✨ [REVCONTENT]: صيد جديد: {data['title'][:50]}...")
     except Exception as e:
-        print(f"⚠️ خطأ Supabase: {str(e)[:50]}")
+        print(f"⚠️ [DB ERROR]: {str(e)[:50]}")
 
 async def scrape_revcontent(browser, url, semaphore):
     async with semaphore:
@@ -46,6 +57,8 @@ async def scrape_revcontent(browser, url, semaphore):
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
+        # تطبيق التخفي (Stealth)
+        await Stealth().apply_stealth_async(page)
         
         # ✅ السماح بالصور وحظر العناصر الثقيلة فقط (فيديو/خطوط)
         await page.route("**/*.{woff,woff2,ttf,mp4,webm}", lambda route: route.abort())
@@ -54,7 +67,7 @@ async def scrape_revcontent(browser, url, semaphore):
             print(f"🚀 [REVCONTENT]: فحص الهدف: {url}")
             await page.goto(url, timeout=45000, wait_until="domcontentloaded")
             
-            # تمرير الصفحة للوصول لإعلانات Revcontent (غالباً في المنتصف أو النهاية)
+            # تمرير الصفحة للوصول لإعلانات Revcontent
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
             await asyncio.sleep(5)
             
@@ -98,7 +111,7 @@ async def scrape_revcontent(browser, url, semaphore):
                         img_url = img.get("src") or img.get("data-src") or ""
 
                     await save_or_update_ad({
-                        "title": title, # ✅ الآن كامل بدون قطع
+                        "title": title,
                         "image": urljoin(url, img_url) if img_url else "",
                         "landing": urljoin(url, a['href']),
                         "source": url,
@@ -117,18 +130,24 @@ async def scrape_revcontent(browser, url, semaphore):
             await context.close()
 
 async def run_spy():
+    sites = []
     try:
+        # محاولة جلب المواقع من قاعدة البيانات
         response = supabase.table("target_sites").select("url").execute()
-        sites = [row['url'] for row in response.data] if response.data else []
-    except:
-        sites = []
+        if response.data:
+            sites = [row['url'] for row in response.data]
+            print(f"📡 [REVCONTENT]: تم جلب {len(sites)} موقع من قاعدة البيانات.")
+    except Exception as e:
+        print(f"⚠️ فشل جلب المواقع من DB: {e}")
 
+    # ✅ إذا كانت قاعدة البيانات فارغة، استخدم قائمة الأهداف الاحتياطية
     if not sites:
-        print("ℹ️ قاعدة البيانات فارغة، بانتظار عمل Finder...")
-        return
+        print("ℹ️ قاعدة البيانات فارغة، جاري استخدام قائمة الأهداف الاحتياطية...")
+        sites = REVCONTENT_TARGETS
 
-    semaphore = asyncio.Semaphore(2) # معالجة موقعين في نفس الوقت
+    semaphore = asyncio.Semaphore(2)
     async with async_playwright() as p:
+        # تشغيل مستقل تماماً
         browser = await p.chromium.launch(headless=True)
         await asyncio.gather(*[scrape_revcontent(browser, s, semaphore) for s in sites])
         await browser.close()
