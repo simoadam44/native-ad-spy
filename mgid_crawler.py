@@ -139,12 +139,15 @@ async def scrape_mgid(browser, url):
                                             if (cImg && (cImg.src || cImg.dataset.src)) return cImg.src || cImg.dataset.src;
                                             
                                             // 4. البحث عن background-image في الحاوية أو أبنائها (مثل .mcimg)
-                                            let searchEls = [container, ...container.querySelectorAll('div, span, a')];
+                                            let searchEls = [container, ...container.querySelectorAll('div, span, a, i')];
                                             for (let el of searchEls) {
                                                 let style = window.getComputedStyle(el);
                                                 let bg = style.backgroundImage;
-                                                if (bg && bg !== 'none' && bg.includes('http')) {
-                                                    return bg.replace(/url\\(['"]?(.*?)['"]?\\)/, '$1');
+                                                if (bg && bg !== 'none' && (bg.includes('http') || bg.includes('//'))) {
+                                                    // تنظيف الرابط من url() والرموز الزائدة
+                                                    let clean = bg.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
+                                                    if (clean.startsWith('//')) clean = 'https:' + clean;
+                                                    return clean;
                                                 }
                                             }
                                             return '';
@@ -160,9 +163,21 @@ async def scrape_mgid(browser, url):
         if mgid_ads:
             unique_ads = {}
             for ad in mgid_ads:
-                if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads:
-                    unique_ads[ad['landing']] = ad
-            
+                landing = ad['landing']
+                if not landing: continue
+                
+                # إذا لم يكن موجوداً، أضفه
+                if landing not in unique_ads:
+                    unique_ads[landing] = ad
+                # إذا كان موجوداً ولكن الجديد لديه صورة والقديم لا، استبدله
+                elif ad.get('image') and not unique_ads[landing].get('image'):
+                    unique_ads[landing] = ad
+                # إذا كان الجديد لديه عنوان أطول، استبدله (أحياناً العناوين تختلف قليلاً)
+                elif len(ad.get('title', '')) > len(unique_ads[landing].get('title', '')):
+                    # احتفظ بالصورة القديمة إذا كانت موجودة
+                    if unique_ads[landing].get('image') and not ad.get('image'):
+                        ad['image'] = unique_ads[landing]['image']
+                    unique_ads[landing] = ad            
             for ad in unique_ads.values():
                 await save_to_supabase(ad)
             print(f"[MGID]: صيد {len(unique_ads)} إعلان بنجاح في {url}")
