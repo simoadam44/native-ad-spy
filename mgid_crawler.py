@@ -19,10 +19,10 @@ except Exception as e:
 MGID_TARGETS = [url.strip() for url in [
     "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953",
     "https://www.ibtimes.com/us-secured-secret-deal-cameroon-deport-migrants-using-aid-leverage-report-3800110",
-    "https://www.standard.co.uk/news",
-    "https://www.ibtimes.com/",
-    "https://www.thegatewaypundit.com/",
-    "https://www.mirror.co.uk/news/"
+    "https://brainberries.co/interesting/britney-spears-then-vs-now-her-changing-face-in-photos/",
+    "https://herbeauty.co/ar/altarfih/maqati-video-raqs-zouk-lan-tastatia-at-tawaqquf-an-mushahadatiha-miraran-wa-takraran/",
+    "https://buzzday.info/2026/02/13/what-happens-if-you-consume-ginger-every-day/?utm_id=57223822&utm_medium=cpc&utm_source=mgid.com&utm_campaign=buzzday_prt_en_mob&utm_term=57223822&utm_content=22902986",
+    "https://zestradar.com/celebrities/the-worst-beckham-family-rumors-theyll-never-outrun/"
 ]]
 
 async def save_to_supabase(ad):
