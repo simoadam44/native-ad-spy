@@ -116,10 +116,20 @@ async def scrape_mgid(browser, url):
                         el = links.nth(i)
                         title = await el.inner_text()
                         href = await el.get_attribute("href")
+                        
+                        # استخراج الصورة من داخل عنصر الرابط
+                        image_url = ""
+                        try:
+                            img = el.locator("img").first
+                            if await img.count() > 0:
+                                image_url = await img.get_attribute("src") or await img.get_attribute("data-src") or ""
+                        except:
+                            pass
+                        
                         if title and href:
                             title = title.strip()
                             if len(title) > 15 and href.startswith('http'):
-                                mgid_ads.append({"title": title, "landing": href, "image": "", "source": url, "network": "MGID"})
+                                mgid_ads.append({"title": title, "landing": href, "image": image_url, "source": url, "network": "MGID"})
                 except:
                     pass
 
