@@ -109,8 +109,9 @@ async def scrape_mgid(browser, url):
         if not mgid_ads:
             for frame in page.frames:
                 try:
-                    # استهداف حاويات الإعلان (.mgline) بدلاً من الروابط فقط
-                    teasers = frame.locator('.mgline')
+                    # استهداف حاويات الإعلان بشكل أوسع لتجنب فقدان أي شبكة
+                    # تشمل .mgline و .mgbox وأي ويدجت يبدأ بـ mgid_
+                    teasers = frame.locator('.mgline, .mgbox, [id^="mgid_"], .mgid-widget, .mg-teaser')
                     teaser_count = await teasers.count()
                     
                     for i in range(teaser_count):
@@ -124,7 +125,7 @@ async def scrape_mgid(browser, url):
                             title = (await link.inner_text()).strip()
                             href = await link.get_attribute("href") or ""
                             
-                            if not title or len(title) < 15 or not href.startswith('http'):
+                            if not title or len(title) < 5 or not href.startswith('http'):
                                 continue
                             
                             # استخراج الصورة بعدة طرق
