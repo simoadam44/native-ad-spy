@@ -85,3 +85,41 @@ def update_user(user_id, updates):
         return True
     except:
         return False
+
+# --- 4. المفضلة (Favorites) ---
+def get_favorites(user_id):
+    try:
+        res = supabase.table("favorites").select("ad_id").eq("user_id", user_id).execute()
+        ad_ids = [row['ad_id'] for row in res.data] if res.data else []
+        if not ad_ids: return []
+        
+        ads_res = supabase.table("ads").select("*").in_("id", ad_ids).execute()
+        return ads_res.data if ads_res.data else []
+    except:
+        return []
+
+def toggle_favorite(user_id, ad_id):
+    try:
+        # التحقق من وجوده
+        existing = supabase.table("favorites").select("id").eq("user_id", user_id).eq("ad_id", ad_id).execute()
+        if existing.data:
+            supabase.table("favorites").delete().eq("id", existing.data[0]['id']).execute()
+            return "removed"
+        else:
+            supabase.table("favorites").insert({"user_id": user_id, "ad_id": ad_id}).execute()
+            return "added"
+    except:
+        return "error"
+
+# --- 5. استهلاك الذكاء الاصطناعي (AI Usage) ---
+def increment_ai_usage(user_id):
+    if user_id == "admin": return True
+    try:
+        user = supabase.table("users").select("ai_uses_today").eq("id", user_id).execute()
+        if user.data:
+            new_count = (user.data[0]['ai_uses_today'] or 0) + 1
+            supabase.table("users").update({"ai_uses_today": new_count}).eq("id", user_id).execute()
+            return True
+    except:
+        pass
+    return False

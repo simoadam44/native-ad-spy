@@ -85,13 +85,26 @@ with st.container():
         st.write("**Ads Scraped this week:** 1,420")
     with c2:
         if st.button("🚀 Trigger Full Scan", use_container_width=True):
-            # محاكاة إطلاق GitHub Action
             GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+            REPO = "simoadam44/native-ad-spy" # استبدل بمسار المستودع الفعلي
+            WORKFLOW_ID = "crawler.yml"
+            
             if GITHUB_TOKEN:
-                st.info("Dispatching GitHub Action...")
-                # سيتم إضافة الكود الفعلي هنا لاحقاً
+                headers = {
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28"
+                }
+                url = f"https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW_ID}/dispatches"
+                data = {"ref": "main"}
+                
+                res = requests.post(url, headers=headers, json=data)
+                if res.status_code == 204:
+                    st.success("GitHub Action Dispatched! Crawlers are starting...")
+                else:
+                    st.error(f"Failed to trigger: {res.text}")
             else:
-                st.warning("GITHUB_TOKEN not configured.")
+                st.warning("GITHUB_TOKEN not configured in environment.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # تحليل توزيع الإعلانات
