@@ -6,7 +6,6 @@ import requests
 import os
 
 # --- 1. إعداد الصفحة والتحقق من الصلاحيات ---
-st.set_page_config(page_title="Admin Panel - Native Spy", layout="wide")
 
 if "is_admin" not in st.session_state or not st.session_state["is_admin"]:
     st.error("Unauthorized. Admin access required.")

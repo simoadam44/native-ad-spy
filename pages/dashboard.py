@@ -4,12 +4,8 @@ from utils.auth import update_last_login
 from utils.ai import analyze_ad, generate_similar, niche_report
 import time
 
-# --- 1. إعداد الصفحة ---
-st.set_page_config(page_title="Dashboard - Native Spy", layout="wide")
-
-# (التحقق من الهوية...)
-if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
-    st.switch_page("pages/login.py")
+# --- 1. إعدادات الصفحة ---
+# تم نقل set_page_config إلى app.py
 
 PLANS = {
     "free":   {"ads_limit": 50,   "ai_limit": 0},

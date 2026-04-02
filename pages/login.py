@@ -3,9 +3,6 @@ import time
 import os
 from utils.auth import check_user, create_user, update_last_login
 
-# --- 1. إعداد الصفحة ---
-st.set_page_config(page_title="Login - Native Ads Spy", layout="centered", initial_sidebar_state="collapsed")
-
 # --- 2. ستايل العرض المتميز (Premium Dark UI) ---
 st.markdown("""
 <style>
@@ -51,7 +48,7 @@ def login_success(user):
     
     st.success(f"Welcome back, {user['email']}!")
     time.sleep(1)
-    st.switch_page("pages/dashboard.py")
+    st.rerun()
 
 # --- 4. واجهة المستخدم ---
 def main():
