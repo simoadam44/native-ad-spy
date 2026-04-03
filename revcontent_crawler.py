@@ -11,6 +11,40 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supa
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# إعداد الدولة والبروكسي المتطور (DataImpulse)
+TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
+
+PROXY_CONFIG = {
+    "server": "http://gw.dataimpulse.com:823",
+    "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
+    "password": "78c188c405598b8a"
+}
+
+COUNTRY_CONFIGS = {
+    "US": {"locale": "en-US", "timezone_id": "America/New_York"},
+    "GB": {"locale": "en-GB", "timezone_id": "Europe/London"},
+    "CA": {"locale": "en-CA", "timezone_id": "America/Toronto"},
+    "AU": {"locale": "en-AU", "timezone_id": "Australia/Sydney"},
+    "DE": {"locale": "de-DE", "timezone_id": "Europe/Berlin"},
+    "FR": {"locale": "fr-FR", "timezone_id": "Europe/Paris"},
+    "IT": {"locale": "it-IT", "timezone_id": "Europe/Rome"},
+    "ES": {"locale": "es-ES", "timezone_id": "Europe/Madrid"},
+    "NL": {"locale": "nl-NL", "timezone_id": "Europe/Amsterdam"},
+    "SE": {"locale": "sv-SE", "timezone_id": "Europe/Stockholm"},
+    "SA": {"locale": "ar-SA", "timezone_id": "Asia/Riyadh"},
+    "AE": {"locale": "ar-AE", "timezone_id": "Asia/Dubai"},
+    "MA": {"locale": "ar-MA", "timezone_id": "Africa/Casablanca"},
+    "EG": {"locale": "ar-EG", "timezone_id": "Africa/Cairo"},
+    "ZA": {"locale": "en-ZA", "timezone_id": "Africa/Johannesburg"},
+    "JP": {"locale": "ja-JP", "timezone_id": "Asia/Tokyo"},
+    "KR": {"locale": "ko-KR", "timezone_id": "Asia/Seoul"},
+    "IN": {"locale": "en-IN", "timezone_id": "Asia/Kolkata"},
+    "BR": {"locale": "pt-BR", "timezone_id": "America/Sao_Paulo"},
+    "MX": {"locale": "es-MX", "timezone_id": "America/Mexico_City"}
+}
+GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
+
+
 # ✅ قائمة أهداف احتياطية في حال فراغ قاعدة البيانات
 REVCONTENT_TARGETS = [
     "https://joehoft.com/",
@@ -41,27 +75,31 @@ async def save_or_update_ad(data):
             new_count = (existing.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({
                 "impressions": new_count,
-                "last_seen": "now()"
+                "last_seen": "now()",
+                "country_code": TARGET_COUNTRY
             }).eq("id", existing.data[0]['id']).execute()
-            print(f"📈 [REVCONTENT]: تحديث ({new_count}): {data['title'][:50]}...")
+            print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}]: تحديث ({new_count}): {data['title'][:50]}...")
         else:
-            data.update({"impressions": 1, "last_seen": "now()"})
+            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
             supabase.table("ads").insert(data).execute()
-            print(f"✨ [REVCONTENT]: صيد جديد: {data['title'][:50]}...")
+            print(f"✨ [REVCONTENT] [{TARGET_COUNTRY}]: صيد جديد: {data['title'][:50]}...")
     except Exception as e:
         print(f"⚠️ [DB ERROR]: {str(e)[:50]}")
 
 async def scrape_revcontent(browser, url, semaphore):
     async with semaphore:
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            locale=GEO["locale"],
+            timezone_id=GEO["timezone_id"],
+            permissions=["geolocation"]
         )
         page = await context.new_page()
         # تطبيق التخفي (Stealth)
         await Stealth().apply_stealth_async(page)
         
-        # ✅ السماح بالصور وحظر العناصر الثقيلة فقط (فيديو/خطوط)
-        await page.route("**/*.{woff,woff2,ttf,mp4,webm}", lambda route: route.abort())
+        # ✅ السماح بالصور وحظر العناصر الثقيلة فقط (فيديو/خطوط/صور) للحفاظ على 10GB DataImpulse
+        await page.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,mp4,webm}", lambda route: route.abort())
         
         try:
             print(f"🚀 [REVCONTENT]: فحص الهدف: {url}")
@@ -148,7 +186,8 @@ async def run_spy():
     semaphore = asyncio.Semaphore(2)
     async with async_playwright() as p:
         # تشغيل مستقل تماماً
-        browser = await p.chromium.launch(headless=True)
+        print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
+        browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG)
         await asyncio.gather(*[scrape_revcontent(browser, s, semaphore) for s in sites])
         await browser.close()
 

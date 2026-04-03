@@ -15,6 +15,39 @@ try:
 except Exception as e:
     supabase = None
 
+# إعداد الدولة والبروكسي المتطور (DataImpulse)
+TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
+
+PROXY_CONFIG = {
+    "server": "http://gw.dataimpulse.com:823",
+    "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
+    "password": "78c188c405598b8a"
+}
+
+COUNTRY_CONFIGS = {
+    "US": {"locale": "en-US", "timezone_id": "America/New_York"},
+    "GB": {"locale": "en-GB", "timezone_id": "Europe/London"},
+    "CA": {"locale": "en-CA", "timezone_id": "America/Toronto"},
+    "AU": {"locale": "en-AU", "timezone_id": "Australia/Sydney"},
+    "DE": {"locale": "de-DE", "timezone_id": "Europe/Berlin"},
+    "FR": {"locale": "fr-FR", "timezone_id": "Europe/Paris"},
+    "IT": {"locale": "it-IT", "timezone_id": "Europe/Rome"},
+    "ES": {"locale": "es-ES", "timezone_id": "Europe/Madrid"},
+    "NL": {"locale": "nl-NL", "timezone_id": "Europe/Amsterdam"},
+    "SE": {"locale": "sv-SE", "timezone_id": "Europe/Stockholm"},
+    "SA": {"locale": "ar-SA", "timezone_id": "Asia/Riyadh"},
+    "AE": {"locale": "ar-AE", "timezone_id": "Asia/Dubai"},
+    "MA": {"locale": "ar-MA", "timezone_id": "Africa/Casablanca"},
+    "EG": {"locale": "ar-EG", "timezone_id": "Africa/Cairo"},
+    "ZA": {"locale": "en-ZA", "timezone_id": "Africa/Johannesburg"},
+    "JP": {"locale": "ja-JP", "timezone_id": "Asia/Tokyo"},
+    "KR": {"locale": "ko-KR", "timezone_id": "Asia/Seoul"},
+    "IN": {"locale": "en-IN", "timezone_id": "Asia/Kolkata"},
+    "BR": {"locale": "pt-BR", "timezone_id": "America/Sao_Paulo"},
+    "MX": {"locale": "es-MX", "timezone_id": "America/Mexico_City"}
+}
+GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
+
 # ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
 MGID_TARGETS = [url.strip() for url in [
     "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953",
@@ -33,12 +66,12 @@ async def save_to_supabase(ad):
         
         if res.data:
             new_imp = (res.data[0].get('impressions') or 1) + 1
-            supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()"}).eq("id", res.data[0]['id']).execute()
-            print(f"[MGID]: تحديث ({new_imp}): {ad['title'][:40]}...")
+            supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()", "country_code": TARGET_COUNTRY}).eq("id", res.data[0]['id']).execute()
+            print(f"[MGID] [{TARGET_COUNTRY}]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
-            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()"})
+            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
             supabase.table("ads").insert(ad).execute()
-            print(f"[MGID]: صيد جديد: {ad['title'][:40]}...")
+            print(f"[MGID] [{TARGET_COUNTRY}]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:
         print(f"[DB ERROR]: {e}")
 
@@ -50,13 +83,16 @@ async def scrape_mgid(browser, url):
     else:
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            locale="en-US",
-            timezone_id="America/New_York",
+            locale=GEO["locale"],
+            timezone_id=GEO["timezone_id"],
             permissions=["geolocation"]
         )
     
     page = await context.new_page()
     
+    # 🚫 منع تحميل الصور للحد من استهلاك الـ 10GB DataImpulse bandwidth
+    await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff2,ttf}", lambda route: route.abort())
+
     # تطبيق التخفي (Stealth) كإجراء احترازي دائم
     from playwright_stealth import Stealth
     await Stealth().apply_stealth_async(page)
@@ -194,17 +230,24 @@ async def run():
     async with async_playwright() as p:
         # تشغيل متصفح مستقل (Launch) بدلاً من الاتصال (Connect) بناءً على طلبك
         try:
-            print("Launching independent Chrome browser...")
-            browser = await p.chromium.launch(headless=True) # يمكنك تغييرها لـ False للمشاهدة
+            print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
+            browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG) 
             
             # إعداد السياق مع تقنيات التخفي
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                locale=GEO["locale"],
+                timezone_id=GEO["timezone_id"],
+                permissions=["geolocation"]
             )
             
             # تطبيق التخفي (Stealth) لتقليل رصد الأتمتة
             from playwright_stealth import Stealth
             page = await context.new_page()
+            
+            # 🚫 منع تحميل الصور للحد من استهلاك الـ 10GB DataImpulse bandwidth
+            await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff2,ttf}", lambda route: route.abort())
+            
             await Stealth().apply_stealth_async(page)
             
             for target in MGID_TARGETS:

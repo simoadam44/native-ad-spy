@@ -2,8 +2,8 @@ name: Native Ad Spy Scheduler
 
 on:
   schedule:
-    # سيتم التشغيل كل 6 ساعات تلقائياً
-    - cron: '0 */6 * * *'
+    # سيتم التشغيل كل ساعة لاستكشاف الدول العشوائية
+    - cron: '0 * * * *'
   # يتيح لك تشغيل الأداة يدوياً من تبويب Actions
   workflow_dispatch:
 

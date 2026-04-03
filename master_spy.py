@@ -1,6 +1,13 @@
 import subprocess
 import time
 import os
+import random
+
+# قائمة بـ 20 دولة مستهدفة رئيسية
+TARGET_COUNTRIES = [
+    "US", "GB", "CA", "AU", "DE", "FR", "IT", "ES", "NL", "SE", 
+    "SA", "AE", "MA", "EG", "ZA", "JP", "KR", "IN", "BR", "MX"
+]
 
 # قاموس لتخزين الإحصائيات (يمكنك تطويره ليرتبط بقاعدة البيانات لاحقاً)
 stats = {
@@ -10,12 +17,16 @@ stats = {
     "OUTBRAIN": {"new": 0, "updates": 0}
 }
 
-def run_script(script_name):
+def run_script(script_name, country):
     start_time = time.time()
-    print(f"📡 جاري إطلاق: {script_name}...")
+    print(f"📡 جاري إطلاق: {script_name} باستهداف ({country})...")
     try:
+        # إعداد بيئة مع Country Code
+        env = os.environ.copy()
+        env["TARGET_COUNTRY"] = country
+        
         # تشغيل السكربت والتقاط المخرجات لتحليل الإحصائيات
-        process = subprocess.Popen(['python', script_name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(['python', script_name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
         
         for line in process.stdout:
             print(line, end='') # عرض المخرجات في الوقت الحقيقي
@@ -68,11 +79,17 @@ if __name__ == "__main__":
         "outbrain_crawler.py"
     ]
     
-    for script in scripts:
-        if os.path.exists(script):
-            run_script(script)
-        else:
-            print(f"⚠️ الملف {script} غير موجود، تخطي...")
+    # اختيار 5 دول عشوائياً في كل دورة لتوزيع الحمل وتجنب الحظر
+    selected_countries = random.sample(TARGET_COUNTRIES, 5)
+    print(f"🌐 الدول المستهدفة في هذه الدورة: {', '.join(selected_countries)}\n")
+    
+    for country in selected_countries:
+        print(f"\n{'='*40}\n🌍 بدء المسح في: {country}\n{'='*40}")
+        for script in scripts:
+            if os.path.exists(script):
+                run_script(script, country)
+            else:
+                print(f"⚠️ الملف {script} غير موجود، تخطي...")
 
     total_duration = (time.time() - start_all) / 60
     
