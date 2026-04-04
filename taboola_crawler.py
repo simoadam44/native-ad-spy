@@ -87,19 +87,40 @@ async def scrape_taboola(browser, url, semaphore):
         )
         page = await context.new_page()
         
-        # 🚫 منع تحميل الصور للحد من استهلاك الـ 10GB
-        await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff2,ttf}", lambda route: route.abort())
+        # 🚫 خطة الحظر الصارمة لتوفير الباندويث وتقليل استهلاك DataImpulse بنسبة 95%
+        async def block_resources(route):
+            req = route.request
+            res_type = req.resource_type
+            url = req.url.lower()
+
+            if res_type in ["image", "media", "font", "stylesheet"]:
+                await route.abort()
+                return
+
+            blocked_domains = [
+                "google-analytics", "googletagmanager", "facebook", "pixel", "clarity",
+                "adsbygoogle", "cdn.mediavoice", "doubleclick", "criteo", "amazon-adsystem",
+                "mgid", "outbrain", "revcontent", "sharethis", "pinterest", "twitter"
+            ]
+            
+            if any(kw in url for kw in blocked_domains):
+                await route.abort()
+                return
+
+            await route.continue_()
+
+        await page.route("**/*", block_resources)
         
         try:
             print(f"🚀 [TABOOLA]: فحص مقال/قسم مباشر: {url}")
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            # محاكاة التمرير لتفعيل Lazy Loading للصور
-            await asyncio.sleep(5)
+            # محاكاة التمرير السريع بدلاً من الانتظار الطويل
+            await asyncio.sleep(4)
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
-            await asyncio.sleep(3)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/1.2)") # تمرير أعمق للمقالات
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/1.2)")
+            await asyncio.sleep(2)
             
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")
@@ -175,7 +196,19 @@ async def run_spy():
     semaphore = asyncio.Semaphore(1) 
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-        browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG)
+        browser = await p.chromium.launch(
+            headless=True, 
+            proxy=PROXY_CONFIG,
+            args=[
+                "--blink-settings=imagesEnabled=false",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-background-networking",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-sync",
+                "--no-sandbox"
+            ]
+        )
         await asyncio.gather(*[scrape_taboola(browser, s, semaphore) for s in TABOOLA_ARTICLE_SITES])
         await browser.close()
 

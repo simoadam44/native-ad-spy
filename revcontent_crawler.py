@@ -98,16 +98,38 @@ async def scrape_revcontent(browser, url, semaphore):
         # تطبيق التخفي (Stealth)
         await Stealth().apply_stealth_async(page)
         
-        # ✅ السماح بالصور وحظر العناصر الثقيلة فقط (فيديو/خطوط/صور) للحفاظ على 10GB DataImpulse
-        await page.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,mp4,webm}", lambda route: route.abort())
+        # 🚫 خطة الحظر الصارمة لتوفير الباندويث وتقليل استهلاك DataImpulse بنسبة 95%
+        async def block_resources(route):
+            req = route.request
+            res_type = req.resource_type
+            url = req.url.lower()
+
+            if res_type in ["image", "media", "font", "stylesheet"]:
+                await route.abort()
+                return
+
+            blocked_domains = [
+                "google-analytics", "googletagmanager", "facebook", "pixel", "clarity",
+                "adsbygoogle", "cdn.mediavoice", "doubleclick", "criteo", "amazon-adsystem",
+                "mgid", "outbrain", "taboola", "sharethis", "pinterest", "twitter"
+            ]
+            
+            if any(kw in url for kw in blocked_domains):
+                await route.abort()
+                return
+
+            await route.continue_()
+
+        await page.route("**/*", block_resources)
         
         try:
             print(f"🚀 [REVCONTENT]: فحص الهدف: {url}")
             await page.goto(url, timeout=45000, wait_until="domcontentloaded")
             
-            # تمرير الصفحة للوصول لإعلانات Revcontent
+            # تمرير سريع للوصول لإعلانات Revcontent دون استهلاك بيانات
+            await asyncio.sleep(2)
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
             
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")
@@ -187,7 +209,19 @@ async def run_spy():
     async with async_playwright() as p:
         # تشغيل مستقل تماماً
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-        browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG)
+        browser = await p.chromium.launch(
+            headless=True, 
+            proxy=PROXY_CONFIG,
+            args=[
+                "--blink-settings=imagesEnabled=false",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-background-networking",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-sync",
+                "--no-sandbox"
+            ]
+        )
         await asyncio.gather(*[scrape_revcontent(browser, s, semaphore) for s in sites])
         await browser.close()
 

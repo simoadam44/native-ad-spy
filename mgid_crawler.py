@@ -90,8 +90,31 @@ async def scrape_mgid(browser, url):
     
     page = await context.new_page()
     
-    # 🚫 منع تحميل الصور للحد من استهلاك الـ 10GB DataImpulse bandwidth
-    await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff2,ttf}", lambda route: route.abort())
+    # 🚫 خطة الحظر الصارمة لتوفير الباندويث وتقليل استهلاك DataImpulse بنسبة 95%
+    async def block_resources(route):
+        req = route.request
+        res_type = req.resource_type
+        url = req.url.lower()
+
+        # إيقاف أي ميديا أو ستايلات بالكامل
+        if res_type in ["image", "media", "font", "stylesheet"]:
+            await route.abort()
+            return
+
+        # إيقاف التتبعات الثقيلة وأي شبكة أخرى لتوفير الكيلوبايتات
+        blocked_domains = [
+            "google-analytics", "googletagmanager", "facebook", "pixel", "clarity",
+            "adsbygoogle", "cdn.mediavoice", "doubleclick", "criteo", "amazon-adsystem",
+            "outbrain", "taboola", "revcontent", "sharethis", "pinterest", "twitter"
+        ]
+        
+        if any(kw in url for kw in blocked_domains):
+            await route.abort()
+            return
+
+        await route.continue_()
+
+    await page.route("**/*", block_resources)
 
     # تطبيق التخفي (Stealth) كإجراء احترازي دائم
     from playwright_stealth import Stealth
@@ -135,11 +158,11 @@ async def scrape_mgid(browser, url):
         except Exception as timeout_error:
             print(f"[MGID]: Timeout on page load, but continuing extraction... ({timeout_error})")
         
-        # انتظار يدوي لضمان تحميل الـ Widgets
-        await asyncio.sleep(30)
-        for i in range(10):
-            await page.evaluate(f"window.scrollBy(0, {600 + (i * 100)})")
-            await asyncio.sleep(2)
+        # انتظار يدوي سريع للحد من استهلاك الجلسة الطويلة
+        await asyncio.sleep(8) # الانتظار فترة قصيرة بدلاً من 30 ثانية لتسريع الإغلاق
+        for i in range(5): # تقليل محاولات السكرول
+            await page.evaluate(f"window.scrollBy(0, {800 + (i * 200)})")
+            await asyncio.sleep(1)
 
         # ✅ Fallback: محاولة قراءة الإعلانات من DOM في كل الفريمات (iframes)
         if not mgid_ads:
@@ -254,7 +277,19 @@ async def run():
         # تشغيل متصفح مستقل (Launch) بدلاً من الاتصال (Connect) بناءً على طلبك
         try:
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-            browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG) 
+            browser = await p.chromium.launch(
+                headless=True, 
+                proxy=PROXY_CONFIG,
+                args=[
+                    "--blink-settings=imagesEnabled=false",           # حظر الصور من جذور المحرك
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-background-networking",
+                    "--disable-dev-shm-usage",
+                    "--disable-extensions",
+                    "--disable-sync",
+                    "--no-sandbox"
+                ]
+            )
             
             # إعداد السياق مع تقنيات التخفي
             context = await browser.new_context(

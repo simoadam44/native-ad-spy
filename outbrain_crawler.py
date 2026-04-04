@@ -82,8 +82,31 @@ async def scrape_outbrain(browser, url):
     
     page = await context.new_page()
     
-    # 🚫 منع تحميل الصور للحد من استهلاك
-    await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff2,ttf}", lambda route: route.abort())
+    # 🚫 خطة الحظر الصارمة لتوفير الباندويث وتقليل استهلاك DataImpulse بنسبة 95%
+    async def block_resources(route):
+        req = route.request
+        res_type = req.resource_type
+        url = req.url.lower()
+
+        # إيقاف أي ميديا أو ستايلات بالكامل
+        if res_type in ["image", "media", "font", "stylesheet"]:
+            await route.abort()
+            return
+
+        # إيقاف التتبعات الثقيلة وأي شبكة أخرى لتوفير الكيلوبايتات (نستثني outbrain.com)
+        blocked_domains = [
+            "google-analytics", "googletagmanager", "facebook", "pixel", "clarity",
+            "adsbygoogle", "cdn.mediavoice", "doubleclick", "criteo", "amazon-adsystem",
+            "mgid", "taboola", "revcontent", "sharethis", "pinterest", "twitter"
+        ]
+        
+        if any(kw in url for kw in blocked_domains):
+            await route.abort()
+            return
+
+        await route.continue_()
+
+    await page.route("**/*", block_resources)
 
     # تطبيق التخفي (Stealth) كإجراء احترازي دائم
     from playwright_stealth import Stealth
@@ -131,17 +154,17 @@ async def scrape_outbrain(browser, url):
         # استخدام domcontentloaded بدلاً من networkidle
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         
-        # انتظار يدوي
+        # انتظار سريع
         await asyncio.sleep(8)
         try:
-            await page.wait_for_selector('[data-ob-widget], .OUTBRAIN, #outbrain', timeout=15000)
+            await page.wait_for_selector('[data-ob-widget], .OUTBRAIN, #outbrain', timeout=10000)
         except: pass
 
         # تمرير الصفحة ببطء للسماح بتحميل الإعلانات
-        await asyncio.sleep(30)
-        for i in range(8):
+        await asyncio.sleep(4)
+        for i in range(5):
             await page.evaluate(f"window.scrollBy(0, {800 + (i * 200)})")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
         # ✅ Fallback المطور من الكود ومتقاطع مع الإطارات (iframes)
         if not outbrain_ads:
@@ -189,7 +212,19 @@ async def run():
         # تشغيل متصفح مستقل (Launch) بدلاً من الاتصال (Connect) بناءً على طلبك
         try:
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-            browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG)
+            browser = await p.chromium.launch(
+                headless=True, 
+                proxy=PROXY_CONFIG,
+                args=[
+                    "--blink-settings=imagesEnabled=false",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--disable-background-networking",
+                    "--disable-dev-shm-usage",
+                    "--disable-extensions",
+                    "--disable-sync",
+                    "--no-sandbox"
+                ]
+            )
             
             # إعداد السياق مع تقنيات التخفي
             context = await browser.new_context(
