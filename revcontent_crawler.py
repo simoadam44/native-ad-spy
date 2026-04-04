@@ -47,12 +47,12 @@ GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 # ✅ قائمة أهداف احتياطية في حال فراغ قاعدة البيانات
 REVCONTENT_TARGETS = [
-    "https://joehoft.com/",
-    "https://wltreport.com/",
-    "https://protrumpnews.com/",
-    "https://gatewayhispanic.com/",
-    "https://100percentfedup.com/",
-    "https://conservativebrief.com/"
+    "https://joehoft.com/doj-leadership-quietly-dismantles-weaponization-working-group-despite/",
+    "https://wltreport.com/2026/04/03/watch-president-trump-delivers-easter-message-be-great/",
+    "https://wltreport.com/2026/04/03/update-one-pilot-rescued-another-still-missing-after/?utm_source=PTN&utm_medium=mixed&utm_campaign=PTN",
+    "https://gatewayhispanic.com/2026/04/trump-emite-un-comunicado-sobre-el-despido-de/",
+    "https://100percentfedup.com/lets-talk-about-artemis-ii-moon-launch-part/",
+    "https://wltreport.com/2026/04/03/watch-president-trump-delivers-easter-message-be-great/"
 ]
 
 # محددات Revcontent المتطورة
