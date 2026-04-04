@@ -45,10 +45,11 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 TABOOLA_ARTICLE_SITES = [
-    "https://www.hespress.com", 
-    "https://sabq.org",         
+    "https://www.tips-and-tricks.co/do-it-yourself/shoestretch/", 
+    "https://sabq.org/article/Ybvpfba",     
+    "https://www.habittribe.com/wellness/water", 
     "https://www.independent.co.uk",
-    "https://www.standard.co.uk",
+    "https://www.articlestone.com/social/rings",
     "https://www.dailysportx.com/news/vveins",
     "https://www.tips-and-tricks.co/online/sisterrevenge/2/"
 ]
