@@ -50,6 +50,7 @@ TABOOLA_ARTICLE_SITES = [
     "https://www.independent.co.uk/sport/football/fa-cup-draw-semi-final-date-time-tv-ball-numbers-b2950304.html", # مقال مباشر
     "https://www.notimerica.com/politica/noticia-ucrania-zelenski-advierte-rusia-podria-estar-preparando-gran-ataque-aereo-20260323211616.html", # مقال مباشر
     "https://www.notimerica.com/politica/noticia-ucrania-zelenski-advierte-rusia-podria-estar-preparando-gran-ataque-aereo-20260323211616.html",
+    "https://www.houseandgarden.co/its-allergy-season-allergy-proof-you-home-with-these-5-tips/#",
     "https://www.trucs-et-astuces.co/online/robocrab/"
 ]
 
