@@ -114,7 +114,8 @@ async def scrape_taboola(browser, url, semaphore):
                 if "taboola.com" in url:
                     await route.continue_()
                     return
-                if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
+                # حظر ملفات الفيديو واللاعبين الثقيلة لتوفير البانوديث
+                if any(sub in url for sub in ["player.", "video.", "api."]):
                     await route.abort()
                     return
 
@@ -126,12 +127,11 @@ async def scrape_taboola(browser, url, semaphore):
             print(f"🚀 [TABOOLA]: فحص مقال/قسم مباشر: {url}")
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            # محاكاة التمرير السريع بدلاً من الانتظار الطويل
-            await asyncio.sleep(4)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
-            await asyncio.sleep(2)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/1.2)")
-            await asyncio.sleep(2)
+            # محاكاة التمرير التدريجي لتحفيز ظهور إعلانات Taboola أسفل المقال
+            await asyncio.sleep(3)
+            for i in range(1, 8):
+                await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {i/7})")
+                await asyncio.sleep(1.5)
             
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")

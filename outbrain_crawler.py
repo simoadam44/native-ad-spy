@@ -107,13 +107,13 @@ async def scrape_outbrain(browser, url):
             await route.abort()
             return
 
-        # 3. القتل الذكي لملفات الجافاسكريبت الضخمة للناشرين (Static CDNs)
+        # 3. القتل الذكي لملفات الجافاسكريبت (تم تخفيفه حتى لا تكسر إعلانات Outbrain)
         if res_type in ["script", "fetch", "xhr"]:
             if "outbrain.com" in url:
                 await route.continue_()
                 return
-            # حظر ملفات الناشر الثقيلة مثل static.drive.com.au أو cdn.dailymail.co.uk
-            if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video."]):
+            # حظر مقاطع الفيديو واللاعبين
+            if any(sub in url for sub in ["player.", "video."]):
                 await route.abort()
                 return
 
@@ -173,11 +173,11 @@ async def scrape_outbrain(browser, url):
             await page.wait_for_selector('[data-ob-widget], .OUTBRAIN, #outbrain', timeout=10000)
         except: pass
 
-        # تمرير الصفحة ببطء للسماح بتحميل الإعلانات
-        await asyncio.sleep(4)
-        for i in range(5):
-            await page.evaluate(f"window.scrollBy(0, {800 + (i * 200)})")
-            await asyncio.sleep(1)
+        # تمرير الصفحة للأسفل لضمان تحميل إعلانات Outbrain (Lazy load)
+        await asyncio.sleep(3)
+        for i in range(1, 8):
+            await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {i/7})")
+            await asyncio.sleep(1.5)
 
         # ✅ Fallback المطور من الكود ومتقاطع مع الإطارات (iframes)
         if not outbrain_ads:
