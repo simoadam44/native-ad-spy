@@ -16,16 +16,27 @@ const COUNTRIES = [
   "SA", "AE", "MA", "EG", "ZA", "JP", "KR", "IN", "BR", "MX"
 ];
 
+const COUNTRY_NAMES: Record<string, string> = {
+  US: "United States", GB: "United Kingdom", CA: "Canada", AU: "Australia", 
+  DE: "Germany", FR: "France", IT: "Italy", ES: "Spain", NL: "Netherlands", 
+  SE: "Sweden", SA: "Saudi Arabia", AE: "United Arab Emirates", 
+  MA: "Morocco", EG: "Egypt", ZA: "South Africa", JP: "Japan", 
+  KR: "South Korea", IN: "India", BR: "Brazil", MX: "Mexico"
+};
+
 const PAGE_SIZE = 30;
 
-// Helper function to convert ISO code to Flag Emoji
-const getFlagEmoji = (countryCode: string) => {
-  if (!countryCode) return "";
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map(char =>  127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
+// Cross-platform Flag Component using FlagCDN (Windows doesn't support Emoji flags natively)
+const Flag = ({ code, className = "" }: { code: string, className?: string }) => {
+  if (!code || code === "all") return null;
+  return (
+    <img 
+      src={`https://flagcdn.com/w20/${code.toLowerCase()}.png`} 
+      alt={code} 
+      className={`inline-block rounded-[2px] object-cover ${className}`}
+      style={{ width: '16px', height: '12px' }}
+    />
+  );
 };
 
 
@@ -69,7 +80,7 @@ export default function DashboardPage() {
     setTotalCount(count || 0);
     setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
     setLoading(false);
-  }, [search, selectedNetworks, sortBy, minImpressions, page]);
+  }, [search, selectedNetworks, selectedCountries, sortBy, minImpressions, page]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
@@ -164,9 +175,9 @@ export default function DashboardPage() {
 
         <div className="relative flex items-center gap-2">
           {selectedCountries.map(code => (
-            <span key={code} className="flex items-center gap-1 bg-neutral-800 text-white px-2 py-1 rounded text-xs">
-              {getFlagEmoji(code)} {code}
-              <button onClick={() => removeCountry(code)}><X size={12}/></button>
+            <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-xs">
+              <Flag code={code} /> {COUNTRY_NAMES[code] || code}
+              <button onClick={() => removeCountry(code)} className="hover:text-red-400 ml-1"><X size={12}/></button>
             </span>
           ))}
           <select
@@ -177,7 +188,7 @@ export default function DashboardPage() {
             <option value="" disabled>+ Country</option>
             <option value="all">All Countries</option>
             {COUNTRIES.map(c => (
-              <option key={c} value={c}>{getFlagEmoji(c)} {c}</option>
+              <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>
             ))}
           </select>
         </div>
@@ -241,8 +252,8 @@ export default function DashboardPage() {
                       {ad.network}
                     </span>
                     {ad.country_code && (
-                      <span className="px-2 py-0.5 rounded-md text-[10px] w-max font-black uppercase bg-black/60 backdrop-blur-md text-white border border-white/10">
-                        {getFlagEmoji(ad.country_code)} {ad.country_code}
+                      <span className="px-2 py-1 flex items-center gap-1.5 rounded-md text-[10px] w-max font-black uppercase bg-black/60 backdrop-blur-md text-white border border-white/10">
+                        <Flag code={ad.country_code} /> {ad.country_code}
                       </span>
                     )}
                   </div>

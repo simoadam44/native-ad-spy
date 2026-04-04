@@ -202,6 +202,29 @@ async def scrape_mgid(browser, url):
                 landing = ad['landing']
                 if not landing: continue
                 
+                # ✅ فك تشفير روابط MGID التتبعية للحصول على رابط المنتج الحقيقي
+                if "clck.mgid.com" in landing:
+                    try:
+                        res = await context.request.get(landing, headers={"Referer": ad['source']}, max_redirects=5)
+                        text = await res.text()
+                        
+                        # التوجيه الصريح (HTTP Redirect)
+                        if res.url and "clck.mgid.com" not in res.url:
+                            landing = res.url
+                        else:
+                            # التوجيه المبطن بالجافا سكريبت (JS Redirect)
+                            import re
+                            js_match = re.search(r'window\.location\.replace\(["\'](htt[^"\']+)["\']', text)
+                            if js_match:
+                                landing = js_match.group(1)
+                            else:
+                                meta_match = re.search(r'url=(http[^"\'\s>]+)', text, re.IGNORECASE)
+                                if meta_match: landing = meta_match.group(1).strip("'\"")
+                                
+                        ad['landing'] = landing
+                    except:
+                        pass
+                
                 # إذا لم يكن موجوداً، أضفه
                 if landing not in unique_ads:
                     unique_ads[landing] = ad
