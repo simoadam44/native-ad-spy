@@ -1,4 +1,4 @@
-import asyncio, os, random, sys, re
+import asyncio, os, random, sys, re, json
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -7,8 +7,8 @@ from supabase import create_client
 from urllib.parse import urljoin
 
 # --- 1. الإعدادات والاتصال الآمن ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # إعداد الدولة والبروكسي المتطور (DataImpulse)
@@ -44,28 +44,29 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-
-# ✅ قائمة أهداف احتياطية في حال فراغ قاعدة البيانات
 REVCONTENT_TARGETS = [
     "https://joehoft.com/doj-leadership-quietly-dismantles-weaponization-working-group-despite/",
     "https://wltreport.com/2026/04/03/watch-president-trump-delivers-easter-message-be-great/",
     "https://wltreport.com/2026/04/03/update-one-pilot-rescued-another-still-missing-after/?utm_source=PTN&utm_medium=mixed&utm_campaign=PTN",
     "https://gatewayhispanic.com/2026/04/trump-emite-un-comunicado-sobre-el-despido-de/",
-    "https://100percentfedup.com/lets-talk-about-artemis-ii-moon-launch-part/",
-    "https://wltreport.com/2026/04/03/watch-president-trump-delivers-easter-message-be-great/"
+    "https://100percentfedup.com/lets-talk-about-artemis-ii-moon-launch-part/"
 ]
 
 # محددات Revcontent المتطورة
 REV_SELECTORS = [
-    ".rc-item", ".rc-ad-container", 
+    ".rc-item", ".rc-ad-container", ".sbn-item-anchor", 
     "[id*='rc-widget']", "div[data-rc-widget]", 
-    ".revcontent-ad", ".rc-row"
+    ".revcontent-ad", ".rc-row", ".rc-cta"
 ]
 
 async def save_or_update_ad(data):
     try:
         if not data.get('title') or not data.get('landing'): return
-        # تنظيف رابط الهبوط من الـ Tracking لضمان دقة الإحصائيات
+        
+        # تصحيح رابط الصورة إذا كان يبدأ بـ //
+        if data.get('image') and data['image'].startswith('//'):
+            data['image'] = 'https:' + data['image']
+            
         clean_landing = data['landing'].split('?')[0].split('#')[0]
         data["landing"] = clean_landing
         
@@ -88,136 +89,165 @@ async def save_or_update_ad(data):
 
 async def scrape_revcontent(browser, url, semaphore):
     async with semaphore:
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            locale=GEO["locale"],
-            timezone_id=GEO["timezone_id"],
-            permissions=["geolocation"]
-        )
-        page = await context.new_page()
-        # تطبيق التخفي (Stealth)
-        await Stealth().apply_stealth_async(page)
-        
-        # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث
-        async def block_resources(route):
-            req = route.request
-            res_type = req.resource_type
-            url = req.url.lower()
-
-            if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
-                await route.abort()
-                return
-
-            blocked_domains = [
-                "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
-                "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
-                "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
-                "mediavoice", "teads", "clarity", "doubleclick",
-                "mgid", "outbrain", "taboola", "sharethis"
-            ]
+        context = None
+        page = None
+        rev_ads = []
+        try:
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                locale=GEO["locale"],
+                timezone_id=GEO["timezone_id"],
+                permissions=["geolocation"]
+            )
+            page = await context.new_page()
+            await Stealth().apply_stealth_async(page)
             
-            if any(kw in url for kw in blocked_domains) and "revcontent.com" not in url:
-                await route.abort()
-                return
+            # اعتراض استجابة الشبكة (Network Interception)
+            async def handle_response(response):
+                nonlocal rev_ads
+                try:
+                    r_url = response.url.lower()
+                    if "revcontent.com" in r_url and "api" in r_url and response.status == 200:
+                        ct = response.headers.get("content-type", "")
+                        if "json" in ct or "javascript" in ct:
+                            text = await response.text()
+                            data = None
+                            if text.strip().startswith('{') or text.strip().startswith('['):
+                                data = json.loads(text)
+                            else:
+                                match = re.search(r'(\{.*\})|(\[.*\])', text)
+                                if match: data = json.loads(match.group(0))
+                            
+                            if data and "content" in data:
+                                for item in data["content"]:
+                                    title = item.get('headline') or item.get('title')
+                                    l_url = item.get('url')
+                                    img = item.get('image')
+                                    if title and l_url:
+                                        rev_ads.append({
+                                            "title": str(title).strip(),
+                                            "landing": l_url,
+                                            "image": img,
+                                            "source": response.url,
+                                            "network": "Revcontent"
+                                        })
+                except: pass
 
-            if res_type in ["script", "fetch", "xhr"]:
-                if "revcontent.com" in url:
-                    await route.continue_()
-                    return
-                if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
+            page.on("response", handle_response)
+            
+            async def block_resources(route):
+                req = route.request
+                res_type = req.resource_type
+                r_url = req.url.lower()
+
+                if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                     await route.abort()
                     return
 
-            await route.continue_()
+                blocked_domains = [
+                    "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
+                    "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
+                    "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
+                    "mediavoice", "teads", "clarity", "doubleclick"
+                ]
+                
+                if any(kw in r_url for kw in blocked_domains) and "revcontent.com" not in r_url:
+                    await route.abort()
+                    return
 
-        await page.route("**/*", block_resources)
-        
-        try:
+                if res_type in ["script", "fetch", "xhr"]:
+                    # السماح لـ Revcontent والـ CDNs الأساسية التي قد تستخدمها المواقع
+                    if "revcontent.com" in r_url or any(sub in r_url for sub in ["static.", "assets.", "cdn."]):
+                        await route.continue_()
+                        return
+                    if any(sub in r_url for sub in ["player.", "video."]):
+                        await route.abort()
+                        return
+
+                await route.continue_()
+
+            await page.route("**/*", block_resources)
+            
             print(f"🚀 [REVCONTENT]: فحص الهدف: {url}")
-            await page.goto(url, timeout=45000, wait_until="domcontentloaded")
+            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            # تمرير سريع للوصول لإعلانات Revcontent دون استهلاك بيانات
-            await asyncio.sleep(2)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.6)")
-            await asyncio.sleep(1)
+            # تمرير Progressive لتنشيط الـ Widgets
+            for _ in range(5):
+                await page.evaluate("window.scrollBy(0, 800)")
+                await asyncio.sleep(1)
+            await asyncio.sleep(5)
             
+            # --- الاستخراج من DOM كخيار احتياطي ---
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")
             
-            # البحث عن روابط Click المباشرة لـ Revcontent أولاً
             links = soup.select("a[href*='revcontent.com/click']")
-            
-            if not links:
-                for selector in REV_SELECTORS:
-                    for el in soup.select(selector):
-                        a_tag = el.find("a", href=True)
-                        if a_tag: links.append(a_tag)
+            for selector in REV_SELECTORS:
+                for el in soup.select(selector):
+                    a_tag = el if el.name == 'a' else el.find("a", href=True)
+                    if a_tag and a_tag not in links: links.append(a_tag)
 
-            found_any = False
             for a in links:
                 try:
-                    # ✅ استخراج العنوان الحقيقي والنظيف بالكامل
-                    title_el = (
-                        a.find(class_=lambda c: c and 'title' in c.lower()) or 
-                        a.find("h3") or a.find("h4") or a.find("span")
-                    )
-                    
+                    title_el = a.find(class_=lambda c: c and 'title' in c.lower()) or a.find("h3") or a.find("h4")
                     title = title_el.get_text(strip=True) if title_el else a.get_text(strip=True)
-                    
-                    # محاولة إضافية إذا كان العنوان في حاوية الأب
                     if not title or len(title) < 10:
                         parent = a.find_parent()
                         if parent:
-                            title_el2 = parent.select_one(".rc-title, .title, h3, h4")
-                            if title_el2: title = title_el2.get_text(strip=True)
+                            t_el = parent.select_one(".rc-title, .title, h3, h4")
+                            if t_el: title = t_el.get_text(strip=True)
                     
-                    title = " ".join(title.split())
                     if not title or len(title) < 10: continue
 
-                    # استخراج الصورة
-                    img = a.find("img") or a.find_next("img")
+                    img = a.find("img") or (a.find_parent() and a.find_parent().find("img"))
                     img_url = ""
                     if img:
-                        img_url = img.get("src") or img.get("data-src") or ""
+                        img_url = img.get("data-src") or img.get("src") or img.get("data-lazy-src") or ""
+                    
+                    if not img_url:
+                        # البحث في الستايل الخاص بالخلفية
+                        style = a.get('style', '') or (a.find_parent() and a.find_parent().get('style', ''))
+                        match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style or "")
+                        if match: img_url = match.group(1)
 
-                    await save_or_update_ad({
-                        "title": title,
-                        "image": urljoin(url, img_url) if img_url else "",
+                    rev_ads.append({
+                        "title": title.strip(),
+                        "image": img_url,
                         "landing": urljoin(url, a['href']),
                         "source": url,
                         "network": "Revcontent"
                     })
-                    found_any = True
                 except: continue
-                
-            if not found_any:
+
+            # تنظيف النتائج وحفظها
+            if rev_ads:
+                unique = {}
+                for ad in rev_ads:
+                    if ad['landing'] not in unique: unique[ad['landing']] = ad
+                for ad in unique.values():
+                    await save_or_update_ad(ad)
+                print(f"✅ [REVCONTENT]: تم صيد {len(unique)} إعلان من {url}")
+            else:
                 print(f"ℹ️ [REVCONTENT]: لم يتم رصد إعلانات في {url}")
                 
         except Exception as e:
-            print(f"⚠️ تجاوز {url}: {str(e)[:50]}")
+            print(f"⚠️ تجاوز {url}: {str(e)[:100]}")
         finally:
-            await page.close()
-            await context.close()
+            if page: await page.close()
+            if context: await context.close()
 
 async def run_spy():
     sites = []
     try:
-        # محاولة جلب المواقع من قاعدة البيانات
         response = supabase.table("target_sites").select("url").execute()
         if response.data:
-            sites = [row['url'] for row in response.data]
-            print(f"📡 [REVCONTENT]: تم جلب {len(sites)} موقع من قاعدة البيانات.")
-    except Exception as e:
-        print(f"⚠️ فشل جلب المواقع من DB: {e}")
+            sites = [row['url'] for row in response.data][:10] # تحديد العدد للاختبار
+    except: pass
 
-    # ✅ إذا كانت قاعدة البيانات فارغة، استخدم قائمة الأهداف الاحتياطية
-    if not sites:
-        print("ℹ️ قاعدة البيانات فارغة، جاري استخدام قائمة الأهداف الاحتياطية...")
-        sites = REVCONTENT_TARGETS
+    if not sites: sites = REVCONTENT_TARGETS
 
     semaphore = asyncio.Semaphore(2)
     async with async_playwright() as p:
-        # تشغيل مستقل تماماً
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
         browser = await p.chromium.launch(
             headless=True, 
