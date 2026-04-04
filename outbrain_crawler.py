@@ -43,11 +43,11 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.hespress.com", 
+    "https://www.standard.co.uk/news/world/search-missing-us-airman-downed-f15-fighter-jet-b1277661.html", 
     "https://sabq.org",         
     "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl",
-    "https://www.skynewsarabia.com",
-    "https://www.independent.co.uk"
+    "https://www.standard.co.uk/news/world/search-missing-us-airman-downed-f15-fighter-jet-b1277661.html",
+    "https://www.independent.co.uk/news/uk/crime/knife-crime-schools-attacks-harvey-willgoose-b2949295.html"
 ]]
 
 async def save_to_supabase(ad):
