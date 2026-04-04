@@ -5,6 +5,7 @@ from supabase import create_client
 from urllib.parse import urljoin, unquote
 import os
 import re
+import json
 
 # إعدادات سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -56,8 +57,11 @@ TABOOLA_ARTICLE_SITES = [
 
 async def save_or_update_ad(data):
     try:
+        if not data.get('title') or not data.get('landing'): return
         clean_landing = data['landing'].split('?')[0].split('#')[0]
         data['landing'] = clean_landing
+        
+        # منع تكرار الروابط في الذاكرة لتجنب استهلاك سوبابيز غير الضروري
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
         if existing.data:
             new_count = (existing.data[0].get('impressions') or 1) + 1
@@ -93,12 +97,13 @@ async def smart_scroll_and_wait(page):
             });
         }
     """)
-    await asyncio.sleep(5)
+    await asyncio.sleep(10) # زيادة وقت الانتظار لضمان الرندرة
 
 async def scrape_taboola(browser, url, semaphore):
     async with semaphore:
         context = None
         page = None
+        taboola_ads = []
         try:
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -108,22 +113,68 @@ async def scrape_taboola(browser, url, semaphore):
             )
             page = await context.new_page()
             
+            # اعتراض استجابة الشبكة (Network Interception)
+            async def handle_response(response):
+                nonlocal taboola_ads
+                url_lower = response.url.lower()
+                if "taboola.com" in url_lower and "v2/notifications" not in url_lower:
+                    try:
+                        if response.status == 200:
+                            ct = response.headers.get("content-type", "")
+                            if "json" in ct or "javascript" in ct:
+                                text = await response.text()
+                                if "list" in text or "items" in text:
+                                    # محاولة استخراج كائنات تشبه الإعلانات من النص الخام إذا لم يكن JSON نقياً
+                                    match = re.search(r'\[\{.*\}\]', text)
+                                    data_list = []
+                                    if match:
+                                        try: data_list = json.loads(match.group(0))
+                                        except: pass
+                                    else:
+                                        try: data_list = await response.json().get('list', [])
+                                        except: pass
+                                    
+                                    for item in data_list:
+                                        title = item.get('name') or item.get('content') or item.get('title')
+                                        url = item.get('url') or item.get('clickUrl')
+                                        img = item.get('thumbnail', [{}])[0].get('url') if isinstance(item.get('thumbnail'), list) else ""
+                                        if title and url:
+                                            taboola_ads.append({
+                                                "title": str(title).strip(),
+                                                "landing": url,
+                                                "image": img,
+                                                "source": response.url,
+                                                "network": "Taboola"
+                                            })
+                    except: pass
+
+            page.on("response", handle_response)
+            
             async def block_resources(route):
                 req = route.request
-                if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
+                res_type = req.resource_type
+                url = req.url.lower()
+
+                if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                     await route.abort()
                     return
-                blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "clarity", "doubleclick", "mgid", "outbrain", "revcontent", "sharethis"]
-                if any(kw in req.url.lower() for kw in blocked_domains) and "taboola.com" not in req.url.lower():
+                
+                # قائمة المحظورات المعروفة (Trackers)
+                blocked_domains = ["google-analytics", "facebook.com", "doubleclick", "scorecardresearch", "hotjar", "chartbeat", "quantserve"]
+                if any(kw in url for kw in blocked_domains):
                     await route.abort()
                     return
-                if req.resource_type in ["script", "fetch", "xhr"]:
-                    if "taboola.com" in req.url.lower():
+                
+                if res_type in ["script", "fetch", "xhr"]:
+                    # السماح لـ Taboola والناشر
+                    if "taboola.com" in url or any(sub in url for sub in ["static.", "assets.", "cdn."]):
                         await route.continue_()
                         return
-                    if any(sub in req.url.lower() for sub in ["player.", "video.", "api."]):
+                    # حظر الفيديو فقط
+                    if any(sub in url for sub in ["player.", "video."]):
                         await route.abort()
                         return
+                        
                 await route.continue_()
 
             await page.route("**/*", block_resources)
@@ -132,38 +183,64 @@ async def scrape_taboola(browser, url, semaphore):
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             await smart_scroll_and_wait(page)
             
+            # --- الاستخراج من DOM (Main Page & Frames) ---
+            async def extract_from_soup(soup_obj, base_url):
+                found = []
+                selectors = [".trc_spotlight_item", ".taboola-main-container", "[id*='taboola']", ".trc_item"]
+                for selector in selectors:
+                    for ad in soup_obj.select(selector):
+                        try:
+                            link_tag = ad.find("a")
+                            if not link_tag or not link_tag.get("href"): continue
+                            title_el = ad.find(class_=re.compile(r"video-title|trc_label|title"))
+                            title = title_el.get_text(strip=True) if title_el else ad.get_text(strip=True)
+                            landing = urljoin(base_url, link_tag.get("href"))
+                            img_tag = ad.find("img")
+                            image_raw = ""
+                            if img_tag:
+                                image_raw = img_tag.get("data-src") or img_tag.get("src") or img_tag.get("data-lazy-src") or img_tag.get("srcset") or ""
+                            if not image_raw:
+                                bg_el = ad.find(style=re.compile(r"background-image"))
+                                if bg_el:
+                                    match = re.search(r"url\(['\"]?(.*?)['\"]?\)", bg_el.get("style", ""))
+                                    if match: image_raw = match.group(1)
+                            
+                            # تنظيف رابط الصورة
+                            if "taboola.com" in image_raw:
+                                if "/ui/?src=" in image_raw:
+                                    match = re.search(r"/ui/\?src=(.*?)&", image_raw)
+                                    if match: image_raw = unquote(match.group(1))
+                                image_raw = image_raw.split('?')[0]
+                            
+                            image_url = urljoin(base_url, image_raw) if image_raw else ""
+                            if image_url.startswith("//"): image_url = "https:" + image_url
+                            
+                            if title and len(title) > 10:
+                                found.append({"title": title[:200], "image": image_url, "landing": landing, "source": base_url, "network": "Taboola"})
+                        except: continue
+                return found
+
+            # الرئيسي
             content = await page.content()
-            soup = BeautifulSoup(content, "html.parser")
-            selectors = [".trc_spotlight_item", ".taboola-main-container", "[id*='taboola']", ".trc_item"]
+            taboola_ads.extend(await extract_from_soup(BeautifulSoup(content, "html.parser"), url))
             
-            for selector in selectors:
-                for ad in soup.select(selector):
-                    try:
-                        link_tag = ad.find("a")
-                        if not link_tag or not link_tag.get("href"): continue
-                        title_el = ad.find(class_=re.compile(r"video-title|trc_label|title"))
-                        title = title_el.get_text(strip=True) if title_el else ad.get_text(strip=True)
-                        landing = urljoin(url, link_tag.get("href"))
-                        img_tag = ad.find("img")
-                        image_raw = ""
-                        if img_tag:
-                            image_raw = img_tag.get("data-src") or img_tag.get("src") or img_tag.get("data-lazy-src") or img_tag.get("srcset") or ""
-                            if "," in image_raw: image_raw = image_raw.split(",")[0].split(" ")[0]
-                        if not image_raw:
-                            bg_el = ad.find(style=re.compile(r"background-image"))
-                            if bg_el:
-                                match = re.search(r"url\(['\"]?(.*?)['\"]?\)", bg_el.get("style", ""))
-                                if match: image_raw = match.group(1)
-                        if "taboola.com" in image_raw:
-                            if "/ui/?src=" in image_raw:
-                                match = re.search(r"/ui/\?src=(.*?)&", image_raw)
-                                if match: image_raw = unquote(match.group(1))
-                            image_raw = image_raw.split('?')[0]
-                        image_url = urljoin(url, image_raw) if image_raw else ""
-                        if image_url.startswith("//"): image_url = "https:" + image_url
-                        if title and len(title) > 10 and image_url.startswith("https://"):
-                            await save_or_update_ad({"title": title[:200], "image": image_url, "landing": landing, "source": url, "network": "Taboola"})
-                    except: continue
+            # الإطارات (Frames)
+            for frame in page.frames:
+                try:
+                    f_content = await frame.content()
+                    taboola_ads.extend(await extract_from_soup(BeautifulSoup(f_content, "html.parser"), url))
+                except: pass
+
+            # معالجة النتائج الفريدة
+            if taboola_ads:
+                unique = {}
+                for ad in taboola_ads:
+                    if ad['landing'] not in unique: unique[ad['landing']] = ad
+                for ad in unique.values():
+                    await save_or_update_ad(ad)
+                print(f"✅ [TABOOLA]: تم صيد {len(unique)} إعلان في {url}")
+            else:
+                print(f"ℹ️ [TABOOLA]: لم يتم رصد إعلانات في {url}")
 
         except Exception as e:
             print(f"⚠️ [TABOOLA] Error في {url}: {str(e)[:100]}")

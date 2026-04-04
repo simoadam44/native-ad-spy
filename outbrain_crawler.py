@@ -3,6 +3,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
+import json
+import re
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -85,7 +87,7 @@ async def smart_scroll_and_wait(page):
             });
         }
     """)
-    await asyncio.sleep(5)
+    await asyncio.sleep(10)
 
 async def scrape_outbrain(browser, url):
     outbrain_ads = []
@@ -103,18 +105,23 @@ async def scrape_outbrain(browser, url):
         
         async def block_resources(route):
             req = route.request
+            url_low = req.url.lower()
             if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                 await route.abort()
                 return
-            blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "outbrainimg.com", "clarity", "doubleclick", "mgid", "taboola", "revcontent", "sharethis"]
-            if any(kw in req.url.lower() for kw in blocked_domains) and "outbrain.com" not in req.url.lower():
-                await route.abort()
-                return
-            if req.resource_type in ["script", "fetch", "xhr"]:
-                if "outbrain.com" in req.url.lower():
-                    await route.continue_()
+            
+            # السماح لملفات التعريف والتشغيل الأساسية
+            if any(sub in url_low for sub in ["static.", "assets.", "cdn.", "outbrain.com", "taboola.com"]):
+                # حظر المتتبعات المعروفة فقط
+                trackers = ["google-analytics", "facebook.com", "doubleclick", "scorecardresearch"]
+                if any(t in url_low for t in trackers):
+                    await route.abort()
                     return
-                if any(sub in req.url.lower() for sub in ["player.", "video.", "api."]):
+                await route.continue_()
+                return
+                
+            if req.resource_type in ["script", "fetch", "xhr"]:
+                if any(sub in url_low for sub in ["player.", "video."]):
                     await route.abort()
                     return
             await route.continue_()
@@ -123,20 +130,38 @@ async def scrape_outbrain(browser, url):
 
         async def handle_response(response):
             nonlocal outbrain_ads
-            if "outbrain.com" in response.url.lower() and response.status == 200:
+            r_url = response.url.lower()
+            if "outbrain.com" in r_url and response.status == 200:
                 try:
                     ct = response.headers.get("content-type", "")
                     if "application/json" in ct or "text/javascript" in ct:
-                        data = await response.json()
-                        listings = []
-                        if isinstance(data, dict):
-                            listings = data.get('documents') or data.get('doc', {}).get('ads', []) or data.get('cards', []) or data.get('items', [])
-                        elif isinstance(data, list): listings = data
-                        for item in listings:
-                            t = item.get('content') or item.get('title') or item.get('text')
-                            l = item.get('url') or item.get('clickUrl') or item.get('link')
-                            if t and l:
-                                outbrain_ads.append({"title": str(t).strip(), "landing": l, "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''), "source": url, "network": "OUTBRAIN"})
+                        # تصحيح: قد تحتوي بعض الاستجابات على كود JS يغلف الـ JSON
+                        text = await response.text()
+                        data = None
+                        if text.strip().startswith('{') or text.strip().startswith('['):
+                            data = json.loads(text)
+                        else:
+                            # البحث عن JSON داخل JS
+                            match = re.search(r'(\{.*\})|(\[.*\])', text)
+                            if match: data = json.loads(match.group(0))
+                        
+                        if data:
+                            listings = []
+                            if isinstance(data, dict):
+                                listings = data.get('documents') or data.get('doc', {}).get('ads', []) or data.get('cards', []) or data.get('items', [])
+                            elif isinstance(data, list): listings = data
+                            
+                            for item in listings:
+                                t = item.get('content') or item.get('title') or item.get('text')
+                                l = item.get('url') or item.get('clickUrl') or item.get('link')
+                                if t and l:
+                                    outbrain_ads.append({
+                                        "title": str(t).strip(), 
+                                        "landing": l, 
+                                        "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''), 
+                                        "source": url, 
+                                        "network": "OUTBRAIN"
+                                    })
                 except: pass
 
         page.on("response", handle_response)
@@ -145,25 +170,26 @@ async def scrape_outbrain(browser, url):
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await smart_scroll_and_wait(page)
         
-        if not outbrain_ads:
-            for frame in page.frames:
-                try:
-                    dom_ads = await frame.evaluate("""
-                        () => {
-                            let found = [];
-                            document.querySelectorAll('a[data-ob-url], .ob-dynamic-rec-container a, .ob-widget-items-container a, .OUTBRAIN a').forEach(el => {
-                                let title = el.innerText.trim();
-                                let href = el.getAttribute('data-ob-url') || el.href;
-                                let src = el.querySelector('img') ? el.querySelector('img').src : '';
-                                if (title.length > 15 && href && href.startsWith('http')) {
-                                    found.push({title, landing: href, image: src});
-                                }
-                            });
-                            return found;
-                        }
-                    """)
-                    for ad in dom_ads: outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
-                except: pass
+        # استخراج من DOM لجميع الإطارات
+        for frame in page.frames:
+            try:
+                dom_ads = await frame.evaluate("""
+                    () => {
+                        let found = [];
+                        document.querySelectorAll('a[data-ob-url], .ob-dynamic-rec-container a, .ob-widget-items-container a, .OUTBRAIN a, [id*="outbrain"] a').forEach(el => {
+                            let title = el.innerText.trim();
+                            let href = el.getAttribute('data-ob-url') || el.href;
+                            let img_el = el.querySelector('img');
+                            let src = img_el ? (img_el.dataset.src || img_el.src) : '';
+                            if (title.length > 10 && href && href.startsWith('http')) {
+                                found.push({title, landing: href, image: src});
+                            }
+                        });
+                        return found;
+                    }
+                """)
+                for ad in dom_ads: outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
+            except: pass
 
         if outbrain_ads:
             unique_ads = {}
@@ -172,7 +198,7 @@ async def scrape_outbrain(browser, url):
             for ad in unique_ads.values(): await save_to_supabase(ad)
             print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان في {url}")
         else:
-            print(f"ℹ {url}: لم يتم رصد إعلانات")
+            print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
     except Exception as e:
         print(f"⚠️ [OUTBRAIN ERROR]: {e}")
     finally:
@@ -187,7 +213,6 @@ async def run():
             args=["--blink-settings=imagesEnabled=false", "--disable-features=IsolateOrigins,site-per-process", "--disable-background-networking", "--disable-dev-shm-usage", "--disable-extensions", "--disable-sync", "--no-sandbox"]
         )
         for target in OUTBRAIN_TARGETS:
-            print(f"Checking target: {target}")
             try: await scrape_outbrain(browser, target)
             except: pass
             await asyncio.sleep(random.uniform(3, 7))
