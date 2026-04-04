@@ -1,0 +1,35 @@
+{
+  "name": "native-spy-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
+    "@supabase/supabase-js": "^2.46.1",
+    "anthropic": "^0.0.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.11.11",
+    "groq-sdk": "^1.1.2",
+    "lucide-react": "^0.456.0",
+    "next": "15.0.3",
+    "react": "^19.0.0-rc",
+    "react-dom": "^19.0.0-rc",
+    "tailwind-merge": "^2.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.27",
+    "eslint": "^8",
+    "eslint-config-next": "15.0.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}
