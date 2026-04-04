@@ -90,27 +90,36 @@ async def scrape_mgid(browser, url):
     
     page = await context.new_page()
     
-    # 🚫 خطة الحظر الصارمة لتوفير الباندويث وتقليل استهلاك DataImpulse بنسبة 95%
+    # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث 
     async def block_resources(route):
         req = route.request
         res_type = req.resource_type
         url = req.url.lower()
 
-        # إيقاف أي ميديا أو ستايلات بالكامل
-        if res_type in ["image", "media", "font", "stylesheet"]:
+        if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
             await route.abort()
             return
 
-        # إيقاف التتبعات الثقيلة وأي شبكة أخرى لتوفير الكيلوبايتات
         blocked_domains = [
-            "google-analytics", "googletagmanager", "facebook", "pixel", "clarity",
-            "adsbygoogle", "cdn.mediavoice", "doubleclick", "criteo", "amazon-adsystem",
-            "outbrain", "taboola", "revcontent", "sharethis", "pinterest", "twitter"
+            "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
+            "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
+            "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
+            "mediavoice", "teads", "clarity", "doubleclick",
+            "outbrain", "taboola", "revcontent", "sharethis"
         ]
         
-        if any(kw in url for kw in blocked_domains):
+        # استثناء الشبكة وحليفتها
+        if any(kw in url for kw in blocked_domains) and "mgid.com" not in url and "adskeeper.com" not in url:
             await route.abort()
             return
+
+        if res_type in ["script", "fetch", "xhr"]:
+            if "mgid.com" in url or "adskeeper.com" in url:
+                await route.continue_()
+                return
+            if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
+                await route.abort()
+                return
 
         await route.continue_()
 

@@ -82,27 +82,40 @@ async def scrape_outbrain(browser, url):
     
     page = await context.new_page()
     
-    # 🚫 خطة الحظر الصارمة لتوفير الباندويث وتقليل استهلاك DataImpulse بنسبة 95%
+    # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث 
     async def block_resources(route):
         req = route.request
         res_type = req.resource_type
         url = req.url.lower()
 
-        # إيقاف أي ميديا أو ستايلات بالكامل
-        if res_type in ["image", "media", "font", "stylesheet"]:
+        # 1. القتل الفوري لأي ميديا، صور، خطوط، ستايلات، واتصالات ويب سوكيت
+        if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
             await route.abort()
             return
 
-        # إيقاف التتبعات الثقيلة وأي شبكة أخرى لتوفير الكيلوبايتات (نستثني outbrain.com)
+        # 2. القائمة السوداء الموسعة بناءً على لوحة DataImpulse
         blocked_domains = [
-            "google-analytics", "googletagmanager", "facebook", "pixel", "clarity",
-            "adsbygoogle", "cdn.mediavoice", "doubleclick", "criteo", "amazon-adsystem",
-            "mgid", "taboola", "revcontent", "sharethis", "pinterest", "twitter"
+            "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
+            "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
+            "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
+            "mediavoice", "teads", "outbrainimg.com", "clarity", "doubleclick",
+            "mgid", "taboola", "revcontent", "sharethis"
         ]
         
-        if any(kw in url for kw in blocked_domains):
+        # استثناء Outbrain
+        if any(kw in url for kw in blocked_domains) and "outbrain.com" not in url:
             await route.abort()
             return
+
+        # 3. القتل الذكي لملفات الجافاسكريبت الضخمة للناشرين (Static CDNs)
+        if res_type in ["script", "fetch", "xhr"]:
+            if "outbrain.com" in url:
+                await route.continue_()
+                return
+            # حظر ملفات الناشر الثقيلة مثل static.drive.com.au أو cdn.dailymail.co.uk
+            if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video."]):
+                await route.abort()
+                return
 
         await route.continue_()
 
