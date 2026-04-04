@@ -45,8 +45,8 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 TABOOLA_ARTICLE_SITES = [
-    "https://www.hespress.com",
-    "https://sabq.org",
+    "https://www.hespress.com", 
+    "https://sabq.org",         
     "https://www.independent.co.uk",
     "https://www.standard.co.uk",
     "https://www.dailysportx.com/news/vveins",
@@ -79,12 +79,12 @@ async def smart_scroll_and_wait(page):
         async () => {
             await new Promise((resolve) => {
                 let totalHeight = 0;
-                let distance = 300;
+                let distance = 350;
                 let timer = setInterval(() => {
                     let scrollHeight = document.body.scrollHeight;
                     window.scrollBy(0, distance);
                     totalHeight += distance;
-                    if(totalHeight >= scrollHeight || totalHeight > 12000){
+                    if(totalHeight >= scrollHeight || totalHeight > 10000){
                         clearInterval(timer);
                         resolve();
                     }
@@ -96,36 +96,38 @@ async def smart_scroll_and_wait(page):
 
 async def scrape_taboola(browser, url, semaphore):
     async with semaphore:
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale=GEO["locale"],
-            timezone_id=GEO["timezone_id"],
-            permissions=["geolocation"]
-        )
-        page = await context.new_page()
-        
-        async def block_resources(route):
-            req = route.request
-            if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
-                await route.abort()
-                return
-            blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "clarity", "doubleclick", "mgid", "outbrain", "revcontent", "sharethis"]
-            if any(kw in req.url.lower() for kw in blocked_domains) and "taboola.com" not in req.url.lower():
-                await route.abort()
-                return
-            if req.resource_type in ["script", "fetch", "xhr"]:
-                if "taboola.com" in req.url.lower():
-                    await route.continue_()
-                    return
-                if any(sub in req.url.lower() for sub in ["player.", "video.", "api."]):
+        context = None
+        page = None
+        try:
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                locale=GEO["locale"],
+                timezone_id=GEO["timezone_id"],
+                permissions=["geolocation"]
+            )
+            page = await context.new_page()
+            
+            async def block_resources(route):
+                req = route.request
+                if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                     await route.abort()
                     return
-            await route.continue_()
+                blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "clarity", "doubleclick", "mgid", "outbrain", "revcontent", "sharethis"]
+                if any(kw in req.url.lower() for kw in blocked_domains) and "taboola.com" not in req.url.lower():
+                    await route.abort()
+                    return
+                if req.resource_type in ["script", "fetch", "xhr"]:
+                    if "taboola.com" in req.url.lower():
+                        await route.continue_()
+                        return
+                    if any(sub in req.url.lower() for sub in ["player.", "video.", "api."]):
+                        await route.abort()
+                        return
+                await route.continue_()
 
-        await page.route("**/*", block_resources)
-        
-        try:
-            print(f"🚀 [TABOOLA]: فحص مقال/قسم مباشر: {url}")
+            await page.route("**/*", block_resources)
+            
+            print(f"🚀 [TABOOLA]: فحص الهدف: {url}")
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             await smart_scroll_and_wait(page)
             
@@ -161,11 +163,12 @@ async def scrape_taboola(browser, url, semaphore):
                         if title and len(title) > 10 and image_url.startswith("https://"):
                             await save_or_update_ad({"title": title[:200], "image": image_url, "landing": landing, "source": url, "network": "Taboola"})
                     except: continue
+
         except Exception as e:
             print(f"⚠️ [TABOOLA] Error في {url}: {str(e)[:100]}")
         finally:
-            await page.close()
-            await context.close()
+            if page: await page.close()
+            if context: await context.close()
 
 async def run_spy():
     semaphore = asyncio.Semaphore(1) 

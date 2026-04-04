@@ -43,8 +43,8 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.hespress.com",
-    "https://sabq.org",
+    "https://www.hespress.com", 
+    "https://sabq.org",         
     "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl",
     "https://www.skynewsarabia.com",
     "https://www.independent.co.uk"
@@ -72,7 +72,7 @@ async def smart_scroll_and_wait(page):
         async () => {
             await new Promise((resolve) => {
                 let totalHeight = 0;
-                let distance = 300;
+                let distance = 350;
                 let timer = setInterval(() => {
                     let scrollHeight = document.body.scrollHeight;
                     window.scrollBy(0, distance);
@@ -89,56 +89,58 @@ async def smart_scroll_and_wait(page):
 
 async def scrape_outbrain(browser, url):
     outbrain_ads = []
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        locale=GEO["locale"],
-        timezone_id=GEO["timezone_id"],
-        permissions=["geolocation"]
-    )
-    page = await context.new_page()
-    await Stealth().apply_stealth_async(page)
-    
-    async def block_resources(route):
-        req = route.request
-        if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
-            await route.abort()
-            return
-        blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "outbrainimg.com", "clarity", "doubleclick", "mgid", "taboola", "revcontent", "sharethis"]
-        if any(kw in req.url.lower() for kw in blocked_domains) and "outbrain.com" not in req.url.lower():
-            await route.abort()
-            return
-        if req.resource_type in ["script", "fetch", "xhr"]:
-            if "outbrain.com" in req.url.lower():
-                await route.continue_()
-                return
-            if any(sub in req.url.lower() for sub in ["player.", "video."]):
+    context = None
+    page = None
+    try:
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            locale=GEO["locale"],
+            timezone_id=GEO["timezone_id"],
+            permissions=["geolocation"]
+        )
+        page = await context.new_page()
+        await Stealth().apply_stealth_async(page)
+        
+        async def block_resources(route):
+            req = route.request
+            if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                 await route.abort()
                 return
-        await route.continue_()
+            blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "outbrainimg.com", "clarity", "doubleclick", "mgid", "taboola", "revcontent", "sharethis"]
+            if any(kw in req.url.lower() for kw in blocked_domains) and "outbrain.com" not in req.url.lower():
+                await route.abort()
+                return
+            if req.resource_type in ["script", "fetch", "xhr"]:
+                if "outbrain.com" in req.url.lower():
+                    await route.continue_()
+                    return
+                if any(sub in req.url.lower() for sub in ["player.", "video.", "api."]):
+                    await route.abort()
+                    return
+            await route.continue_()
 
-    await page.route("**/*", block_resources)
+        await page.route("**/*", block_resources)
 
-    async def handle_response(response):
-        nonlocal outbrain_ads
-        if "outbrain.com" in response.url.lower() and response.status == 200:
-            try:
-                ct = response.headers.get("content-type", "")
-                if "application/json" in ct or "text/javascript" in ct:
-                    data = await response.json()
-                    listings = []
-                    if isinstance(data, dict):
-                        listings = data.get('documents') or data.get('doc', {}).get('ads', []) or data.get('cards', []) or data.get('items', [])
-                    elif isinstance(data, list): listings = data
-                    for item in listings:
-                        t = item.get('content') or item.get('title') or item.get('text')
-                        l = item.get('url') or item.get('clickUrl') or item.get('link')
-                        if t and l:
-                            outbrain_ads.append({"title": str(t).strip(), "landing": l, "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''), "source": url, "network": "OUTBRAIN"})
-            except: pass
+        async def handle_response(response):
+            nonlocal outbrain_ads
+            if "outbrain.com" in response.url.lower() and response.status == 200:
+                try:
+                    ct = response.headers.get("content-type", "")
+                    if "application/json" in ct or "text/javascript" in ct:
+                        data = await response.json()
+                        listings = []
+                        if isinstance(data, dict):
+                            listings = data.get('documents') or data.get('doc', {}).get('ads', []) or data.get('cards', []) or data.get('items', [])
+                        elif isinstance(data, list): listings = data
+                        for item in listings:
+                            t = item.get('content') or item.get('title') or item.get('text')
+                            l = item.get('url') or item.get('clickUrl') or item.get('link')
+                            if t and l:
+                                outbrain_ads.append({"title": str(t).strip(), "landing": l, "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''), "source": url, "network": "OUTBRAIN"})
+                except: pass
 
-    page.on("response", handle_response)
-
-    try:
+        page.on("response", handle_response)
+        
         print(f"🚀 [OUTBRAIN]: فحص الهدف: {url}")
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await smart_scroll_and_wait(page)
@@ -170,12 +172,12 @@ async def scrape_outbrain(browser, url):
             for ad in unique_ads.values(): await save_to_supabase(ad)
             print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان في {url}")
         else:
-            print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
+            print(f"ℹ {url}: لم يتم رصد إعلانات")
     except Exception as e:
         print(f"⚠️ [OUTBRAIN ERROR]: {e}")
     finally:
-        await page.close()
-        await context.close()
+        if page: await page.close()
+        if context: await context.close()
 
 async def run():
     async with async_playwright() as p:
