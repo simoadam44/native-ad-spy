@@ -5,9 +5,11 @@ from playwright_stealth import Stealth
 from supabase import create_client
 
 # إعداد سوبابيز
-supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# إعداد الدولة والبروكسي المتطور (DataImpulse)
+# إعداد الدولة والبروكسي المتطور
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
@@ -40,10 +42,9 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-# ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.hespress.com", # نشط جداً في المغرب (Taboola/Outbrain)
-    "https://sabq.org",         # نشط جداً في السعودية (Taboola)
+    "https://www.hespress.com",
+    "https://sabq.org",
     "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl",
     "https://www.skynewsarabia.com",
     "https://www.independent.co.uk"
@@ -52,10 +53,8 @@ OUTBRAIN_TARGETS = [url.strip() for url in [
 async def save_to_supabase(ad):
     try:
         if not ad.get('title') or not ad.get('landing'): return
-        # تنظيف رابط Outbrain من معاملات التتبع المتغيرة لتقليل التكرار
         clean_url = ad['landing'].split('&dicbo=')[0] if '&dicbo=' in ad['landing'] else ad['landing']
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
-        
         if res.data:
             new_imp = (res.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()", "country_code": TARGET_COUNTRY}).eq("id", res.data[0]['id']).execute()
@@ -67,103 +66,7 @@ async def save_to_supabase(ad):
     except Exception as e:
         print(f"⚠️ [DB ERROR]: {e}")
 
-async def scrape_outbrain(browser, url):
-    outbrain_ads = []
-    # ✅ استخدام المتصفح الحقيقي للتهرب من الحظر (CDP)
-    if browser.contexts:
-        context = browser.contexts[0]
-    else:
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            locale=GEO["locale"],
-            timezone_id=GEO["timezone_id"],
-            permissions=["geolocation"]
-        )
-    
-    page = await context.new_page()
-    
-    # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث 
-    async def block_resources(route):
-        req = route.request
-        res_type = req.resource_type
-        url = req.url.lower()
-
-        # 1. القتل الفوري لأي ميديا، صور، خطوط، ستايلات، واتصالات ويب سوكيت
-        if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
-            await route.abort()
-            return
-
-        # 2. القائمة السوداء الموسعة بناءً على لوحة DataImpulse
-        blocked_domains = [
-            "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
-            "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
-            "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
-            "mediavoice", "teads", "outbrainimg.com", "clarity", "doubleclick",
-            "mgid", "taboola", "revcontent", "sharethis"
-        ]
-        
-        # استثناء Outbrain
-        if any(kw in url for kw in blocked_domains) and "outbrain.com" not in url:
-            await route.abort()
-            return
-
-        # 3. القتل الذكي لملفات الجافاسكريبت (تم تخفيفه حتى لا تكسر إعلانات Outbrain)
-        if res_type in ["script", "fetch", "xhr"]:
-            if "outbrain.com" in url:
-                await route.continue_()
-                return
-            # حظر مقاطع الفيديو واللاعبين
-            if any(sub in url for sub in ["player.", "video."]):
-                await route.abort()
-                return
-
-        await route.continue_()
-
-    await page.route("**/*", block_resources)
-
-    # تطبيق التخفي (Stealth) كإجراء احترازي دائم
-    from playwright_stealth import Stealth
-    await Stealth().apply_stealth_async(page)
-
-    # اعتراض استجابات API بشكل موسع
-    async def handle_response(response):
-        nonlocal outbrain_ads
-        url_lower = response.url.lower()
-        if "outbrain.com" in url_lower and response.status == 200:
-            try:
-                content_type = response.headers.get("content-type", "")
-                if "application/json" in content_type or "text/javascript" in content_type:
-                    data = await response.json()
-                    # Outbrain often uses 'documents' or 'doc.ads' or 'cards'
-                    if isinstance(data, dict):
-                        listings = (
-                            data.get('documents') or 
-                            data.get('doc', {}).get('ads', []) or 
-                            data.get('cards', []) or 
-                            data.get('items', [])
-                        )
-                    elif isinstance(data, list):
-                        listings = data
-                    else:
-                        listings = []
-                    
-                    for item in listings:
-                        title = item.get('content') or item.get('title') or item.get('text')
-                        link = item.get('url') or item.get('clickUrl') or item.get('link')
-                        if title and link:
-                            outbrain_ads.append({
-                                "title": str(title).strip(),
-                                "landing": link,
-                                "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''),
-                                "source": url,
-                                "network": "OUTBRAIN"
-                            })
-            except: pass
-
-    page.on("response", handle_response)
-
 async def smart_scroll_and_wait(page):
-    # 1. النزول لأسفل الصفحة تدريجياً لتفعيل Lazy Load
     print("🖱️ [OUTBRAIN]: جاري التمرير الذكي لتفعيل إعلانات Outbrain...")
     await page.evaluate("""
         async () => {
@@ -174,7 +77,7 @@ async def smart_scroll_and_wait(page):
                     let scrollHeight = document.body.scrollHeight;
                     window.scrollBy(0, distance);
                     totalHeight += distance;
-                    if(totalHeight >= scrollHeight || totalHeight > 10000){ // منع التمرير اللانهائي
+                    if(totalHeight >= scrollHeight || totalHeight > 10000){
                         clearInterval(timer);
                         resolve();
                     }
@@ -182,22 +85,64 @@ async def smart_scroll_and_wait(page):
             });
         }
     """)
-    # 2. انتظار إضافي بسيط لظهور حاويات الإعلانات
     await asyncio.sleep(5)
 
 async def scrape_outbrain(browser, url):
     outbrain_ads = []
-    # ... بقية الدالة ...
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        locale=GEO["locale"],
+        timezone_id=GEO["timezone_id"],
+        permissions=["geolocation"]
+    )
+    page = await context.new_page()
+    await Stealth().apply_stealth_async(page)
+    
+    async def block_resources(route):
+        req = route.request
+        if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
+            await route.abort()
+            return
+        blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "outbrainimg.com", "clarity", "doubleclick", "mgid", "taboola", "revcontent", "sharethis"]
+        if any(kw in req.url.lower() for kw in blocked_domains) and "outbrain.com" not in req.url.lower():
+            await route.abort()
+            return
+        if req.resource_type in ["script", "fetch", "xhr"]:
+            if "outbrain.com" in req.url.lower():
+                await route.continue_()
+                return
+            if any(sub in req.url.lower() for sub in ["player.", "video."]):
+                await route.abort()
+                return
+        await route.continue_()
+
+    await page.route("**/*", block_resources)
+
+    async def handle_response(response):
+        nonlocal outbrain_ads
+        if "outbrain.com" in response.url.lower() and response.status == 200:
+            try:
+                ct = response.headers.get("content-type", "")
+                if "application/json" in ct or "text/javascript" in ct:
+                    data = await response.json()
+                    listings = []
+                    if isinstance(data, dict):
+                        listings = data.get('documents') or data.get('doc', {}).get('ads', []) or data.get('cards', []) or data.get('items', [])
+                    elif isinstance(data, list): listings = data
+                    for item in listings:
+                        t = item.get('content') or item.get('title') or item.get('text')
+                        l = item.get('url') or item.get('clickUrl') or item.get('link')
+                        if t and l:
+                            outbrain_ads.append({"title": str(t).strip(), "landing": l, "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''), "source": url, "network": "OUTBRAIN"})
+            except: pass
+
+    page.on("response", handle_response)
+
     try:
         print(f"🚀 [OUTBRAIN]: فحص الهدف: {url}")
-        # زيادة التايم آوت إلى 60 ثانية لتعويض بطء البروكسي
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        
-        # تنفيذ التمرير الذكي
         await smart_scroll_and_wait(page)
-        # تم استبدال التمرير اليدوي بـ smart_scroll_and_wait الأعلى
-
-        # ✅ Fallback المطور من الكود ومتقاطع مع الإطارات (iframes)
+        
         if not outbrain_ads:
             for frame in page.frames:
                 try:
@@ -215,23 +160,17 @@ async def scrape_outbrain(browser, url):
                             return found;
                         }
                     """)
-                    for ad in dom_ads:
-                        outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
-                except:
-                    pass
+                    for ad in dom_ads: outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
+                except: pass
 
         if outbrain_ads:
             unique_ads = {}
             for ad in outbrain_ads:
-                if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads:
-                    unique_ads[ad['landing']] = ad
-            
-            for ad in unique_ads.values():
-                await save_to_supabase(ad)
+                if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: unique_ads[ad['landing']] = ad
+            for ad in unique_ads.values(): await save_to_supabase(ad)
             print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان في {url}")
         else:
             print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
-
     except Exception as e:
         print(f"⚠️ [OUTBRAIN ERROR]: {e}")
     finally:
@@ -240,52 +179,17 @@ async def scrape_outbrain(browser, url):
 
 async def run():
     async with async_playwright() as p:
-        # تشغيل متصفح مستقل (Launch) بدلاً من الاتصال (Connect) بناءً على طلبك
-        try:
-            print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-            browser = await p.chromium.launch(
-                headless=True, 
-                proxy=PROXY_CONFIG,
-                args=[
-                    "--blink-settings=imagesEnabled=false",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-background-networking",
-                    "--disable-dev-shm-usage",
-                    "--disable-extensions",
-                    "--disable-sync",
-                    "--no-sandbox"
-                ]
-            )
-            
-            # إعداد السياق مع تقنيات التخفي
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                locale=GEO["locale"],
-                timezone_id=GEO["timezone_id"],
-                permissions=["geolocation"]
-            )
-            
-            # تطبيق التخفي (Stealth)
-            from playwright_stealth import Stealth
-            page = await context.new_page()
-            
-            # 🚫 منع تحميل الصور للحد من استهلاك الـ 10GB
-            await page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff2,ttf}", lambda route: route.abort())
-            
-            await Stealth().apply_stealth_async(page)
-            
-            for target in OUTBRAIN_TARGETS:
-                print(f"Checking target: {target}")
-                try:
-                    await scrape_outbrain(browser, target)
-                except: pass
-                await asyncio.sleep(random.uniform(3, 7))
-                
-        except Exception as e:
-            print(f"Error launching browser: {e}")
-        finally:
-            if 'browser' in locals():
-                await browser.close()
+        print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
+        browser = await p.chromium.launch(
+            headless=True, proxy=PROXY_CONFIG,
+            args=["--blink-settings=imagesEnabled=false", "--disable-features=IsolateOrigins,site-per-process", "--disable-background-networking", "--disable-dev-shm-usage", "--disable-extensions", "--disable-sync", "--no-sandbox"]
+        )
+        for target in OUTBRAIN_TARGETS:
+            print(f"Checking target: {target}")
+            try: await scrape_outbrain(browser, target)
+            except: pass
+            await asyncio.sleep(random.uniform(3, 7))
+        await browser.close()
 
 if __name__ == "__main__":
     asyncio.run(run())

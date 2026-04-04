@@ -2,16 +2,16 @@ import asyncio
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from supabase import create_client
-from urllib.parse import urljoin, unquote # أضفنا unquote
+from urllib.parse import urljoin, unquote
 import os
 import re
 
-# إعدادات سوبابيز (تأكد من وجودها في GitHub Secrets)
+# إعدادات سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# إعداد الدولة والبروكسي المتطور (DataImpulse)
+# إعداد الدولة والبروكسي المتطور
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
@@ -44,11 +44,9 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-
-# استهداف المواقع التي أثبتت التقارير أنها تحتوي على طابولا نشط ومقالات
 TABOOLA_ARTICLE_SITES = [
-    "https://www.hespress.com", # نشط جداً عالمياً
-    "https://sabq.org",         # نشط جداً في السعودية
+    "https://www.hespress.com",
+    "https://sabq.org",
     "https://www.independent.co.uk",
     "https://www.standard.co.uk",
     "https://www.dailysportx.com/news/vveins",
@@ -57,12 +55,9 @@ TABOOLA_ARTICLE_SITES = [
 
 async def save_or_update_ad(data):
     try:
-        # منع تكرار الروابط وتنظيفها
         clean_landing = data['landing'].split('?')[0].split('#')[0]
         data['landing'] = clean_landing
-        
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
-        
         if existing.data:
             new_count = (existing.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({
@@ -78,6 +73,26 @@ async def save_or_update_ad(data):
     except Exception as e:
         print(f"⚠️ [TABOOLA] DB Error: {e}")
 
+async def smart_scroll_and_wait(page):
+    print("🖱️ [TABOOLA]: جاري التمرير الذكي لتنشيط التحميل المتأخر (Lazy Load)...")
+    await page.evaluate("""
+        async () => {
+            await new Promise((resolve) => {
+                let totalHeight = 0;
+                let distance = 300;
+                let timer = setInterval(() => {
+                    let scrollHeight = document.body.scrollHeight;
+                    window.scrollBy(0, distance);
+                    totalHeight += distance;
+                    if(totalHeight >= scrollHeight || totalHeight > 12000){
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 150);
+            });
+        }
+    """)
+    await asyncio.sleep(5)
 
 async def scrape_taboola(browser, url, semaphore):
     async with semaphore:
@@ -89,141 +104,65 @@ async def scrape_taboola(browser, url, semaphore):
         )
         page = await context.new_page()
         
-        # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث
         async def block_resources(route):
             req = route.request
-            res_type = req.resource_type
-            url = req.url.lower()
-
-            if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
+            if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                 await route.abort()
                 return
-
-            blocked_domains = [
-                "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
-                "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
-                "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
-                "mediavoice", "teads", "clarity", "doubleclick",
-                "mgid", "outbrain", "revcontent", "sharethis"
-            ]
-            
-            if any(kw in url for kw in blocked_domains) and "taboola.com" not in url:
+            blocked_domains = ["google", "facebook", "twitter", "tiktok", "snapchat", "pinterest", "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar", "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll", "mediavoice", "teads", "clarity", "doubleclick", "mgid", "outbrain", "revcontent", "sharethis"]
+            if any(kw in req.url.lower() for kw in blocked_domains) and "taboola.com" not in req.url.lower():
                 await route.abort()
                 return
-
-            if res_type in ["script", "fetch", "xhr"]:
-                if "taboola.com" in url:
+            if req.resource_type in ["script", "fetch", "xhr"]:
+                if "taboola.com" in req.url.lower():
                     await route.continue_()
                     return
-                # حظر ملفات الفيديو واللاعبين الثقيلة لتوفير البانوديث
-                if any(sub in url for sub in ["player.", "video.", "api."]):
+                if any(sub in req.url.lower() for sub in ["player.", "video.", "api."]):
                     await route.abort()
                     return
-
             await route.continue_()
 
         await page.route("**/*", block_resources)
         
-async def smart_scroll_and_wait(page):
-    # 1. النزول لأسفل الصفحة تدريجياً لتفعيل Lazy Load
-    print("🖱️ [TABOOLA]: جاري التمرير الذكي لتنشيط التحميل المتأخر (Lazy Load)...")
-    await page.evaluate("""
-        async () => {
-            await new Promise((resolve) => {
-                let totalHeight = 0;
-                let distance = 300;
-                let timer = setInterval(() => {
-                    let scrollHeight = document.body.scrollHeight;
-                    window.scrollBy(0, distance);
-                    totalHeight += distance;
-                    if(totalHeight >= scrollHeight || totalHeight > 12000){ // منع التمرير اللانهائي
-                        clearInterval(timer);
-                        resolve();
-                    }
-                }, 150);
-            });
-        }
-    """)
-    # 2. انتظار إضافي بسيط لظهور حاويات الإعلانات
-    await asyncio.sleep(5)
-
-async def scrape_taboola(browser, url, semaphore):
-    async with semaphore:
-        # ... بقية الإعدادات ...
         try:
             print(f"🚀 [TABOOLA]: فحص مقال/قسم مباشر: {url}")
-            # زيادة التايم آوت إلى 60 ثانية لتعويض بطء البروكسي
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            
-            # تنفيذ التمرير الذكي المطور
             await smart_scroll_and_wait(page)
             
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")
-            
-            # محددات طابولا الأكثر شيوعاً
             selectors = [".trc_spotlight_item", ".taboola-main-container", "[id*='taboola']", ".trc_item"]
             
             for selector in selectors:
-                elements = soup.select(selector)
-                for ad in elements:
+                for ad in soup.select(selector):
                     try:
                         link_tag = ad.find("a")
                         if not link_tag or not link_tag.get("href"): continue
-                        
                         title_el = ad.find(class_=re.compile(r"video-title|trc_label|title"))
                         title = title_el.get_text(strip=True) if title_el else ad.get_text(strip=True)
                         landing = urljoin(url, link_tag.get("href"))
-
-                        # --- منطق استخراج الصور المطور وحل مشكلة الاختفاء ---
                         img_tag = ad.find("img")
                         image_raw = ""
                         if img_tag:
-                            image_raw = (
-                                img_tag.get("data-src") or 
-                                img_tag.get("src") or 
-                                img_tag.get("data-lazy-src") or 
-                                img_tag.get("srcset") or ""
-                            )
-                            if "," in image_raw:
-                                image_raw = image_raw.split(",")[0].split(" ")[0]
-
-                        # البحث في الخلفيات إذا لم نجد وسم img
+                            image_raw = img_tag.get("data-src") or img_tag.get("src") or img_tag.get("data-lazy-src") or img_tag.get("srcset") or ""
+                            if "," in image_raw: image_raw = image_raw.split(",")[0].split(" ")[0]
                         if not image_raw:
                             bg_el = ad.find(style=re.compile(r"background-image"))
                             if bg_el:
-                                style = bg_el.get("style", "")
-                                match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
+                                match = re.search(r"url\(['\"]?(.*?)['\"]?\)", bg_el.get("style", ""))
                                 if match: image_raw = match.group(1)
-
-                        # --- الحيلة السحرية: تنظيف رابط طابولا المؤقت ---
-                        if "cdn.taboola.com" in image_raw or "images.taboola.com" in image_raw:
-                            # 1. فك تشفير الرابط إذا كان مصغراً عبر CDN
+                        if "taboola.com" in image_raw:
                             if "/ui/?src=" in image_raw:
                                 match = re.search(r"/ui/\?src=(.*?)&", image_raw)
-                                if match:
-                                    image_raw = unquote(match.group(1)) # unquote لفك تشفير الرموز
-                            
-                            # 2. إزالة البارامترات التي تجعل الرابط مؤقتاً (مثل توقيع الأمان &s=...)
+                                if match: image_raw = unquote(match.group(1))
                             image_raw = image_raw.split('?')[0]
-
-                        # تنظيف الرابط النهائي للصورة
                         image_url = urljoin(url, image_raw) if image_raw else ""
                         if image_url.startswith("//"): image_url = "https:" + image_url
-                        
-                        # استثناء صور البروفايل أو الأيقونات الصغيرة جداً (التي لا تبدأ بـ https بعد التنظيف)
                         if title and len(title) > 10 and image_url.startswith("https://"):
-                            await save_or_update_ad({
-                                "title": title[:200],
-                                "image": image_url,
-                                "landing": landing,
-                                "source": url,
-                                "network": "Taboola"
-                            })
+                            await save_or_update_ad({"title": title[:200], "image": image_url, "landing": landing, "source": url, "network": "Taboola"})
                     except: continue
-                    
         except Exception as e:
-            print(f"⚠️ [TABOOLA] Error في {url}: {str(e)[:50]}")
+            print(f"⚠️ [TABOOLA] Error في {url}: {str(e)[:100]}")
         finally:
             await page.close()
             await context.close()
@@ -235,15 +174,7 @@ async def run_spy():
         browser = await p.chromium.launch(
             headless=True, 
             proxy=PROXY_CONFIG,
-            args=[
-                "--blink-settings=imagesEnabled=false",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-background-networking",
-                "--disable-dev-shm-usage",
-                "--disable-extensions",
-                "--disable-sync",
-                "--no-sandbox"
-            ]
+            args=["--blink-settings=imagesEnabled=false", "--disable-features=IsolateOrigins,site-per-process", "--disable-background-networking", "--disable-dev-shm-usage", "--disable-extensions", "--disable-sync", "--no-sandbox"]
         )
         await asyncio.gather(*[scrape_taboola(browser, s, semaphore) for s in TABOOLA_ARTICLE_SITES])
         await browser.close()
