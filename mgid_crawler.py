@@ -225,14 +225,14 @@ async def scrape_mgid(browser, url):
                 landing = ad['landing']
                 if not landing: continue
                 
-                # ✅ فك تشفير روابط MGID التتبعية للحصول على رابط المنتج الحقيقي
-                if "clck.mgid.com" in landing:
+                # ✅ فك تشفير روابط MGID أو AdsKeeper (الشبكة الرديفة) التتبعية
+                if "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
                     try:
                         res = await context.request.get(landing, headers={"Referer": ad['source']}, max_redirects=5)
                         text = await res.text()
                         
                         # التوجيه الصريح (HTTP Redirect)
-                        if res.url and "clck.mgid.com" not in res.url:
+                        if res.url and "clck.mgid.com" not in res.url and "clck.adskeeper.com" not in res.url:
                             landing = res.url
                         else:
                             # التوجيه المبطن بالجافا سكريبت (JS Redirect)
