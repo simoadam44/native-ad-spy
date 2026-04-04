@@ -47,10 +47,10 @@ GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 # استهداف المواقع التي أثبتت التقارير أنها تحتوي على طابولا نشط ومقالات
 TABOOLA_ARTICLE_SITES = [
-    "https://www.independent.co.uk/news/world/americas/us-politics/trump-vance-kamala-harris-b2585299.html", # مقال مباشر
-    "https://www.standard.co.uk/news/politics/keir-starmer-rishi-sunak-general-election-b1161234.html", # مقال مباشر
-    "https://www.dailysportx.com/news/vveins",
-    "https://www.tips-and-tricks.co/online/sisterrevenge/2/"
+    "https://www.independent.co.uk/sport/football/fa-cup-draw-semi-final-date-time-tv-ball-numbers-b2950304.html", # مقال مباشر
+    "https://www.notimerica.com/politica/noticia-ucrania-zelenski-advierte-rusia-podria-estar-preparando-gran-ataque-aereo-20260323211616.html", # مقال مباشر
+    "https://www.notimerica.com/politica/noticia-ucrania-zelenski-advierte-rusia-podria-estar-preparando-gran-ataque-aereo-20260323211616.html",
+    "https://www.trucs-et-astuces.co/online/robocrab/"
 ]
 
 async def save_or_update_ad(data):
