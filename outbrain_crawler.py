@@ -42,11 +42,11 @@ GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 # ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.dailymail.co.uk/news/article-15704319/Security-scare-Andrew-Mountbatten-Windsor-Sandringham-home.html",
-    "https://www.9news.com.au/national/five-ways-the-fuel-crisis-is-about-to-hit-home/f052e047-39b5-4494-ba9c-fea253b7eeba",
-    "https://www.skynewsarabia.com/technology/1862384-%D8%AD%D9%81%D8%B1%D9%8A%D8%A7%D8%AA-%D8%B5%D9%8A%D9%86%D9%8A%D8%A9-%D8%AA%D9%83%D8%B4%D9%81-%D9%83%D8%A7%D8%A6%D9%86%D8%A7%D8%AA-%D8%A8%D8%AD%D8%B1%D9%8A%D8%A9-%D8%B9%D8%A7%D8%B4%D8%AA-546-%D9%85%D9%84%D9%8A%D9%88%D9%86-%D8%B9%D8%A7%D9%85",
-    "https://www.foxnews.com/us/chicago-man-accused-synagogue-shooting-threat-targeting-israeli-official-released-bond",
-    "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl"
+    "https://www.hespress.com", # نشط جداً في المغرب (Taboola/Outbrain)
+    "https://sabq.org",         # نشط جداً في السعودية (Taboola)
+    "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl",
+    "https://www.skynewsarabia.com",
+    "https://www.independent.co.uk"
 ]]
 
 async def save_to_supabase(ad):
@@ -162,22 +162,40 @@ async def scrape_outbrain(browser, url):
 
     page.on("response", handle_response)
 
+async def smart_scroll_and_wait(page):
+    # 1. النزول لأسفل الصفحة تدريجياً لتفعيل Lazy Load
+    print("🖱️ [OUTBRAIN]: جاري التمرير الذكي لتفعيل إعلانات Outbrain...")
+    await page.evaluate("""
+        async () => {
+            await new Promise((resolve) => {
+                let totalHeight = 0;
+                let distance = 300;
+                let timer = setInterval(() => {
+                    let scrollHeight = document.body.scrollHeight;
+                    window.scrollBy(0, distance);
+                    totalHeight += distance;
+                    if(totalHeight >= scrollHeight || totalHeight > 10000){ // منع التمرير اللانهائي
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 150);
+            });
+        }
+    """)
+    # 2. انتظار إضافي بسيط لظهور حاويات الإعلانات
+    await asyncio.sleep(5)
+
+async def scrape_outbrain(browser, url):
+    outbrain_ads = []
+    # ... بقية الدالة ...
     try:
         print(f"🚀 [OUTBRAIN]: فحص الهدف: {url}")
-        # استخدام domcontentloaded بدلاً من networkidle
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        # زيادة التايم آوت إلى 60 ثانية لتعويض بطء البروكسي
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         
-        # انتظار سريع
-        await asyncio.sleep(8)
-        try:
-            await page.wait_for_selector('[data-ob-widget], .OUTBRAIN, #outbrain', timeout=10000)
-        except: pass
-
-        # تمرير الصفحة للأسفل لضمان تحميل إعلانات Outbrain (Lazy load)
-        await asyncio.sleep(3)
-        for i in range(1, 8):
-            await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {i/7})")
-            await asyncio.sleep(1.5)
+        # تنفيذ التمرير الذكي
+        await smart_scroll_and_wait(page)
+        # تم استبدال التمرير اليدوي بـ smart_scroll_and_wait الأعلى
 
         # ✅ Fallback المطور من الكود ومتقاطع مع الإطارات (iframes)
         if not outbrain_ads:

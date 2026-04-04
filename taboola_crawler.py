@@ -47,11 +47,12 @@ GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 # استهداف المواقع التي أثبتت التقارير أنها تحتوي على طابولا نشط ومقالات
 TABOOLA_ARTICLE_SITES = [
-    "https://www.independent.co.uk/sport/football/fa-cup-draw-semi-final-date-time-tv-ball-numbers-b2950304.html", # مقال مباشر
-    "https://www.notimerica.com/politica/noticia-ucrania-zelenski-advierte-rusia-podria-estar-preparando-gran-ataque-aereo-20260323211616.html", # مقال مباشر
-    "https://www.notimerica.com/politica/noticia-ucrania-zelenski-advierte-rusia-podria-estar-preparando-gran-ataque-aereo-20260323211616.html",
-    "https://www.houseandgarden.co/its-allergy-season-allergy-proof-you-home-with-these-5-tips/#",
-    "https://www.trucs-et-astuces.co/online/robocrab/"
+    "https://www.hespress.com", # نشط جداً عالمياً
+    "https://sabq.org",         # نشط جداً في السعودية
+    "https://www.independent.co.uk",
+    "https://www.standard.co.uk",
+    "https://www.dailysportx.com/news/vveins",
+    "https://www.tips-and-tricks.co/online/sisterrevenge/2/"
 ]
 
 async def save_or_update_ad(data):
@@ -123,15 +124,39 @@ async def scrape_taboola(browser, url, semaphore):
 
         await page.route("**/*", block_resources)
         
+async def smart_scroll_and_wait(page):
+    # 1. النزول لأسفل الصفحة تدريجياً لتفعيل Lazy Load
+    print("🖱️ [TABOOLA]: جاري التمرير الذكي لتنشيط التحميل المتأخر (Lazy Load)...")
+    await page.evaluate("""
+        async () => {
+            await new Promise((resolve) => {
+                let totalHeight = 0;
+                let distance = 300;
+                let timer = setInterval(() => {
+                    let scrollHeight = document.body.scrollHeight;
+                    window.scrollBy(0, distance);
+                    totalHeight += distance;
+                    if(totalHeight >= scrollHeight || totalHeight > 12000){ // منع التمرير اللانهائي
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 150);
+            });
+        }
+    """)
+    # 2. انتظار إضافي بسيط لظهور حاويات الإعلانات
+    await asyncio.sleep(5)
+
+async def scrape_taboola(browser, url, semaphore):
+    async with semaphore:
+        # ... بقية الإعدادات ...
         try:
             print(f"🚀 [TABOOLA]: فحص مقال/قسم مباشر: {url}")
+            # زيادة التايم آوت إلى 60 ثانية لتعويض بطء البروكسي
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            # محاكاة التمرير التدريجي لتحفيز ظهور إعلانات Taboola أسفل المقال
-            await asyncio.sleep(3)
-            for i in range(1, 8):
-                await page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {i/7})")
-                await asyncio.sleep(1.5)
+            # تنفيذ التمرير الذكي المطور
+            await smart_scroll_and_wait(page)
             
             content = await page.content()
             soup = BeautifulSoup(content, "html.parser")
