@@ -131,7 +131,9 @@ async def scrape_taboola(browser, url, semaphore):
                                         try: data_list = json.loads(match.group(0))
                                         except: pass
                                     else:
-                                        try: data_list = await response.json().get('list', [])
+                                        try:
+                                            resp_json = await response.json()
+                                            data_list = resp_json.get('list', [])
                                         except: pass
                                     
                                     for item in data_list:

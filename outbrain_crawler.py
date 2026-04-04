@@ -131,34 +131,52 @@ async def scrape_outbrain(browser, url):
         async def handle_response(response):
             nonlocal outbrain_ads
             r_url = response.url.lower()
-            if "outbrain.com" in r_url and response.status == 200:
+            if ("outbrain.com" in r_url or "odb.outbrain.com" in r_url) and response.status == 200:
                 try:
                     ct = response.headers.get("content-type", "")
                     if "application/json" in ct or "text/javascript" in ct:
-                        # تصحيح: قد تحتوي بعض الاستجابات على كود JS يغلف الـ JSON
                         text = await response.text()
                         data = None
                         if text.strip().startswith('{') or text.strip().startswith('['):
                             data = json.loads(text)
                         else:
-                            # البحث عن JSON داخل JS
                             match = re.search(r'(\{.*\})|(\[.*\])', text)
                             if match: data = json.loads(match.group(0))
                         
                         if data:
                             listings = []
+                            # Outbrain uses various formats like 'documents', 'doc', 'ads', 'items'
+                            possible_keys = ['documents', 'items', 'cards', 'ads', 'listings']
                             if isinstance(data, dict):
-                                listings = data.get('documents') or data.get('doc', {}).get('ads', []) or data.get('cards', []) or data.get('items', [])
-                            elif isinstance(data, list): listings = data
+                                for key in possible_keys:
+                                    if key in data:
+                                        listings.extend(data[key])
+                                if 'doc' in data and isinstance(data['doc'], dict):
+                                    for key in possible_keys:
+                                        if key in data['doc']:
+                                            listings.extend(data['doc'][key])
+                            elif isinstance(data, list):
+                                listings = data
                             
                             for item in listings:
-                                t = item.get('content') or item.get('title') or item.get('text')
-                                l = item.get('url') or item.get('clickUrl') or item.get('link')
+                                t = item.get('content') or item.get('title') or item.get('text') or item.get('name')
+                                l = item.get('url') or item.get('clickUrl') or item.get('link') or item.get('href')
                                 if t and l:
+                                    # Normalize image extraction
+                                    img = ""
+                                    if isinstance(item.get('image'), dict):
+                                        img = item['image'].get('url') or ""
+                                    elif isinstance(item.get('thumbnail'), dict):
+                                        img = item['thumbnail'].get('url') or ""
+                                    elif isinstance(item.get('thumbnail'), list) and len(item['thumbnail']) > 0:
+                                        img = item['thumbnail'][0].get('url') or ""
+                                    else:
+                                        img = item.get('image') or item.get('thumbnail') or ""
+                                    
                                     outbrain_ads.append({
                                         "title": str(t).strip(), 
                                         "landing": l, 
-                                        "image": (item.get('image', {}) if isinstance(item.get('image'), dict) else {}).get('url') or item.get('thumbnail', ''), 
+                                        "image": img, 
                                         "source": url, 
                                         "network": "OUTBRAIN"
                                     })
@@ -170,17 +188,34 @@ async def scrape_outbrain(browser, url):
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await smart_scroll_and_wait(page)
         
-        # استخراج من DOM لجميع الإطارات
+        # استخراج من DOM لجميع الإطارات (بإستخدام محددات أكثر شمولاً)
         for frame in page.frames:
             try:
                 dom_ads = await frame.evaluate("""
                     () => {
                         let found = [];
-                        document.querySelectorAll('a[data-ob-url], .ob-dynamic-rec-container a, .ob-widget-items-container a, .OUTBRAIN a, [id*="outbrain"] a').forEach(el => {
-                            let title = el.innerText.trim();
-                            let href = el.getAttribute('data-ob-url') || el.href;
-                            let img_el = el.querySelector('img');
-                            let src = img_el ? (img_el.dataset.src || img_el.src) : '';
+                        let selectors = [
+                            'a[data-ob-url]', 
+                            '.ob-dynamic-rec-container a', 
+                            '.ob-widget-items-container a', 
+                            '.OUTBRAIN a', 
+                            '[id*="outbrain"] a',
+                            '.ob-rec-text-view',
+                            '.ob-unit a',
+                            '.ob-widget-item a'
+                        ];
+                        
+                        document.querySelectorAll(selectors.join(',')).forEach(el => {
+                            let link = el.tagName === 'A' ? el : el.closest('a');
+                            if (!link) return;
+                            
+                            let title_el = el.querySelector('.ob-rec-text') || el.querySelector('.ob-rec-title') || el;
+                            let title = title_el.innerText.trim();
+                            let href = link.getAttribute('data-ob-url') || link.href;
+                            
+                            let img_el = link.querySelector('img') || link.parentElement.querySelector('img');
+                            let src = img_el ? (img_el.dataset.src || img_el.getAttribute('data-src') || img_el.src) : '';
+                            
                             if (title.length > 10 && href && href.startsWith('http')) {
                                 found.push({title, landing: href, image: src});
                             }
@@ -188,7 +223,9 @@ async def scrape_outbrain(browser, url):
                         return found;
                     }
                 """)
-                for ad in dom_ads: outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
+                for ad in dom_ads: 
+                    if ad['title'] and ad['landing']:
+                        outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
             except: pass
 
         if outbrain_ads:
