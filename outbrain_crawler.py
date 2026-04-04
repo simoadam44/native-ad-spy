@@ -42,11 +42,11 @@ GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 # ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.dailymail.co.uk/news/index.html",
-    "https://www.9news.com.au/",
-    "https://www.skynewsarabia.com/technology",
-    "https://www.foxnews.com/world",
-    "https://edition.cnn.com/world"
+    "https://www.dailymail.co.uk/news/article-15704319/Security-scare-Andrew-Mountbatten-Windsor-Sandringham-home.html",
+    "https://www.9news.com.au/national/five-ways-the-fuel-crisis-is-about-to-hit-home/f052e047-39b5-4494-ba9c-fea253b7eeba",
+    "https://www.skynewsarabia.com/technology/1862384-%D8%AD%D9%81%D8%B1%D9%8A%D8%A7%D8%AA-%D8%B5%D9%8A%D9%86%D9%8A%D8%A9-%D8%AA%D9%83%D8%B4%D9%81-%D9%83%D8%A7%D8%A6%D9%86%D8%A7%D8%AA-%D8%A8%D8%AD%D8%B1%D9%8A%D8%A9-%D8%B9%D8%A7%D8%B4%D8%AA-546-%D9%85%D9%84%D9%8A%D9%88%D9%86-%D8%B9%D8%A7%D9%85",
+    "https://www.foxnews.com/us/chicago-man-accused-synagogue-shooting-threat-targeting-israeli-official-released-bond",
+    "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl"
 ]]
 
 async def save_to_supabase(ad):
