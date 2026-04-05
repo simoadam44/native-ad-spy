@@ -131,8 +131,9 @@ async def scrape_mgid(browser, url):
     await Stealth().apply_stealth_async(page)
 
     # اعتراض استجابات الـ API - نستخرج الرابط الحقيقي مباشرة من JSON
+    api_debug_done = False  # للطباعة مرة واحدة فقط
     async def handle_response(response):
-        nonlocal mgid_ads
+        nonlocal mgid_ads, api_debug_done
         url_lower = response.url.lower()
         if ("mgid.com" in url_lower or "servicerun" in url_lower) and response.status == 200:
             try:
@@ -150,8 +151,13 @@ async def scrape_mgid(browser, url):
                         if not isinstance(item, dict): continue
                         if not (item.get('title') or item.get('text')): continue
                         
-                        # ✅ الأولوية للروابط الحقيقية من الـ API (بدون tracking)
-                        # MGID API يحتوي على هذه الحقول بالترتيب التالي
+                        # ✅ ديباغ: طباعة جميع حقول العنصر الأول لمعرفة اسم حقل الرابط الحقيقي
+                        if not api_debug_done:
+                            url_fields = {k: v for k, v in item.items() if 'url' in k.lower() or 'link' in k.lower() or 'href' in k.lower()}
+                            print(f"[MGID DEBUG] URL fields in API: {url_fields}")
+                            api_debug_done = True
+                        
+                        # الأولوية للروابط الحقيقية من الـ API (بدون tracking)
                         real_url = (
                             item.get('articleUrl') or      # الرابط المباشر للمقال
                             item.get('targetUrl') or       # الرابط المستهدف
@@ -190,8 +196,6 @@ async def scrape_mgid(browser, url):
         if not mgid_ads:
             for frame in page.frames:
                 try:
-                    # استخدام locator الذي يخترق Shadow DOM تلقائياً عكس querySelectorAll
-                    # تشمل .mgline و .mgbox وأي ويدجت يبدأ بـ mgid_
                     links = frame.locator('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a, .mg-teaser a')
                     count = await links.count()
                     for i in range(count):
@@ -200,32 +204,46 @@ async def scrape_mgid(browser, url):
                         href = await el.get_attribute("href")
                         if title and href:
                             title = title.strip()
-                            # التحقق من أن الرابط صالح ليكون إعلان
                             if len(title) > 5 and href.startswith('http'):
-                                # محاولة استخراج الصورة بأمان دون كسر الحلقة
+                                # ✅ البحث أولاً عن الرابط الحقيقي في خصائص data-*
+                                # قبل أن يستبدل MGID الرابط برابط التتبع
+                                real_href = await el.evaluate("""
+                                    (a) => {
+                                        // البحث عن data-url, data-href, data-link قبل ضرب رابط التتبع
+                                        let realUrl = a.dataset.url || a.dataset.href || a.dataset.link ||
+                                                      a.dataset.articleUrl || a.dataset.targetUrl ||
+                                                      a.getAttribute('data-url') || a.getAttribute('data-href') ||
+                                                      a.getAttribute('data-link') || a.getAttribute('data-article-url') ||
+                                                      a.getAttribute('data-original-url');
+                                        if (realUrl && !realUrl.includes('clck.mgid.com') && !realUrl.includes('clck.adskeeper.com')) {
+                                            return realUrl;
+                                        }
+                                        // فحص العنصر الأب والجدّ أيضاً
+                                        let parent = a.closest('[data-url],[data-href],[data-article-url]');
+                                        if (parent) {
+                                            let pUrl = parent.dataset.url || parent.dataset.href || parent.dataset.articleUrl;
+                                            if (pUrl && !pUrl.includes('clck.mgid.com')) return pUrl;
+                                        }
+                                        return a.href;  // الرابط كما هو (tracking أو حقيقي)
+                                    }
+                                """)
+                                landing = real_href or href
+                                
                                 image_url = ""
                                 try:
                                     image_url = await el.evaluate("""
                                         (a) => {
-                                            // 1. البحث عن img داخل الرابط
                                             let img = a.querySelector('img');
                                             if (img && (img.src || img.dataset.src)) return img.src || img.dataset.src;
-                                            
-                                            // 2. البحث عن أقرب حاوية للإعلان
                                             let container = a.closest('.mgline, .mgbox, .mgid-widget, .mg-teaser, .image-with-text, [id^="mgid_"]');
                                             if (!container) container = a.parentElement;
-                                            
-                                            // 3. البحث عن img داخل الحاوية
                                             let cImg = container.querySelector('img');
                                             if (cImg && (cImg.src || cImg.dataset.src)) return cImg.src || cImg.dataset.src;
-                                            
-                                            // 4. البحث عن background-image في الحاوية أو أبنائها (مثل .mcimg)
                                             let searchEls = [container, ...container.querySelectorAll('div, span, a, i')];
                                             for (let el of searchEls) {
                                                 let style = window.getComputedStyle(el);
                                                 let bg = style.backgroundImage;
                                                 if (bg && bg !== 'none' && (bg.includes('http') || bg.includes('//'))) {
-                                                    // تنظيف الرابط من url() والرموز الزائدة
                                                     let clean = bg.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
                                                     if (clean.startsWith('//')) clean = 'https:' + clean;
                                                     return clean;
@@ -237,7 +255,7 @@ async def scrape_mgid(browser, url):
                                 except:
                                     pass
                                 
-                                mgid_ads.append({"title": title, "landing": href, "image": image_url or "", "source": url, "network": "MGID"})
+                                mgid_ads.append({"title": title, "landing": landing, "image": image_url or "", "source": url, "network": "MGID"})
                 except:
                     pass
 
@@ -257,22 +275,30 @@ async def scrape_mgid(browser, url):
                 # ✅ فك تشفير روابط التتبع فقط إذا لم نحصل على رابط مباشر من الـ API
                 elif "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
                     original_tracking = landing
+                    # روابط توجيه وهمية / bot detection يجب تجاهلها
+                    BOGUS_DOMAINS = ["ploynest.com", "ipqualityscore.com", "fraud-filter", "bot-detect"]
                     try:
                         resolve_page = await context.new_page()
                         try:
-                            # إضافة الـ Referer الصحيح + User-Agent واقعي للحصول على التوجيه
                             await resolve_page.set_extra_http_headers({
                                 "Referer": ad['source'],
                                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
                             })
-                            # الانتظار حتى يبدأ الاستجابة (commit) وليس حتى اكتمال التحميل
                             await resolve_page.goto(landing, timeout=15000, wait_until="commit")
                             final_url = resolve_page.url
-                            # قبول الرابط النهائي فقط إذا كان خارج نطاق MGID
-                            if final_url and "mgid.com" not in final_url and "adskeeper.com" not in final_url and final_url != landing:
+                            # قبول النتيجة فقط إذا كانت رابطاً حقيقياً ولم تكن رابط احتيال
+                            is_bogus = any(bd in final_url for bd in BOGUS_DOMAINS)
+                            is_valid = (final_url and 
+                                       "mgid.com" not in final_url and 
+                                       "adskeeper.com" not in final_url and 
+                                       final_url != landing and
+                                       not is_bogus)
+                            if is_valid:
                                 landing = final_url
                                 resolved_cache[original_tracking] = final_url
                                 print(f"🔗 [MGID]: تم فك رابط التتبع ← {final_url[:80]}")
+                            elif is_bogus:
+                                print(f"⚠️ [MGID]: تم كشف Bot Detection (رابط وهمي)  ← {final_url[:60]}")
                         except: pass
                         finally:
                             await resolve_page.close()
