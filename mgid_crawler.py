@@ -130,17 +130,15 @@ async def scrape_mgid(browser, url):
     from playwright_stealth import Stealth
     await Stealth().apply_stealth_async(page)
 
-    # اعتراض استجابات الـ API بشكل أكثر مرونة
+    # اعتراض استجابات الـ API - نستخرج الرابط الحقيقي مباشرة من JSON
     async def handle_response(response):
         nonlocal mgid_ads
         url_lower = response.url.lower()
         if ("mgid.com" in url_lower or "servicerun" in url_lower) and response.status == 200:
             try:
-                # محاولة فحص المحتوى إذا كان JSON
                 content_type = response.headers.get("content-type", "")
                 if "application/json" in content_type or "text/javascript" in content_type:
                     data = await response.json()
-                    # MGID API often uses 'items' or 'data' or directly an array
                     if isinstance(data, dict):
                         items = data.get('items') or data.get('data') or []
                     elif isinstance(data, list):
@@ -149,14 +147,28 @@ async def scrape_mgid(browser, url):
                         items = []
                     
                     for item in items:
-                        if isinstance(item, dict) and (item.get('title') or item.get('text')):
-                            mgid_ads.append({
-                                "title": (item.get('title') or item.get('text', '')).strip(),
-                                "landing": item.get('clickUrl') or item.get('url') or item.get('link', ''),
-                                "image": item.get('mainImage') or item.get('thumbnail') or item.get('image', ''),
-                                "source": url,
-                                "network": "MGID"
-                            })
+                        if not isinstance(item, dict): continue
+                        if not (item.get('title') or item.get('text')): continue
+                        
+                        # ✅ الأولوية للروابط الحقيقية من الـ API (بدون tracking)
+                        # MGID API يحتوي على هذه الحقول بالترتيب التالي
+                        real_url = (
+                            item.get('articleUrl') or      # الرابط المباشر للمقال
+                            item.get('targetUrl') or       # الرابط المستهدف
+                            item.get('destinationUrl') or  # رابط الوجهة
+                            item.get('originalUrl') or     # الرابط الأصلي
+                            item.get('url') or             # رابط عام
+                            item.get('clickUrl') or        # رابط التتبع (آخر خيار)
+                            item.get('link', '')
+                        )
+                        
+                        mgid_ads.append({
+                            "title": (item.get('title') or item.get('text', '')).strip(),
+                            "landing": real_url,
+                            "image": item.get('mainImage') or item.get('thumbnail') or item.get('image', ''),
+                            "source": url,
+                            "network": "MGID"
+                        })
             except: pass
 
     page.on("response", handle_response)
@@ -238,22 +250,29 @@ async def scrape_mgid(browser, url):
                 landing = ad.get('landing')
                 if not landing: continue
                 
-                # تخطي إذا تم حل الرابط مسبقاً
+                # تخطي إذا تم حل الرابط مسبقاً في هذه الجلسة
                 if landing in resolved_cache:
                     ad['landing'] = resolved_cache[landing]
                 
-                # ✅ فك تشفير روابط MGID أو AdsKeeper التتبعية بشكل مستقر
+                # ✅ فك تشفير روابط التتبع فقط إذا لم نحصل على رابط مباشر من الـ API
                 elif "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
+                    original_tracking = landing
                     try:
                         resolve_page = await context.new_page()
                         try:
-                            await resolve_page.set_extra_http_headers({"Referer": ad['source']})
-                            # مهلة قصيرة لفك التوجيه
+                            # إضافة الـ Referer الصحيح + User-Agent واقعي للحصول على التوجيه
+                            await resolve_page.set_extra_http_headers({
+                                "Referer": ad['source'],
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+                            })
+                            # الانتظار حتى يبدأ الاستجابة (commit) وليس حتى اكتمال التحميل
                             await resolve_page.goto(landing, timeout=15000, wait_until="commit")
                             final_url = resolve_page.url
-                            if "mgid.com" not in final_url and "adskeeper.com" not in final_url:
+                            # قبول الرابط النهائي فقط إذا كان خارج نطاق MGID
+                            if final_url and "mgid.com" not in final_url and "adskeeper.com" not in final_url and final_url != landing:
                                 landing = final_url
-                                resolved_cache[ad['landing']] = final_url
+                                resolved_cache[original_tracking] = final_url
+                                print(f"🔗 [MGID]: تم فك رابط التتبع ← {final_url[:80]}")
                         except: pass
                         finally:
                             await resolve_page.close()
@@ -261,7 +280,7 @@ async def scrape_mgid(browser, url):
                 
                 ad['landing'] = landing
                 
-                # تنظيف الرابط الأساسي للمقارنة
+                # تنظيف الرابط الأساسي للمقارنة (إزالة المعاملات الزائدة)
                 clean_key = landing.split('?')[0].split('#')[0]
                 
                 if clean_key not in unique_ads:
