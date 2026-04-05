@@ -228,32 +228,49 @@ async def scrape_mgid(browser, url):
                 except:
                     pass
 
-        if mgid_ads:
-            unique_ads = {}
+            resolved_cache = {}
             for ad in mgid_ads:
                 landing = ad['landing']
                 if not landing: continue
                 
-                # ✅ فك تشفير روابط MGID أو AdsKeeper (الشبكة الرديفة) التتبعية
+                # تخطي إذا تم حل الرابط مسبقاً في هذه الجلسة
+                if landing in resolved_cache:
+                    ad['landing'] = resolved_cache[landing]
+                    continue
+                
+                # ✅ فك تشفير روابط MGID أو AdsKeeper (الشبكة الرديفة) التتبعية بشكل متقدم
                 if "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
                     try:
-                        res = await context.request.get(landing, headers={"Referer": ad['source']}, max_redirects=5)
-                        text = await res.text()
-                        
-                        # التوجيه الصريح (HTTP Redirect)
-                        if res.url and "clck.mgid.com" not in res.url and "clck.adskeeper.com" not in res.url:
-                            landing = res.url
-                        else:
-                            # التوجيه المبطن بالجافا سكريبت (JS Redirect)
-                            import re
-                            js_match = re.search(r'window\.location\.replace\(["\'](htt[^"\']+)["\']', text)
-                            if js_match:
-                                landing = js_match.group(1)
+                        # استخدام صفحة مخفية (background tab) لضمان مرور الـ Cookies والـ Referer بشكل طبيعي
+                        resolve_page = await context.new_page()
+                        try:
+                            # تعيين الـ Referer يدوياً كإجراء إضافي
+                            await resolve_page.set_extra_http_headers({"Referer": ad['source']})
+                            # الذهاب للرابط وانتظار تغير الـ URL لموقع ليس له علاقة بـ MGID
+                            res = await resolve_page.goto(landing, timeout=30000, wait_until="domcontentloaded")
+                            
+                            # التقاط الرابط النهائي بعد التوجيهات (Redirects)
+                            final_url = resolve_page.url
+                            if "mgid.com" not in final_url and "adskeeper.com" not in final_url:
+                                landing = final_url
                             else:
-                                meta_match = re.search(r'url=(http[^"\'\s>]+)', text, re.IGNORECASE)
-                                if meta_match: landing = meta_match.group(1).strip("'\"")
-                                
-                        ad['landing'] = landing
+                                # محاولة استخراج الرابط إذا كان هناك توجيه JS لم يكتمل
+                                text = await resolve_page.content()
+                                import re
+                                js_match = re.search(r'window\.location\.replace\(["\'](htt[^"\']+)["\']', text)
+                                if js_match:
+                                    landing = js_match.group(1)
+                                else:
+                                    meta_match = re.search(r'url=(http[^"\'\s>]+)', text, re.IGNORECASE)
+                                    if meta_match: landing = meta_match.group(1).strip("'\"")
+                            
+                            ad['landing'] = landing
+                            resolved_cache[ad['landing']] = landing # تخزين في الكاش
+                        except Exception as inner_e:
+                            # إذا فشل التوجيه، نحاول استخراج أي رابط موجود في الـ URL الأصلي كخيار أخير
+                            pass
+                        finally:
+                            await resolve_page.close()
                     except:
                         pass
                 
