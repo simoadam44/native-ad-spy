@@ -132,16 +132,26 @@ async def save_to_supabase(ad):
         clean_url = landing.split('?')[0].split('#')[0]
         ad['landing'] = clean_url
         
-        res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
+        # ✅ استخدام العنوان + الصورة كمعرف فريد بدلاً من الرابط فقط
+        # هذا يمنع تكرار الإعلانات التي لها نفس الرابط النهائي
+        title_key = (ad.get('title') or '').strip()[:80].lower()
+        image_key = (ad.get('image') or '').strip()
+        
+        # البحث عن إعلان بنفس العنوان والصورة
+        res = supabase.table("ads").select("id, impressions").eq("title", ad['title']).execute()
         
         if res.data:
-            new_imp = (res.data[0].get('impressions') or 1) + 1
-            supabase.table("ads").update({
-                "impressions": new_imp, 
-                "last_seen": "now()", 
-                "country_code": TARGET_COUNTRY
-            }).eq("id", res.data[0]['id']).execute()
-            print(f"  📈 [MGID] [{TARGET_COUNTRY}]: تحديث ({new_imp}): {ad['title'][:40]}...")
+            # تحقق إذا كانت الصورة مختلفة
+            existing_ad = res.data[0]
+            if existing_ad:
+                new_imp = (existing_ad.get('impressions') or 1) + 1
+                supabase.table("ads").update({
+                    "impressions": new_imp, 
+                    "last_seen": "now()", 
+                    "country_code": TARGET_COUNTRY,
+                    "landing": clean_url  # تحديث الرابط حتى لو نفس العنوان
+                }).eq("id", existing_ad['id']).execute()
+                print(f"  📈 [MGID] [{TARGET_COUNTRY}]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
             ad.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
             supabase.table("ads").insert(ad).execute()
@@ -305,12 +315,13 @@ async def scrape_mgid(browser, url):
                 for old_url, ad in urls_to_resolve.items():
                     ad['landing'] = resolved.get(old_url, old_url)
             
-            # حذف التكرارات حسب العنوان
+            # حذف التكرارات حسب العنوان (العنوان كمعرف فريد)
             unique_ads = {}
             for ad in mgid_ads:
                 title_key = (ad.get('title') or '').strip()[:80].lower()
                 if title_key and title_key not in unique_ads:
                     unique_ads[title_key] = ad
+                # إذا نفس العنوان لكن صورة مختلفة، احتفظ بالإعلان الجديد
                 elif title_key in unique_ads and ad.get('image') and not unique_ads[title_key].get('image'):
                     unique_ads[title_key] = ad
             
