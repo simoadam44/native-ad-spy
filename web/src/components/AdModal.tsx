@@ -20,6 +20,27 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
   const [loadingHeadlines, setLoadingHeadlines] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
+  const [resolving, setResolving] = useState(false);
+
+  // Resolve MGID tracking links via server-side proxy
+  const resolveAndVisit = async (landingUrl: string, sourceUrl: string) => {
+    const isTracking = landingUrl.includes("clck.mgid.com") || landingUrl.includes("clck.adskeeper.com");
+    if (!isTracking) {
+      window.open(landingUrl, "_blank");
+      return;
+    }
+    setResolving(true);
+    try {
+      const ref = encodeURIComponent(sourceUrl || "https://brainberries.co/");
+      const res = await fetch(`/api/resolve?url=${encodeURIComponent(landingUrl)}&ref=${ref}`);
+      const data = await res.json();
+      window.open(data.resolved || landingUrl, "_blank");
+    } catch {
+      window.open(landingUrl, "_blank");
+    } finally {
+      setResolving(false);
+    }
+  };
 
   const fetchAnalysis = useCallback(async () => {
     if (!ad) return;
@@ -90,10 +111,11 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
           {/* Header */}
           <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/3 shrink-0">
             <div className="flex items-center gap-3 min-w-0">
-              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase shrink-0 ${{
-                Taboola: 'bg-blue-600', MGID: 'bg-purple-600',
-                Outbrain: 'bg-orange-600', Revcontent: 'bg-green-600'
-              }[ad.network] || 'bg-neutral-700'} text-white`}>
+              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase shrink-0 ${(
+                { Taboola: 'bg-blue-600', MGID: 'bg-purple-600',
+                  Outbrain: 'bg-orange-600', Revcontent: 'bg-green-600'
+                } as Record<string, string>
+              )[ad.network] || 'bg-neutral-700'} text-white`}>
                 {ad.network}
               </span>
               <h2 className="font-bold text-base font-syne truncate">{ad.title}</h2>
@@ -160,13 +182,17 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                   >
                     <Heart size={16} fill={isFav ? "currentColor" : "none"} /> {isFav ? "Saved" : "Save"}
                   </button>
-                  <a
-                    href={ad.landing}
-                    target="_blank"
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white font-bold text-sm hover:bg-primary/90 transition-all"
+                  <button
+                    onClick={() => resolveAndVisit(ad.landing, ad.source_url || "")}
+                    disabled={resolving}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white font-bold text-sm hover:bg-primary/90 transition-all disabled:opacity-60"
                   >
-                    <ExternalLink size={16} /> Visit Ad
-                  </a>
+                    {resolving ? (
+                      <><Loader2 size={16} className="animate-spin" /> Resolving...</>
+                    ) : (
+                      <><ExternalLink size={16} /> Visit Ad</>
+                    )}
+                  </button>
                 </div>
               </div>
 

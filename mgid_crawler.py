@@ -298,23 +298,24 @@ async def scrape_mgid(browser, url):
         
         if mgid_ads:
             for ad in mgid_ads:
-                landing = ad.get('landing', '')
-                if not landing: continue
+                title = (ad.get('title') or '').strip()
+                landing = (ad.get('landing') or '').strip()
+                if not title or not landing: continue
                 
-                # ✅ تنظيف الرابط: الروابط الحقيقية فقط، تجاهل روابط التتبع
-                is_tracking = "clck.mgid.com" in landing or "clck.adskeeper.com" in landing
+                # ✅ التكرار يعتمد على أول 80 حرف من العنوان
+                # نفس الإعلان يظهر بروابط تتبع مختلفة → نحتفظ بنسخة واحدة فقط
+                title_key = title.lower()[:80]
                 
-                # تنظيف المفتاح للمقارنة
-                clean_key = landing.split('?')[0].split('#')[0]
-                
-                if clean_key not in unique_ads:
-                    unique_ads[clean_key] = ad
-                elif ad.get('image') and not unique_ads[clean_key].get('image'):
-                    unique_ads[clean_key] = ad
-                elif len(ad.get('title', '')) > len(unique_ads[clean_key].get('title', '')):
-                    unique_ads[clean_key] = ad
+                if title_key not in unique_ads:
+                    unique_ads[title_key] = ad
+                # نفضل الإعلان الذي يملك صورة
+                elif ad.get('image') and not unique_ads[title_key].get('image'):
+                    unique_ads[title_key] = ad
+                # نفضل الرابط الحقيقي على رابط التتبع
+                elif ("clck.mgid.com" in (unique_ads[title_key].get('landing') or '')) and \
+                     not ("clck.mgid.com" in landing):
+                    unique_ads[title_key] = ad
 
-            # حفظ النتائج النهائية
             for ad in unique_ads.values():
                 await save_to_supabase(ad)
             print(f"✅ [MGID]: تم صيد {len(unique_ads)} إعلان بنجاح في {url}")
