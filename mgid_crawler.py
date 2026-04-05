@@ -19,7 +19,7 @@ except Exception as e:
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
-    "server": "socks5://gw.dataimpulse.com:824",
+    "server": "http://gw.dataimpulse.com:823",
     "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
     "password": "78c188c405598b8a"
 }
