@@ -15,7 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
-    "server": "http://gw.dataimpulse.com:823",
+    "server": "socks5://gw.dataimpulse.com:824",
     "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
     "password": "78c188c405598b8a"
 }
@@ -140,15 +140,17 @@ async def scrape_revcontent(browser, url, semaphore):
                 res_type = req.resource_type
                 r_url = req.url.lower()
 
+                # حظر صارم لكل ما هو غير ضروري للسحب (بما في ذلك الـ CSS والخطوط)
                 if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                     await route.abort()
                     return
 
                 blocked_domains = [
-                    "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
+                    "google-analytics", "googletagmanager", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
                     "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
                     "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
-                    "mediavoice", "teads", "clarity", "doubleclick"
+                    "mediavoice", "teads", "clarity", "doubleclick",
+                    "mgid.com", "outbrain.com", "taboola.com"
                 ]
                 
                 if any(kw in r_url for kw in blocked_domains) and "revcontent.com" not in r_url:
@@ -156,11 +158,12 @@ async def scrape_revcontent(browser, url, semaphore):
                     return
 
                 if res_type in ["script", "fetch", "xhr"]:
-                    # السماح لـ Revcontent والـ CDNs الأساسية التي قد تستخدمها المواقع
-                    if "revcontent.com" in r_url or any(sub in r_url for sub in ["static.", "assets.", "cdn."]):
+                    # السماح لـ Revcontent فقط
+                    if "revcontent.com" in r_url:
                         await route.continue_()
                         return
-                    if any(sub in r_url for sub in ["player.", "video."]):
+                    # حظر سكريبتات المواقع والـ CDNs الخارجية لتوفير البيانات
+                    if any(sub in r_url for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
                         await route.abort()
                         return
 

@@ -19,7 +19,7 @@ except Exception as e:
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
-    "server": "http://gw.dataimpulse.com:823",
+    "server": "socks5://gw.dataimpulse.com:824",
     "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
     "password": "78c188c405598b8a"
 }
@@ -96,27 +96,28 @@ async def scrape_mgid(browser, url):
         res_type = req.resource_type
         url = req.url.lower()
 
+        # حظر صارم لكل ما هو غير ضروري للسحب (بما في ذلك الـ CSS والخطوط)
         if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
             await route.abort()
             return
 
         blocked_domains = [
-            "google", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
+            "google-analytics", "googletagmanager", "facebook", "twitter", "tiktok", "snapchat", "pinterest",
             "chartbeat", "btloader", "surveygizmo", "scorecardresearch", "hotjar",
             "criteo", "amazon", "rubicon", "openx", "pubmatic", "quantserve", "adroll",
-            "mediavoice", "teads", "clarity", "doubleclick",
-            "outbrain", "taboola", "revcontent", "sharethis"
+            "mediavoice", "teads", "clarity", "doubleclick", "outbrain", "taboola", "revcontent"
         ]
         
-        # استثناء الشبكة وحليفتها
         if any(kw in url for kw in blocked_domains) and "mgid.com" not in url and "adskeeper.com" not in url:
             await route.abort()
             return
 
         if res_type in ["script", "fetch", "xhr"]:
+            # السماح فقط بطلب الشبكة الإعلانية المطلوبة
             if "mgid.com" in url or "adskeeper.com" in url:
                 await route.continue_()
                 return
+            # حظر سكريبتات المواقع والـ CDNs الخارجية لتوفير البيانات
             if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
                 await route.abort()
                 return
@@ -307,7 +308,7 @@ async def run():
                 headless=True, 
                 proxy=PROXY_CONFIG,
                 args=[
-                    "--blink-settings=imagesEnabled=false",           # حظر الصور من جذور المحرك
+                    "--blink-settings=imagesEnabled=false",
                     "--disable-features=IsolateOrigins,site-per-process",
                     "--disable-background-networking",
                     "--disable-dev-shm-usage",

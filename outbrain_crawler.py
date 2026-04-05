@@ -12,10 +12,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # إعداد الدولة والبروكسي المتطور
+# إعداد الدولة والبروكسي المتطور
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
-    "server": "http://gw.dataimpulse.com:823",
+    "server": "socks5://gw.dataimpulse.com:824",
     "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
     "password": "78c188c405598b8a"
 }
@@ -103,27 +104,37 @@ async def scrape_outbrain(browser, url):
         page = await context.new_page()
         await Stealth().apply_stealth_async(page)
         
+        # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث 
         async def block_resources(route):
             req = route.request
+            res_type = req.resource_type
             url_low = req.url.lower()
-            if req.resource_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
+
+            # حظر صارم لكل ما هو غير ضروري للسحب (بما في ذلك الـ CSS والخطوط)
+            if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                 await route.abort()
                 return
             
-            # السماح لملفات التعريف والتشغيل الأساسية
-            if any(sub in url_low for sub in ["static.", "assets.", "cdn.", "outbrain.com", "taboola.com"]):
-                # حظر المتتبعات المعروفة فقط
-                trackers = ["google-analytics", "facebook.com", "doubleclick", "scorecardresearch"]
-                if any(t in url_low for t in trackers):
-                    await route.abort()
-                    return
-                await route.continue_()
+            # قائمة المحظورات المعروفة (Trackers)
+            blocked_domains = [
+                "google-analytics", "googletagmanager", "facebook.com", "twitter.com", "tiktok.com",
+                "doubleclick", "scorecardresearch", "hotjar", "chartbeat", "quantserve",
+                "mgid.com", "taboola.com", "revcontent.com"
+            ]
+            if any(kw in url_low for kw in blocked_domains) and "outbrain.com" not in url_low:
+                await route.abort()
                 return
                 
-            if req.resource_type in ["script", "fetch", "xhr"]:
-                if any(sub in url_low for sub in ["player.", "video."]):
+            if res_type in ["script", "fetch", "xhr"]:
+                # السماح لـ Outbrain فقط
+                if "outbrain.com" in url_low:
+                    await route.continue_()
+                    return
+                # حظر سكريبتات المواقع والـ CDNs الخارجية لتوفير البيانات
+                if any(sub in url_low for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
                     await route.abort()
                     return
+
             await route.continue_()
 
         await page.route("**/*", block_resources)
@@ -246,8 +257,17 @@ async def run():
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
         browser = await p.chromium.launch(
-            headless=True, proxy=PROXY_CONFIG,
-            args=["--blink-settings=imagesEnabled=false", "--disable-features=IsolateOrigins,site-per-process", "--disable-background-networking", "--disable-dev-shm-usage", "--disable-extensions", "--disable-sync", "--no-sandbox"]
+            headless=True,
+            proxy=PROXY_CONFIG,
+            args=[
+                "--blink-settings=imagesEnabled=false",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-background-networking",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-sync",
+                "--no-sandbox"
+            ]
         )
         for target in OUTBRAIN_TARGETS:
             try: await scrape_outbrain(browser, target)

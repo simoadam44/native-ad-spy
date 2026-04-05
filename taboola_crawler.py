@@ -16,7 +16,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
 PROXY_CONFIG = {
-    "server": "http://gw.dataimpulse.com:823",
+    "server": "socks5://gw.dataimpulse.com:824",
     "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
     "password": "78c188c405598b8a"
 }
@@ -157,23 +157,28 @@ async def scrape_taboola(browser, url, semaphore):
                 res_type = req.resource_type
                 url = req.url.lower()
 
+                # حظر صارم لكل ما هو غير ضروري للسحب (بما في ذلك الـ CSS والخطوط)
                 if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
                     await route.abort()
                     return
                 
                 # قائمة المحظورات المعروفة (Trackers)
-                blocked_domains = ["google-analytics", "facebook.com", "doubleclick", "scorecardresearch", "hotjar", "chartbeat", "quantserve"]
-                if any(kw in url for kw in blocked_domains):
+                blocked_domains = [
+                    "google-analytics", "googletagmanager", "facebook.com", "twitter.com", "tiktok.com",
+                    "doubleclick", "scorecardresearch", "hotjar", "chartbeat", "quantserve",
+                    "mgid.com", "outbrain.com", "revcontent.com"
+                ]
+                if any(kw in url for kw in blocked_domains) and "taboola.com" not in url:
                     await route.abort()
                     return
                 
                 if res_type in ["script", "fetch", "xhr"]:
-                    # السماح لـ Taboola والناشر
-                    if "taboola.com" in url or any(sub in url for sub in ["static.", "assets.", "cdn."]):
+                    # السماح لـ Taboola فقط
+                    if "taboola.com" in url:
                         await route.continue_()
                         return
-                    # حظر الفيديو فقط
-                    if any(sub in url for sub in ["player.", "video."]):
+                    # حظر سكريبتات المواقع والـ CDNs الخارجية لتوفير البيانات
+                    if any(sub in url for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
                         await route.abort()
                         return
                         
@@ -257,7 +262,15 @@ async def run_spy():
         browser = await p.chromium.launch(
             headless=True, 
             proxy=PROXY_CONFIG,
-            args=["--blink-settings=imagesEnabled=false", "--disable-features=IsolateOrigins,site-per-process", "--disable-background-networking", "--disable-dev-shm-usage", "--disable-extensions", "--disable-sync", "--no-sandbox"]
+            args=[
+                "--blink-settings=imagesEnabled=false",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-background-networking",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-sync",
+                "--no-sandbox"
+            ]
         )
         await asyncio.gather(*[scrape_taboola(browser, s, semaphore) for s in TABOOLA_ARTICLE_SITES])
         await browser.close()
