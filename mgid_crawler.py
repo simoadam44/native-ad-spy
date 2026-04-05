@@ -43,28 +43,69 @@ MGID_TARGETS = [
     "https://zestradar.com/celebrities/the-worst-beckham-family-rumors-theyll-never-outrun/"
 ]
 
-# ✅ دالة جديدة لحل رابط التتبع والحصول على الرابط الحقيقي
-async def resolve_mgid_redirect(url: str, session: aiohttp.ClientSession = None) -> str:
-    """حل رابط التتبع من MGID للحصول على الرابط النهائي"""
+async def resolve_mgid_redirect(url: str) -> str:
+    """حل رابط التتبع من MGID باستخدام Playwright"""
     if not url or not isinstance(url, str):
         return url
     
-    # إذا كان الرابط ليس من MGID跟踪-link، أعده كما هو
     if 'clck.mgid.com' not in url and 'clck.adskeeper.com' not in url:
         return url
     
+    browser = None
     try:
-        # استخدام aiohttp المتزامن لحل الـ redirect
-        async with aiohttp.ClientSession() as client:
-            async with client.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                final_url = str(resp.url)
-                print(f"    🔗 تم حل الرابط: {url[:50]}... → {final_url[:50]}...")
-                return final_url
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            
+            # Go to the MGID tracking URL
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            
+            # Wait for potential redirect
+            await asyncio.sleep(3)
+            
+            # Get the final URL after all redirects
+            final_url = page.url
+            
+            # If still a tracking URL, try to click or wait for meta refresh
+            if 'clck.mgid.com' in final_url or 'clck.adskeeper.com' in final_url:
+                # Try finding and clicking any redirect button
+                try:
+                    await page.wait_for_selector('a[href]', timeout=5000)
+                    links = await page.query_selector_all('a')
+                    for link in links:
+                        href = await link.get_attribute('href')
+                        if href and 'clck' not in href:
+                            final_url = href
+                            break
+                except: pass
+                
+                # Try meta refresh as fallback
+                if 'clck.mgid.com' in final_url or 'clck.adskeeper.com' in final_url:
+                    meta_refresh = await page.evaluate('''() => {
+                        for (let m of document.querySelectorAll('meta[http-equiv="refresh"]')) {
+                            let content = m.getAttribute('content');
+                            if (content && content.includes('url=')) {
+                                return content.split('url=')[1];
+                            }
+                        }
+                        return null;
+                    }''')
+                    if meta_refresh:
+                        final_url = meta_refresh if meta_refresh.startswith('http') else 'https://' + meta_refresh
+            
+            print(f"    🔗 حل الرابط: {url[:40]}... → {final_url[:50]}...")
+            await browser.close()
+            return final_url
+            
     except Exception as e:
         print(f"    ⚠️ فشل في حل الرابط: {url[:30]}... - {str(e)[:50]}")
-        return url
+    finally:
+        if browser:
+            await browser.close()
+    
+    return url
 
-async def resolve_mgid_redirect_batch(urls: list) -> list:
+async def resolve_mgid_redirect_batch(urls: list) -> dict:
     """حل مجموعة من روابط التتبع بشكل متوازي"""
     resolved = {}
     tasks = [resolve_mgid_redirect(url) for url in urls if url]
