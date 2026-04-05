@@ -60,38 +60,48 @@ async def resolve_mgid_redirect(url: str) -> str:
             # Go to the MGID tracking URL
             await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             
-            # Wait for potential redirect
-            await asyncio.sleep(3)
-            
-            # Get the final URL after all redirects
-            final_url = page.url
-            
-            # If still a tracking URL, try to click or wait for meta refresh
-            if 'clck.mgid.com' in final_url or 'clck.adskeeper.com' in final_url:
-                # Try finding and clicking any redirect button
+            # Wait for potential redirect and keep following until final URL
+            max_wait = 10
+            for i in range(max_wait):
+                await asyncio.sleep(1)
+                current_url = page.url
+                
+                # If URL changed and no longer contains tracking domains, we're done
+                if 'clck.mgid.com' not in current_url and 'clck.adskeeper.com' not in current_url:
+                    break
+                
+                # Try to find and click any redirect button
                 try:
-                    await page.wait_for_selector('a[href]', timeout=5000)
-                    links = await page.query_selector_all('a')
-                    for link in links:
-                        href = await link.get_attribute('href')
+                    buttons = await page.query_selector_all('button, a')
+                    for btn in buttons:
+                        href = await btn.get_attribute('href')
+                        onclick = await btn.get_attribute('onclick')
                         if href and 'clck' not in href:
-                            final_url = href
+                            await btn.click()
+                            await asyncio.sleep(2)
+                            break
+                        elif onclick and ('location' in onclick or 'redirect' in onclick):
+                            await btn.click()
+                            await asyncio.sleep(2)
                             break
                 except: pass
-                
-                # Try meta refresh as fallback
-                if 'clck.mgid.com' in final_url or 'clck.adskeeper.com' in final_url:
-                    meta_refresh = await page.evaluate('''() => {
-                        for (let m of document.querySelectorAll('meta[http-equiv="refresh"]')) {
-                            let content = m.getAttribute('content');
-                            if (content && content.includes('url=')) {
-                                return content.split('url=')[1];
-                            }
+            
+            # Get final URL
+            final_url = page.url
+            
+            # If still tracking URL, try meta refresh
+            if 'clck.mgid.com' in final_url or 'clck.adskeeper.com' in final_url:
+                meta_refresh = await page.evaluate('''() => {
+                    for (let m of document.querySelectorAll('meta[http-equiv="refresh"]')) {
+                        let content = m.getAttribute('content');
+                        if (content && content.includes('url=')) {
+                            return content.split('url=')[1];
                         }
-                        return null;
-                    }''')
-                    if meta_refresh:
-                        final_url = meta_refresh if meta_refresh.startswith('http') else 'https://' + meta_refresh
+                    }
+                    return null;
+                }''')
+                if meta_refresh:
+                    final_url = meta_refresh if meta_refresh.startswith('http') else 'https://' + meta_refresh
             
             print(f"    🔗 حل الرابط: {url[:40]}... → {final_url[:50]}...")
             await browser.close()
