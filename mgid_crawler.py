@@ -131,50 +131,48 @@ async def scrape_mgid(browser, url):
     await Stealth().apply_stealth_async(page)
 
     # اعتراض استجابات الـ API - نستخرج الرابط الحقيقي مباشرة من JSON
-    api_debug_done = False  # للطباعة مرة واحدة فقط
+    api_debug_done = False
     async def handle_response(response):
         nonlocal mgid_ads, api_debug_done
         url_lower = response.url.lower()
-        if ("mgid.com" in url_lower or "servicerun" in url_lower) and response.status == 200:
+        if "mgid.com" in url_lower and response.status == 200:
             try:
-                content_type = response.headers.get("content-type", "")
-                if "application/json" in content_type or "text/javascript" in content_type:
-                    data = await response.json()
-                    if isinstance(data, dict):
-                        items = data.get('items') or data.get('data') or []
-                    elif isinstance(data, list):
-                        items = data
-                    else:
-                        items = []
+                # محاولة قراءة JSON بغض النظر عن نوع المحتوى
+                data = await response.json()
+                if isinstance(data, dict):
+                    items = data.get('items') or data.get('data') or data.get('ads') or []
+                elif isinstance(data, list):
+                    items = data
+                else:
+                    items = []
+                
+                for item in items:
+                    if not isinstance(item, dict): continue
+                    if not (item.get('title') or item.get('text')): continue
                     
-                    for item in items:
-                        if not isinstance(item, dict): continue
-                        if not (item.get('title') or item.get('text')): continue
-                        
-                        # ✅ ديباغ: طباعة جميع حقول العنصر الأول لمعرفة اسم حقل الرابط الحقيقي
-                        if not api_debug_done:
-                            url_fields = {k: v for k, v in item.items() if 'url' in k.lower() or 'link' in k.lower() or 'href' in k.lower()}
-                            print(f"[MGID DEBUG] URL fields in API: {url_fields}")
-                            api_debug_done = True
-                        
-                        # الأولوية للروابط الحقيقية من الـ API (بدون tracking)
-                        real_url = (
-                            item.get('articleUrl') or      # الرابط المباشر للمقال
-                            item.get('targetUrl') or       # الرابط المستهدف
-                            item.get('destinationUrl') or  # رابط الوجهة
-                            item.get('originalUrl') or     # الرابط الأصلي
-                            item.get('url') or             # رابط عام
-                            item.get('clickUrl') or        # رابط التتبع (آخر خيار)
-                            item.get('link', '')
-                        )
-                        
-                        mgid_ads.append({
-                            "title": (item.get('title') or item.get('text', '')).strip(),
-                            "landing": real_url,
-                            "image": item.get('mainImage') or item.get('thumbnail') or item.get('image', ''),
-                            "source": url,
-                            "network": "MGID"
-                        })
+                    # ✅ ديباغ: طباعة جميع حقول URL في العنصر الأول
+                    if not api_debug_done:
+                        url_fields = {k: v for k, v in item.items() if any(x in k.lower() for x in ['url', 'link', 'href', 'src'])}
+                        print(f"[MGID API DEBUG] URL fields: {url_fields}")
+                        api_debug_done = True
+                    
+                    # الأولوية للروابط الحقيقية (بدون tracking)
+                    real_url = (
+                        item.get('articleUrl') or
+                        item.get('targetUrl') or
+                        item.get('destinationUrl') or
+                        item.get('originalUrl') or
+                        item.get('url') or
+                        item.get('clickUrl') or
+                        item.get('link', '')
+                    )
+                    mgid_ads.append({
+                        "title": (item.get('title') or item.get('text', '')).strip(),
+                        "landing": real_url,
+                        "image": item.get('mainImage') or item.get('thumbnail') or item.get('image', ''),
+                        "source": url,
+                        "network": "MGID"
+                    })
             except: pass
 
     page.on("response", handle_response)
@@ -186,13 +184,49 @@ async def scrape_mgid(browser, url):
         except Exception as timeout_error:
             print(f"[MGID]: Timeout on page load, but continuing extraction... ({timeout_error})")
         
-        # انتظار يدوي سريع للحد من استهلاك الجلسة الطويلة
-        await asyncio.sleep(8) # الانتظار فترة قصيرة بدلاً من 30 ثانية لتسريع الإغلاق
-        for i in range(5): # تقليل محاولات السكرول
+        # انتظار الصفحة ثم السكرول لتنشيط الـ Lazy Load
+        await asyncio.sleep(8)
+        for i in range(5):
             await page.evaluate(f"window.scrollBy(0, {800 + (i * 200)})")
             await asyncio.sleep(1)
 
-        # ✅ Fallback: محاولة قراءة الإعلانات من DOM في كل الفريمات (iframes)
+        # ✅ استخراج الروابط الحقيقية من كائنات JavaScript الداخلية لـ MGID
+        if not mgid_ads:
+            try:
+                js_ads = await page.evaluate("""
+                    () => {
+                        let results = [];
+                        try {
+                            // MGID يخزن بيانات الإعلانات في متغيرات عامة
+                            for (let key of Object.keys(window)) {
+                                if (!key.toLowerCase().includes('mgid') && !key.toLowerCase().includes('widget')) continue;
+                                let obj = window[key];
+                                if (!obj || typeof obj !== 'object') continue;
+                                // البحث في الحاوية الرئيسية
+                                let items = obj.items || obj.ads || obj.data || obj.content || [];
+                                if (!Array.isArray(items)) continue;
+                                for (let item of items) {
+                                    if (!item || !item.title) continue;
+                                    let realUrl = item.articleUrl || item.targetUrl || item.destinationUrl ||
+                                                  item.originalUrl || item.url || item.clickUrl || item.link || '';
+                                    results.push({
+                                        title: item.title,
+                                        landing: realUrl,
+                                        image: item.mainImage || item.thumbnail || item.image || ''
+                                    });
+                                }
+                            }
+                        } catch(e) {}
+                        return results;
+                    }
+                """)
+                if js_ads:
+                    print(f"✅ [MGID JS]: تم استخراج {len(js_ads)} إعلان من JavaScript!")
+                    for ad in js_ads:
+                        mgid_ads.append({**ad, "source": url, "network": "MGID"})
+            except: pass
+
+        # ✅ DOM Fallback: آخر محاولة - قراءة من الفريمات إذا لم ينجح API أو JS
         if not mgid_ads:
             for frame in page.frames:
                 try:
@@ -259,54 +293,18 @@ async def scrape_mgid(browser, url):
                 except:
                     pass
 
-        # --- معالجة وحفظ النتائج (سواء من الشبكة أو DOM) ---
+        # --- معالجة وحفظ النتائج ---
         unique_ads = {}
-        resolved_cache = {}
         
         if mgid_ads:
             for ad in mgid_ads:
-                landing = ad.get('landing')
+                landing = ad.get('landing', '')
                 if not landing: continue
                 
-                # تخطي إذا تم حل الرابط مسبقاً في هذه الجلسة
-                if landing in resolved_cache:
-                    ad['landing'] = resolved_cache[landing]
+                # ✅ تنظيف الرابط: الروابط الحقيقية فقط، تجاهل روابط التتبع
+                is_tracking = "clck.mgid.com" in landing or "clck.adskeeper.com" in landing
                 
-                # ✅ فك تشفير روابط التتبع فقط إذا لم نحصل على رابط مباشر من الـ API
-                elif "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
-                    original_tracking = landing
-                    # روابط توجيه وهمية / bot detection يجب تجاهلها
-                    BOGUS_DOMAINS = ["ploynest.com", "ipqualityscore.com", "fraud-filter", "bot-detect"]
-                    try:
-                        resolve_page = await context.new_page()
-                        try:
-                            await resolve_page.set_extra_http_headers({
-                                "Referer": ad['source'],
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-                            })
-                            await resolve_page.goto(landing, timeout=15000, wait_until="commit")
-                            final_url = resolve_page.url
-                            # قبول النتيجة فقط إذا كانت رابطاً حقيقياً ولم تكن رابط احتيال
-                            is_bogus = any(bd in final_url for bd in BOGUS_DOMAINS)
-                            is_valid = (final_url and 
-                                       "mgid.com" not in final_url and 
-                                       "adskeeper.com" not in final_url and 
-                                       final_url != landing and
-                                       not is_bogus)
-                            if is_valid:
-                                landing = final_url
-                                resolved_cache[original_tracking] = final_url
-                                print(f"🔗 [MGID]: تم فك رابط التتبع ← {final_url[:80]}")
-                            elif is_bogus:
-                                print(f"⚠️ [MGID]: تم كشف Bot Detection (رابط وهمي)  ← {final_url[:60]}")
-                        except: pass
-                        finally:
-                            await resolve_page.close()
-                    except: pass
-                
-                ad['landing'] = landing
-                
-                # تنظيف الرابط الأساسي للمقارنة (إزالة المعاملات الزائدة)
+                # تنظيف المفتاح للمقارنة
                 clean_key = landing.split('?')[0].split('#')[0]
                 
                 if clean_key not in unique_ads:
@@ -322,6 +320,7 @@ async def scrape_mgid(browser, url):
             print(f"✅ [MGID]: تم صيد {len(unique_ads)} إعلان بنجاح في {url}")
         else:
             print(f"ℹ️ [MGID]: لم يتم رصد إعلانات في {url}")
+
 
     except Exception as e:
         print(f"[MGID ERROR]: {e}")
