@@ -229,69 +229,54 @@ async def scrape_mgid(browser, url):
                 except:
                     pass
 
-            resolved_cache = {}
+        # --- معالجة وحفظ النتائج (سواء من الشبكة أو DOM) ---
+        unique_ads = {}
+        resolved_cache = {}
+        
+        if mgid_ads:
             for ad in mgid_ads:
-                landing = ad['landing']
+                landing = ad.get('landing')
                 if not landing: continue
                 
-                # تخطي إذا تم حل الرابط مسبقاً في هذه الجلسة
+                # تخطي إذا تم حل الرابط مسبقاً
                 if landing in resolved_cache:
                     ad['landing'] = resolved_cache[landing]
-                    continue
                 
-                # ✅ فك تشفير روابط MGID أو AdsKeeper (الشبكة الرديفة) التتبعية بشكل متقدم
-                if "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
+                # ✅ فك تشفير روابط MGID أو AdsKeeper التتبعية بشكل مستقر
+                elif "clck.mgid.com" in landing or "clck.adskeeper.com" in landing:
                     try:
-                        # استخدام صفحة مخفية (background tab) لضمان مرور الـ Cookies والـ Referer بشكل طبيعي
                         resolve_page = await context.new_page()
                         try:
-                            # تعيين الـ Referer يدوياً كإجراء إضافي
                             await resolve_page.set_extra_http_headers({"Referer": ad['source']})
-                            # الذهاب للرابط وانتظار تغير الـ URL لموقع ليس له علاقة بـ MGID
-                            res = await resolve_page.goto(landing, timeout=30000, wait_until="domcontentloaded")
-                            
-                            # التقاط الرابط النهائي بعد التوجيهات (Redirects)
+                            # مهلة قصيرة لفك التوجيه
+                            await resolve_page.goto(landing, timeout=15000, wait_until="commit")
                             final_url = resolve_page.url
                             if "mgid.com" not in final_url and "adskeeper.com" not in final_url:
                                 landing = final_url
-                            else:
-                                # محاولة استخراج الرابط إذا كان هناك توجيه JS لم يكتمل
-                                text = await resolve_page.content()
-                                import re
-                                js_match = re.search(r'window\.location\.replace\(["\'](htt[^"\']+)["\']', text)
-                                if js_match:
-                                    landing = js_match.group(1)
-                                else:
-                                    meta_match = re.search(r'url=(http[^"\'\s>]+)', text, re.IGNORECASE)
-                                    if meta_match: landing = meta_match.group(1).strip("'\"")
-                            
-                            ad['landing'] = landing
-                            resolved_cache[ad['landing']] = landing # تخزين في الكاش
-                        except Exception as inner_e:
-                            # إذا فشل التوجيه، نحاول استخراج أي رابط موجود في الـ URL الأصلي كخيار أخير
-                            pass
+                                resolved_cache[ad['landing']] = final_url
+                        except: pass
                         finally:
                             await resolve_page.close()
-                    except:
-                        pass
+                    except: pass
                 
-                # إذا لم يكن موجوداً، أضفه
-                if landing not in unique_ads:
-                    unique_ads[landing] = ad
-                # إذا كان موجوداً ولكن الجديد لديه صورة والقديم لا، استبدله
-                elif ad.get('image') and not unique_ads[landing].get('image'):
-                    unique_ads[landing] = ad
-                # إذا كان الجديد لديه عنوان أطول، استبدله (أحياناً العناوين تختلف قليلاً)
-                elif len(ad.get('title', '')) > len(unique_ads[landing].get('title', '')):
-                    # احتفظ بالصورة القديمة إذا كانت موجودة
-                    if unique_ads[landing].get('image') and not ad.get('image'):
-                        ad['image'] = unique_ads[landing]['image']
-                    unique_ads[landing] = ad            
+                ad['landing'] = landing
+                
+                # تنظيف الرابط الأساسي للمقارنة
+                clean_key = landing.split('?')[0].split('#')[0]
+                
+                if clean_key not in unique_ads:
+                    unique_ads[clean_key] = ad
+                elif ad.get('image') and not unique_ads[clean_key].get('image'):
+                    unique_ads[clean_key] = ad
+                elif len(ad.get('title', '')) > len(unique_ads[clean_key].get('title', '')):
+                    unique_ads[clean_key] = ad
+
+            # حفظ النتائج النهائية
             for ad in unique_ads.values():
                 await save_to_supabase(ad)
-            print(f"[MGID]: صيد {len(unique_ads)} إعلان بنجاح في {url}")
+            print(f"✅ [MGID]: تم صيد {len(unique_ads)} إعلان بنجاح في {url}")
         else:
-            print(f"[MGID]: لم يتم رصد إعلانات في {url}")
+            print(f"ℹ️ [MGID]: لم يتم رصد إعلانات في {url}")
 
     except Exception as e:
         print(f"[MGID ERROR]: {e}")
