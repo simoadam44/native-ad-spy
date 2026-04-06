@@ -71,13 +71,9 @@ if __name__ == "__main__":
     
     print("🚀 بدء جولة البحث عن أهداف جديدة (Stealth Mode Enabled)...")
     
-    # ✅ TEMPORARILY DISABLED: Revcontent, Taboola, Outbrain
     # Working on MGID only
     scripts = [
-        # "revcontent_crawler.py",  # Disabled temporarily
-        # "taboola_crawler.py",     # Disabled temporarily
-        "mgid_crawler.py",
-        # "outbrain_crawler.py"     # Disabled temporarily
+        "mgid_crawler.py"
     ]
     
     # اختيار 5 دول عشوائياً في كل دورة لتوزيع الحمل وتجنب الحظر
