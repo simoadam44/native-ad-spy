@@ -44,12 +44,15 @@ MGID_TARGETS = [
 ]
 
 async def resolve_mgid_redirect(url: str) -> str:
-    """حل رابط التتبع من MGID باستخدام Playwright"""
+    """حل رابط التتبع من MGID - يتبع كل الـ redirects"""
     if not url or not isinstance(url, str):
         return url
     
     if 'clck.mgid.com' not in url and 'clck.adskeeper.com' not in url:
         return url
+    
+    # قائمة المواقع الإعلانية التي يجب تخطيها
+    ad_domains = ['ploynest.com', 'adskeeper.com', 'mgid.com', 'doubleclick', 'googleadservices', 'clck.mgid.com']
     
     browser = None
     try:
@@ -57,52 +60,66 @@ async def resolve_mgid_redirect(url: str) -> str:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             
-            # Go to the MGID tracking URL
             await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             
-            # Wait for potential redirect and keep following until final URL
-            max_wait = 10
-            for i in range(max_wait):
-                await asyncio.sleep(1)
+            # تابع الـ redirects حتى نصل لموقع غير إعلاني
+            max_iterations = 15
+            for i in range(max_iterations):
+                await asyncio.sleep(2)
                 current_url = page.url
                 
-                # If URL changed and no longer contains tracking domains, we're done
-                if 'clck.mgid.com' not in current_url and 'clck.adskeeper.com' not in current_url:
+                # تحقق إذا كان الموقع الحالي هو موقع إعلاني
+                is_ad = any(ad in current_url.lower() for ad in ad_domains)
+                
+                if not is_ad:
+                    # وصلنا لموقع حقيقي - توقف
                     break
                 
-                # Try to find and click any redirect button
+                # إذا لا زلنا في موقع إعلاني، حاول التفاعل
                 try:
-                    buttons = await page.query_selector_all('button, a')
-                    for btn in buttons:
-                        href = await btn.get_attribute('href')
-                        onclick = await btn.get_attribute('onclick')
-                        if href and 'clck' not in href:
-                            await btn.click()
-                            await asyncio.sleep(2)
+                    # 1. انتظر وتحقق من redirect تلقائي
+                    await asyncio.sleep(3)
+                    
+                    # 2. جرب النقر على أي رابط
+                    links = await page.query_selector_all('a[href]')
+                    for link in links:
+                        href = await link.get_attribute('href')
+                        if href and not any(ad in href.lower() for ad in ad_domains):
+                            await link.click()
+                            await asyncio.sleep(3)
                             break
-                        elif onclick and ('location' in onclick or 'redirect' in onclick):
-                            await btn.click()
-                            await asyncio.sleep(2)
-                            break
+                    
+                    # 3. جرب meta refresh
+                    meta_url = await page.evaluate('''() => {
+                        const meta = document.querySelector('meta[http-equiv="refresh"]');
+                        if (meta) {
+                            const content = meta.getAttribute('content');
+                            if (content && content.toLowerCase().includes('url=')) {
+                                return content.split('url=')[1].split(';')[0].trim();
+                            }
+                        }
+                        return null;
+                    }''')
+                    if meta_url:
+                        if meta_url.startswith('http'):
+                            await page.goto(meta_url, timeout=10000)
+                        else:
+                            await page.goto('https://' + meta_url, timeout=10000)
+                        await asyncio.sleep(2)
+                        
+                    # 4. جرب JavaScript redirects
+                    js_redirect = await page.evaluate('''() => {
+                        if (window.location.href && window.location.href !== document.location.href) {
+                            return window.location.href;
+                        }
+                        return null;
+                    }''')
+                    if js_redirect and 'ad' not in js_redirect.lower():
+                        await page.goto(js_redirect, timeout=10000)
+                        
                 except: pass
             
-            # Get final URL
             final_url = page.url
-            
-            # If still tracking URL, try meta refresh
-            if 'clck.mgid.com' in final_url or 'clck.adskeeper.com' in final_url:
-                meta_refresh = await page.evaluate('''() => {
-                    for (let m of document.querySelectorAll('meta[http-equiv="refresh"]')) {
-                        let content = m.getAttribute('content');
-                        if (content && content.includes('url=')) {
-                            return content.split('url=')[1];
-                        }
-                    }
-                    return null;
-                }''')
-                if meta_refresh:
-                    final_url = meta_refresh if meta_refresh.startswith('http') else 'https://' + meta_refresh
-            
             print(f"    🔗 حل الرابط: {url[:40]}... → {final_url[:50]}...")
             await browser.close()
             return final_url
