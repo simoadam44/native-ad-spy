@@ -1,7 +1,10 @@
 import bcrypt
 import streamlit as st
 import os
-from .db import get_user_by_email, insert_user, update_user
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.db import get_user_by_email, insert_user, update_user
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 

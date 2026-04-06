@@ -71,9 +71,12 @@ if __name__ == "__main__":
     
     print("🚀 بدء جولة البحث عن أهداف جديدة (Stealth Mode Enabled)...")
     
-    # Working on MGID only
+    # ترتيب التشغيل (يمكنك تغيير الترتيب حسب الأهمية)
     scripts = [
-        "mgid_crawler.py"
+        "revcontent_crawler.py",
+        "taboola_crawler.py",
+        "mgid_crawler.py",
+        "outbrain_crawler.py"
     ]
     
     # اختيار 5 دول عشوائياً في كل دورة لتوزيع الحمل وتجنب الحظر
