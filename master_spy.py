@@ -9,7 +9,7 @@ TARGET_COUNTRIES = [
     "SA", "AE", "ZA", "JP", "KR"
 ]
 
-# قاموس لتخزين الإحصائيات (يمكنك تطويره ليرتبط بقاعدة البيانات لاحقاً)
+# قاموس لتخزين الإحصائيات
 stats = {
     "REVCONTENT": {"new": 0, "updates": 0},
     "TABOOLA": {"new": 0, "updates": 0},
@@ -21,17 +21,14 @@ def run_script(script_name, country):
     start_time = time.time()
     print(f"📡 جاري إطلاق: {script_name} باستهداف ({country})...")
     try:
-        # إعداد بيئة مع Country Code
         env = os.environ.copy()
         env["TARGET_COUNTRY"] = country
         
-        # تشغيل السكربت والتقاط المخرجات لتحليل الإحصائيات
         process = subprocess.Popen(['python', script_name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
         
         for line in process.stdout:
-            print(line, end='') # عرض المخرجات في الوقت الحقيقي
+            print(line, end='') 
             
-            # تحليل السطور لتحديث الإحصائيات
             if "صيد جديد" in line:
                 for network in stats:
                     if f"[{network}]" in line: stats[network]["new"] += 1
@@ -49,7 +46,7 @@ def run_script(script_name, country):
 
 def show_dashboard(total_time):
     print("\n" + "*"*50)
-    print("📊 ملخص جولة التجسس الاحترافية 📊")
+    print("📊 ملخص جولة التجسس (Focus Mode: MGID Only) 📊")
     print("*"*50)
     
     table_header = f"{'الشبكة':<15} | {'صيد جديد ✨':<12} | {'تحديثات 📈':<10}"
@@ -58,8 +55,10 @@ def show_dashboard(total_time):
     
     total_new = 0
     for network, data in stats.items():
-        print(f"{network:<15} | {data['new']:<12} | {data['updates']:<10}")
-        total_new += data['new']
+        # نظهر فقط الشبكات التي عملت أو MGID
+        if data['new'] > 0 or data['updates'] > 0 or network == "MGID":
+            print(f"{network:<15} | {data['new']:<12} | {data['updates']:<10}")
+            total_new += data['new']
     
     print("-" * len(table_header))
     print(f"🚀 إجمالي الصيد الجديد: {total_new} إعلان")
@@ -69,9 +68,8 @@ def show_dashboard(total_time):
 if __name__ == "__main__":
     start_all = time.time()
     
-    print("🚀 بدء جولة البحث عن أهداف جديدة (Stealth Mode Enabled)...")
+    print("🚀 بدء جولة البحث (Focus Mode Enabled: MGID Only)...")
     
-    # ترتيب التشغيل (يمكنك تغيير الترتيب حسب الأهمية)
     scripts = [
         "revcontent_crawler.py",
         "taboola_crawler.py",
@@ -79,21 +77,24 @@ if __name__ == "__main__":
         "outbrain_crawler.py"
     ]
     
-    # اختيار 5 دول عشوائياً في كل دورة لتوزيع الحمل وتجنب الحظر
     selected_countries = random.sample(TARGET_COUNTRIES, 5)
     print(f"🌐 الدول المستهدفة في هذه الدورة: {', '.join(selected_countries)}\n")
     
     for country in selected_countries:
         print(f"\n{'='*40}\n🌍 بدء المسح في: {country}\n{'='*40}")
         for script in scripts:
+            
+            # --- هـــنا الإضـــافـة الـمطلوبة ---
+            if script != "mgid_crawler.py":
+                continue 
+            # ---------------------------------
+            
             if os.path.exists(script):
                 run_script(script, country)
             else:
                 print(f"⚠️ الملف {script} غير موجود، تخطي...")
 
     total_duration = (time.time() - start_all) / 60
-    
-    # عرض اللوحة النهائية
     show_dashboard(total_duration)
     
-    print("🏁 انتهت العملية الشاملة بنجاح!")
+    print("🏁 انتهت العملية المركزة بنجاح!")
