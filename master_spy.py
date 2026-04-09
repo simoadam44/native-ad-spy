@@ -2,6 +2,11 @@ import subprocess
 import time
 import os
 import random
+import sys
+
+# ضمان ظهور اللغة العربية بشكل صحيح في Terminal
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 # قائمة بـ 20 دولة مستهدفة رئيسية
 TARGET_COUNTRIES = [
@@ -24,17 +29,28 @@ def run_script(script_name, country):
         env = os.environ.copy()
         env["TARGET_COUNTRY"] = country
         
-        process = subprocess.Popen(['python', script_name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+        # تشغيل السكربت باستخدام subprocess.PIPE لالتقاط المخرجات
+        process = subprocess.Popen(
+            ['python', script_name], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT, 
+            text=True, 
+            env=env,
+            encoding='utf-8' # لضمان قراءة الكلمات العربية مثل "صيد جديد"
+        )
         
         for line in process.stdout:
             print(line, end='') 
             
-            if "صيد جديد" in line:
+            # تحليل السطور لتحديث الإحصائيات في الوقت الحقيقي
+            if "صيد جديد" in line or "تم الحفظ" in line:
                 for network in stats:
-                    if f"[{network}]" in line: stats[network]["new"] += 1
+                    if f"[{network}]" in line.upper(): 
+                        stats[network]["new"] += 1
             elif "تحديث" in line:
                 for network in stats:
-                    if f"[{network}]" in line: stats[network]["updates"] += 1
+                    if f"[{network}]" in line.upper(): 
+                        stats[network]["updates"] += 1
 
         process.wait()
         duration = (time.time() - start_time) / 60
@@ -55,7 +71,7 @@ def show_dashboard(total_time):
     
     total_new = 0
     for network, data in stats.items():
-        # نظهر فقط الشبكات التي عملت أو MGID
+        # نظهر فقط الشبكات التي سجلت نتائج أو شبكة MGID
         if data['new'] > 0 or data['updates'] > 0 or network == "MGID":
             print(f"{network:<15} | {data['new']:<12} | {data['updates']:<10}")
             total_new += data['new']
@@ -77,6 +93,7 @@ if __name__ == "__main__":
         "outbrain_crawler.py"
     ]
     
+    # اختيار 5 دول عشوائياً لضمان تنوع مصادر الإعلانات
     selected_countries = random.sample(TARGET_COUNTRIES, 5)
     print(f"🌐 الدول المستهدفة في هذه الدورة: {', '.join(selected_countries)}\n")
     
@@ -84,10 +101,10 @@ if __name__ == "__main__":
         print(f"\n{'='*40}\n🌍 بدء المسح في: {country}\n{'='*40}")
         for script in scripts:
             
-            # --- هـــنا الإضـــافـة الـمطلوبة ---
+            # --- الجملة الشرطية المركزية ---
             if script != "mgid_crawler.py":
                 continue 
-            # ---------------------------------
+            # -------------------------------
             
             if os.path.exists(script):
                 run_script(script, country)
