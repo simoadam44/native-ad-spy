@@ -58,10 +58,39 @@ MGID_TARGETS = [url.strip() for url in [
     "https://zestradar.com/celebrities/the-worst-beckham-family-rumors-theyll-never-outrun/"
 ]]
 
+async def resolve_final_url(url):
+    """Resolve the final URL by following redirects using httpx with GET request"""
+    try:
+        import httpx
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
+        async with httpx.AsyncClient(follow_redirects=True, headers=headers, timeout=15) as client:
+            response = await client.get(url)
+            final_url = str(response.url)
+            if final_url != url:
+                print(f"🔗 Resolved: {url[:50]}... -> {final_url[:50]}...")
+            return final_url
+    except Exception as e:
+        print(f"❌ Failed to resolve {url[:50]}...: {e}")
+        return None
+
 async def save_to_supabase(ad):
     try:
         if not ad.get('title') or not ad.get('landing'): return
-        clean_url = ad['landing'].split('?')[0]
+        
+        # Resolve redirect URLs to get the real landing page
+        landing_url = ad.get('landing', '')
+        if 'clck.mgid.com' in landing_url or 'clck.adskeeper' in landing_url:
+            resolved_url = await resolve_final_url(landing_url)
+            if resolved_url:
+                landing_url = resolved_url
+        
+        clean_url = landing_url.split('?')[0]
+        
+        # Check if ad exists and update or insert
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
         
         if res.data:
@@ -69,8 +98,18 @@ async def save_to_supabase(ad):
             supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()", "country_code": TARGET_COUNTRY}).eq("id", res.data[0]['id']).execute()
             print(f"[MGID] [{TARGET_COUNTRY}]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
-            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
-            supabase.table("ads").insert(ad).execute()
+            # Use upsert for cleaner code
+            ad_data = {
+                "title": ad.get('title', ''),
+                "landing": clean_url,
+                "image": ad.get('image', ''),
+                "source": ad.get('source', ''),
+                "network": ad.get('network', 'MGID'),
+                "impressions": 1,
+                "last_seen": "now()",
+                "country_code": TARGET_COUNTRY
+            }
+            supabase.table("ads").upsert(ad_data, on_conflict="landing").execute()
             print(f"[MGID] [{TARGET_COUNTRY}]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:
         print(f"[DB ERROR]: {e}")
@@ -240,25 +279,40 @@ async def scrape_mgid(browser, url):
                             title = title.strip()
                             if len(title) > 5 and href.startswith('http'):
                                 # ✅ البحث أولاً عن الرابط الحقيقي في خصائص data-*
-                                # قبل أن يستبدل MGID الرابط برابط التتبع
+                                # وفك تشفير Base64 إذا كان موجوداً
                                 real_href = await el.evaluate("""
                                     (a) => {
                                         // البحث عن data-url, data-href, data-link قبل ضرب رابط التتبع
                                         let realUrl = a.dataset.url || a.dataset.href || a.dataset.link ||
                                                       a.dataset.articleUrl || a.dataset.targetUrl ||
+                                                      a.dataset.landing || a.dataset.dest ||
                                                       a.getAttribute('data-url') || a.getAttribute('data-href') ||
                                                       a.getAttribute('data-link') || a.getAttribute('data-article-url') ||
-                                                      a.getAttribute('data-original-url');
-                                        if (realUrl && !realUrl.includes('clck.mgid.com') && !realUrl.includes('clck.adskeeper.com')) {
+                                                      a.getAttribute('data-original-url') || a.getAttribute('data-landing');
+                                        
+                                        // فحص Base64 encoded URL (يبدأ بـ aHR0c...)
+                                        if (realUrl && typeof realUrl === 'string') {
+                                            if (realUrl.startsWith('aHR0c')) {
+                                                try {
+                                                    realUrl = atob(realUrl);
+                                                } catch(e) {}
+                                            }
+                                            // تحقق أن الرابط الحقيقي وليس رابط تتبع
+                                            if (realUrl.includes('clck.mgid.com') || realUrl.includes('clck.adskeeper')) {
+                                                realUrl = null;
+                                            }
+                                        }
+                                        
+                                        if (realUrl && !realUrl.includes('clck.mgid.com') && !realUrl.includes('clck.adskeeper')) {
                                             return realUrl;
                                         }
                                         // فحص العنصر الأب والجدّ أيضاً
-                                        let parent = a.closest('[data-url],[data-href],[data-article-url]');
+                                        let parent = a.closest('[data-url],[data-href],[data-article-url],[data-landing]');
                                         if (parent) {
-                                            let pUrl = parent.dataset.url || parent.dataset.href || parent.dataset.articleUrl;
+                                            let pUrl = parent.dataset.url || parent.dataset.href || parent.dataset.articleUrl || parent.dataset.landing;
                                             if (pUrl && !pUrl.includes('clck.mgid.com')) return pUrl;
                                         }
-                                        return a.href;  // الرابط كما هو (tracking أو حقيقي)
+                                        return a.href;  // الرابط كما هو (سيتم حل التحويلات لاحقاً في save_to_supabase)
                                     }
                                 """)
                                 landing = real_href or href
