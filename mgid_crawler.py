@@ -1,20 +1,14 @@
-import asyncio
-import os
-import random
-import sys
+import asyncio, os, random, sys
+sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
 
-# إعداد الإخراج ليدعم اليونيكود
-sys.stdout.reconfigure(encoding='utf-8')
-
 # --- إعدادات سوبابيز ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+supabase = create_client(supabase_url, supabase_key) if supabase_url and supabase_key else None
 
-# --- إعدادات الدولة والبروكسي (DataImpulse) ---
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 PROXY_CONFIG = {
     "server": "http://gw.dataimpulse.com:823",
@@ -22,164 +16,102 @@ PROXY_CONFIG = {
     "password": "78c188c405598b8a"
 }
 
-COUNTRY_CONFIGS = {
-    "US": {"locale": "en-US", "timezone_id": "America/New_York"},
-    "GB": {"locale": "en-GB", "timezone_id": "Europe/London"},
-    "CA": {"locale": "en-CA", "timezone_id": "America/Toronto"},
-    "MA": {"locale": "ar-MA", "timezone_id": "Africa/Casablanca"},
-    "SA": {"locale": "ar-SA", "timezone_id": "Asia/Riyadh"},
-    "AE": {"locale": "ar-AE", "timezone_id": "Asia/Dubai"},
-}
-GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
-
-# --- قائمة الأهداف ---
-MGID_TARGETS = [
+TARGET_URLS = [
     "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953",
     "https://www.ibtimes.com/us-secured-secret-deal-cameroon-deport-migrants-using-aid-leverage-report-3800110",
     "https://brainberries.co/interesting/britney-spears-then-vs-now-her-changing-face-in-photos/",
     "https://herbeauty.co/ar/altarfih/maqati-video-raqs-zouk-lan-tastatia-at-tawaqquf-an-mushahadatiha-miraran-wa-takraran/",
-    "https://buzzday.info/2026/02/13/what-happens-if-you-consume-ginger-every-day/?utm_source=mgid.com",
+    "https://buzzday.info/2026/02/13/what-happens-if-you-consume-ginger-every-day/?utm_id=57223822&utm_medium=cpc&utm_source=mgid.com&utm_campaign=buzzday_prt_en_mob&utm_term=57223822&utm_content=22902986",
     "https://zestradar.com/celebrities/the-worst-beckham-family-rumors-theyll-never-outrun/"
 ]
 
 async def save_to_supabase(ad):
-    if not supabase or not ad.get('title') or not ad.get('landing'):
-        return
+    if not supabase: return
     try:
-        # تنظيف الرابط من البارامترات الزائدة
-        clean_url = ad['landing'].split('?')[0]
-        res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
+        # تنظيف الرابط من أي Tracking ID بسيط لإيجاد الأصل
+        clean_url = ad['landing'].split('?')[0] if '?' in ad['landing'] else ad['landing']
         
+        res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
         if res.data:
             new_imp = (res.data[0].get('impressions') or 1) + 1
-            supabase.table("ads").update({
-                "impressions": new_imp, 
-                "last_seen": "now()", 
-                "country_code": TARGET_COUNTRY
-            }).eq("id", res.data[0]['id']).execute()
-            print(f"[UPDATE] {TARGET_COUNTRY}: ({new_imp} imps) - {ad['title'][:50]}...")
+            supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()"}).eq("id", res.data[0]['id']).execute()
+            print(f"[MGID] Updated: {ad['title'][:40]}...")
         else:
             ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
             supabase.table("ads").insert(ad).execute()
-            print(f"[NEW AD] {TARGET_COUNTRY}: {ad['title'][:50]}...")
+            print(f"[MGID] New Capture: {ad['title'][:40]}...")
     except Exception as e:
         print(f"[DB ERROR]: {e}")
 
-async def handle_route(route):
-    """حظر الموارد غير الضرورية لتوفير الداتا والسرعة"""
-    req = route.request
-    excluded_types = ["image", "media", "font", "stylesheet", "websocket", "manifest"]
-    
-    if req.resource_type in excluded_types:
-        return await route.abort()
-    
-    url = req.url.lower()
-    # حظر سكريبتات التتبع والطرف الثالث باستثناء MGID
-    blocked_patterns = ["google-analytics", "facebook", "tiktok", "hotjar", "clarity", "doubleclick"]
-    if any(p in url for p in blocked_patterns) and "mgid" not in url:
-        return await route.abort()
-        
-    await route.continue_()
+async def scrape_mgid_real_links(browser, url):
+    context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+    page = await context.new_page()
+    await Stealth().apply_stealth_async(page)
 
-async def scrape_mgid(page, url):
-    print(f"🔍 Scanning: {url}")
-    mgid_ads = []
+    captured_ads = []
 
-    # اعتراض استجابات الـ JSON من سيرفرات MGID مباشرة
-    async def intercept_response(response):
+    # اعتراض الشبكة لاستخراج الروابط قبل التشفير أو التتبع
+    async def handle_response(response):
         if "mgid.com" in response.url and response.status == 200:
             try:
                 data = await response.json()
-                items = data.get('items') or data.get('data') or []
+                # MGID تضع البيانات عادة في قائمة 'items'
+                items = data.get('items') or data.get('ads') or []
+                
                 for item in items:
-                    if isinstance(item, dict) and (item.get('title') or item.get('text')):
-                        mgid_ads.append({
-                            "title": (item.get('title') or item.get('text')).strip(),
-                            "landing": item.get('articleUrl') or item.get('targetUrl') or item.get('url'),
-                            "image": item.get('mainImage') or item.get('thumbnail'),
+                    # الروابط الحقيقية في MGID تظهر في هذه الحقول داخل الـ JSON
+                    real_url = (
+                        item.get('articleUrl') or   # الرابط الأصلي للمقال (الأكثر دقة)
+                        item.get('targetUrl') or    # الرابط المستهدف
+                        item.get('originalUrl') or 
+                        item.get('url')             # إذا كان JSON سكرابينج خام
+                    )
+                    
+                    if real_url and not "clck.mgid.com" in real_url:
+                        ad_data = {
+                            "title": item.get('title', '').strip(),
+                            "landing": real_url,
+                            "image": item.get('mainImage') or item.get('thumbnail', ''),
                             "network": "MGID",
                             "source": url
-                        })
-            except: pass
+                        }
+                        if ad_data["title"] and ad_data["landing"]:
+                            captured_ads.append(ad_data)
+            except:
+                pass
 
-    page.on("response", intercept_response)
+    page.on("response", handle_response)
+
+    # حظر الصور والموارد لتسريع العملية وتوفير البيانات
+    await page.route("**/*.{png,jpg,jpeg,gif,css,woff2}", lambda route: route.abort())
 
     try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        print(f"Checking: {url}")
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         
-        # محاكاة التصفح لتفعيل Lazy Load
+        # سكرول لأسفل لتفعيل لود الـ Widgets
         for _ in range(3):
-            await page.mouse.wheel(0, 1000)
-            await asyncio.sleep(1.5)
+            await page.evaluate("window.scrollBy(0, 1000)")
+            await asyncio.sleep(2)
 
-        # استخراج من خلال JavaScript (في حال كانت البيانات مخزنة في Window Object)
-        js_results = await page.evaluate("""
-            () => {
-                let found = [];
-                for (let key in window) {
-                    if (key.includes('mgid') && typeof window[key] === 'object') {
-                        let data = window[key].items || window[key].ads || [];
-                        if (Array.isArray(data)) {
-                            data.forEach(item => {
-                                if (item.title) found.push({
-                                    title: item.title,
-                                    landing: item.articleUrl || item.url,
-                                    image: item.mainImage || item.thumbnail
-                                });
-                            });
-                        }
-                    }
-                }
-                return found;
-            }
-        """)
-        for item in js_results:
-            mgid_ads.append({**item, "network": "MGID", "source": url})
-
-        # معالجة النتائج وإزالة التكرار
-        unique_ads = {}
-        for ad in mgid_ads:
-            if not ad.get('title') or not ad.get('landing'): continue
-            key = ad['title'].lower()[:60]
-            if key not in unique_ads or ("clck.mgid" in unique_ads[key]['landing'] and "clck.mgid" not in ad['landing']):
-                unique_ads[key] = ad
-
-        for ad in unique_ads.values():
+        # فلترة النتائج المتكررة وحفظها
+        unique_ads = {ad['title']: ad for ad in captured_ads}.values()
+        for ad in unique_ads:
             await save_to_supabase(ad)
-
+            
     except Exception as e:
-        print(f"⚠️ Error on {url}: {e}")
+        print(f"Error: {e}")
     finally:
-        page.remove_listener("response", intercept_response)
+        await page.close()
+        await context.close()
 
 async def run():
     async with async_playwright() as p:
-        print(f"🚀 Starting Scraper for {TARGET_COUNTRY} via DataImpulse...")
-        
-        browser = await p.chromium.launch(
-            headless=True,
-            proxy=PROXY_CONFIG,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-        )
-        
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale=GEO["locale"],
-            timezone_id=GEO["timezone_id"]
-        )
-
-        page = await context.new_page()
-        await Stealth().apply_stealth_async(page)
-        
-        # تفعيل نظام حظر الموارد لتقليل الاستهلاك
-        await page.route("**/*", handle_route)
-
-        for target in MGID_TARGETS:
-            await scrape_mgid(page, target)
-            await asyncio.sleep(random.uniform(2, 5))
-
+        browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG)
+        for target in TARGET_URLS:
+            await scrape_mgid_real_links(browser, target)
+            await asyncio.sleep(random.uniform(3, 6))
         await browser.close()
-        print("🏁 Task Completed.")
 
 if __name__ == "__main__":
     asyncio.run(run())
