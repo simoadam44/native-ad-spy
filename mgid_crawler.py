@@ -31,20 +31,23 @@ def extract_real_url(url):
     """ استخراج الرابط الحقيقي من داخل روابط تتبع MGID """
     if not url: return None
     if "clck.mgid.com" in url or "mgid.com/mghits" in url:
-        parsed = urlparse(url)
-        params = parse_qs(parsed.query)
-        # البحث عن بارامتر url أو target في الرابط المشفر
-        potential_params = ['url', 'target', 'u', 'destination']
-        for p in potential_params:
-            if p in params:
-                return unquote(params[p][0])
+        try:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            # البحث عن بارامتر url أو target في الرابط المشفر
+            potential_params = ['url', 'target', 'u', 'destination', 'mu']
+            for p in potential_params:
+                if p in params:
+                    decoded = unquote(params[p][0])
+                    if "http" in decoded: return decoded
+        except: pass
     return url
 
 async def save_to_supabase(ad):
     if not supabase or not ad.get('landing'): return
     try:
-        # تنظيف الرابط من وسوم UTM لضمان عدم التكرار
-        clean_url = ad['landing'].split('?')[0]
+        # تنظيف الرابط للحفاظ على فرادة البيانات
+        clean_url = ad['landing'].split('?')[0].rstrip('/')
         
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
         if res.data:
@@ -54,13 +57,13 @@ async def save_to_supabase(ad):
         else:
             ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
             supabase.table("ads").insert(ad).execute()
-            print(f"[MGID] ✨ New Ad: {ad['title'][:40]}...")
+            print(f"[MGID] ✨ New Ad Captured: {ad['title'][:40]}...")
     except Exception as e:
         print(f"[DB ERROR]: {e}")
 
 async def scrape_mgid(browser, target_url):
     context = await browser.new_context(
-        viewport={'width': 1280, 'height': 900},
+        viewport={'width': 1280, 'height': 1000},
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
     page = await context.new_page()
@@ -68,75 +71,75 @@ async def scrape_mgid(browser, target_url):
 
     captured_ads = []
 
-    # --- وظيفة اعتراض الاستجابة اللحظية ---
+    # --- اعتراض الـ API اللحظي ---
     async def handle_response(response):
         if "mgid.com" in response.url.lower() and response.status == 200:
             try:
-                content_type = response.headers.get("content-type", "")
-                if "json" in content_type or "javascript" in content_type:
-                    data = await response.json()
-                    items = data.get('items') or data.get('ads') or data.get('data', [])
-                    for item in items:
-                        raw_link = item.get('articleUrl') or item.get('targetUrl') or item.get('url')
-                        real_link = extract_real_url(raw_link)
-                        if real_link and "mgid.com" not in real_link:
-                            captured_ads.append({
-                                "title": item.get('title', 'No Title').strip(),
-                                "landing": real_link,
-                                "network": "MGID",
-                                "source": target_url
-                            })
+                data = await response.json()
+                items = data.get('items') or data.get('ads') or data.get('data', [])
+                for item in items:
+                    raw_link = item.get('articleUrl') or item.get('targetUrl') or item.get('url')
+                    real_link = extract_real_url(raw_link)
+                    if real_link and "mgid.com" not in real_link:
+                        captured_ads.append({
+                            "title": item.get('title', 'No Title').strip(),
+                            "landing": real_link,
+                            "network": "MGID",
+                            "source": target_url
+                        })
             except: pass
 
     page.on("response", handle_response)
 
     try:
         print(f"🔍 Checking: {target_url}")
-        # استخدام commit لتجاوز الـ Timeout إذا كانت الصفحة ثقيلة
-        await page.goto(target_url, wait_until="commit", timeout=60000)
+        # زيادة الـ Timeout وتغيير حالة الانتظار لضمان استقرار البروكسي
+        await page.goto(target_url, wait_until="load", timeout=90000)
         
-        # سكرول ذكي لتنشيط الـ Widgets
-        for i in range(4):
-            await page.evaluate(f"window.scrollBy(0, 1200)")
-            await asyncio.sleep(2.5)
+        # سكرول متكرر لضمان ظهور الـ Widgets أسفل المقال
+        for _ in range(5):
+            await page.evaluate("window.scrollBy(0, 1000)")
+            await asyncio.sleep(2)
 
-        # --- الحل الاحتياطي: استخراج من الـ DOM إذا فشل الاعتراض ---
-        if not captured_ads:
-            print(f"⚠️ API interception slow, scanning DOM for {target_url}...")
-            dom_results = await page.evaluate("""() => {
-                let items = [];
-                // البحث عن روابط MGID التي تحتوي على نصوص (عناوين الإعلانات)
-                document.querySelectorAll('a[href*="mgid.com"]').forEach(el => {
-                    let title = el.innerText.trim();
-                    if (title.length > 10) { 
-                        items.append({title: title, landing: el.href});
-                    }
-                });
-                return items;
-            }""")
-            for item in dom_results:
-                real = extract_real_url(item['landing'])
-                if real and "mgid.com" not in real:
-                    captured_ads.append({**item, "landing": real, "network": "MGID", "source": target_url})
+        # --- الحل الاحتياطي (DOM Scanning) - تم إصلاح الخطأ التقني هنا ---
+        print(f"📡 Scanning DOM for extra MGID leads...")
+        dom_results = await page.evaluate("""() => {
+            let results = [];
+            document.querySelectorAll('a[href*="mgid.com"]').forEach(el => {
+                let title = el.innerText.trim();
+                if (title.length > 8) { 
+                    results.push({title: title, landing: el.href}); // تم تغيير append إلى push
+                }
+            });
+            return results;
+        }""")
+        
+        for item in dom_results:
+            real = extract_real_url(item['landing'])
+            if real and "mgid.com" not in real:
+                captured_ads.append({**item, "landing": real, "network": "MGID", "source": target_url})
 
-        # إزالة التكرار والحفظ
-        unique_ads = {ad['landing']: ad for ad in captured_ads}.values()
-        for ad in unique_ads:
-            await save_to_supabase(ad)
+        # فلترة النتائج المتكررة وحفظها
+        if captured_ads:
+            unique_ads = {ad['landing']: ad for ad in captured_ads}.values()
+            for ad in unique_ads:
+                await save_to_supabase(ad)
+        else:
+            print(f"⚠️ No MGID ads found on this page (Country: {TARGET_COUNTRY})")
 
     except Exception as e:
-        print(f"❌ Error on {target_url}: {e}")
+        print(f"❌ Critical Error on {target_url}: {e}")
     finally:
         await page.close()
         await context.close()
 
 async def run():
     async with async_playwright() as p:
-        # تشغيل المتصفح مع البروكسي
-        browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG)
+        # إضافة خيار تجاوز أخطاء الشهادات لزيادة استقرار البروكسي
+        browser = await p.chromium.launch(headless=True, proxy=PROXY_CONFIG, args=["--ignore-certificate-errors"])
         for target in TARGET_URLS:
             await scrape_mgid(browser, target)
-            await asyncio.sleep(random.uniform(2, 5))
+            await asyncio.sleep(random.uniform(3, 7))
         await browser.close()
 
 if __name__ == "__main__":
