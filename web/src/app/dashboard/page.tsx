@@ -217,11 +217,22 @@ export default function DashboardPage() {
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="bg-card border border-border rounded-2xl overflow-hidden animate-pulse">
-              <div className="h-44 bg-neutral-800" />
-              <div className="p-4 space-y-2">
-                <div className="h-3 bg-neutral-800 rounded w-3/4" />
-                <div className="h-3 bg-neutral-800 rounded w-1/2" />
+            <div key={i} className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="h-44 bg-white/5 animate-pulse relative">
+                <div className="absolute top-2.5 left-2.5 flex flex-col gap-1">
+                   <div className="w-12 h-4 bg-white/10 rounded-md" />
+                   <div className="w-16 h-4 bg-white/10 rounded-md" />
+                </div>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="space-y-2">
+                  <div className="h-3 bg-white/10 rounded w-full animate-pulse" />
+                  <div className="h-3 bg-white/10 rounded w-2/3 animate-pulse" />
+                </div>
+                <div className="pt-3 border-t border-white/5 flex justify-between items-center">
+                  <div className="w-12 h-2 bg-white/5 rounded" />
+                  <div className="w-16 h-2 bg-white/5 rounded" />
+                </div>
               </div>
             </div>
           ))}
@@ -237,62 +248,65 @@ export default function DashboardPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: Math.min(i * 0.04, 0.5) }}
                 onClick={() => { setSelectedAd(ad); setIsModalOpen(true); }}
-                className="bg-card border border-border rounded-2xl overflow-hidden group hover:border-primary/40 hover:shadow-xl hover:shadow-primary/5 transition-all cursor-pointer flex flex-col"
+                className="bg-[#1A1A23] border border-white/5 rounded-2xl overflow-hidden group hover:border-primary/50 hover:shadow-[0_0_30px_rgba(59,130,246,0.1)] transition-all duration-500 cursor-pointer flex flex-col relative"
               >
+                {/* Premium Shine Effect on Hover */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-primary/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+                
                 <div className="relative h-44 overflow-hidden">
                   <img
                     src={ad.image || `https://picsum.photos/seed/${ad.id}/400/250`}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                     alt={ad.title}
                     onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${i}/400/250`; }}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <div className="absolute top-2.5 left-2.5 flex flex-col gap-1">
-                    <span className={`px-2 py-0.5 rounded-md text-[10px] w-max font-black uppercase ${networkColor[ad.network] || 'bg-neutral-700'} text-white`}>
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#13131A] via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
+                  
+                  <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10">
+                    <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider backdrop-blur-md shadow-lg ${
+                      ad.network === 'Taboola' ? 'bg-blue-600/80' : 
+                      ad.network === 'MGID' ? 'bg-purple-600/80' : 
+                      ad.network === 'Outbrain' ? 'bg-orange-600/80' : 'bg-green-600/80'
+                    } text-white`}>
                       {ad.network}
                     </span>
                     {ad.country_code && (
-                      <span className="px-2 py-1 flex items-center gap-1.5 rounded-md text-[10px] w-max font-black uppercase bg-black/60 backdrop-blur-md text-white border border-white/10">
+                      <span className="px-2.5 py-1 flex items-center gap-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-black/40 backdrop-blur-md text-white border border-white/5 shadow-lg">
                         <Flag code={ad.country_code} /> {ad.country_code}
                       </span>
                     )}
                   </div>
-                  <div className="absolute bottom-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-all flex gap-1.5">
+
+                  <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 flex gap-2 z-10">
                     <button
                       onClick={e => toggleFav(e, ad.id)}
-                      className={`p-1.5 rounded-lg backdrop-blur-sm transition-all ${favs.includes(ad.id) ? 'bg-red-500/80 text-white' : 'bg-black/50 text-neutral-300 hover:text-white'}`}
+                      className={`p-2 rounded-xl backdrop-blur-xl transition-all shadow-xl ${favs.includes(ad.id) ? 'bg-red-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                     >
-                      <Heart size={14} fill={favs.includes(ad.id) ? "currentColor" : "none"} />
+                      <Heart size={15} fill={favs.includes(ad.id) ? "currentColor" : "none"} />
                     </button>
                     <button
                       onClick={e => { e.stopPropagation(); setSelectedAd(ad); setIsModalOpen(true); }}
-                      className="p-1.5 rounded-lg backdrop-blur-sm bg-primary/80 text-white hover:bg-primary transition-all"
+                      className="p-2 rounded-xl backdrop-blur-xl bg-primary/20 text-primary border border-primary/20 hover:bg-primary hover:text-white transition-all shadow-xl"
                     >
-                      <BrainCircuit size={14} />
+                      <BrainCircuit size={15} />
                     </button>
-                    <a
-                      href={ad.landing}
-                      target="_blank"
-                      onClick={e => e.stopPropagation()}
-                      className="p-1.5 rounded-lg backdrop-blur-sm bg-black/50 text-neutral-300 hover:text-white transition-all"
-                    >
-                      <ExternalLink size={14} />
-                    </a>
                   </div>
                 </div>
 
-                <div className="p-4 flex flex-col flex-1">
-                  <h3 className="text-sm font-bold line-clamp-2 leading-relaxed group-hover:text-primary transition-colors">
+                <div className="p-5 flex flex-col flex-1 relative z-10">
+                  <h3 className="text-[13px] font-bold font-syne line-clamp-2 leading-snug group-hover:text-primary transition-colors duration-300 mb-4">
                     {ad.title}
                   </h3>
-                  <div className="flex items-center justify-between mt-auto pt-3 border-t border-white/5">
-                    <div className="flex items-center gap-1">
-                      <Flame size={12} className="text-accent" />
-                      <span className="text-[10px] font-bold text-neutral-500">
+                  <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/[0.03]">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Flame size={10} className="text-primary" />
+                      </div>
+                      <span className="text-[10px] font-black text-neutral-400 tracking-tight">
                         {(ad.impressions || 0).toLocaleString()}
                       </span>
                     </div>
-                    <span className="text-[10px] text-neutral-600">
+                    <span className="text-[9px] font-bold text-neutral-600 uppercase tracking-tighter">
                       {new Date(ad.created_at).toLocaleDateString("en", { month: "short", day: "numeric" })}
                     </span>
                   </div>

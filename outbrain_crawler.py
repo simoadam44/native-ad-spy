@@ -142,47 +142,66 @@ async def scrape_outbrain(browser, url):
         async def handle_response(response):
             nonlocal outbrain_ads
             r_url = response.url.lower()
+            
+            # Outbrain responses can be JSON or JS callbacks (e.g. OB_REC_CALLBACK)
             if ("outbrain.com" in r_url or "odb.outbrain.com" in r_url) and response.status == 200:
                 try:
-                    ct = response.headers.get("content-type", "")
-                    if "application/json" in ct or "text/javascript" in ct:
+                    ct = response.headers.get("content-type", "").lower()
+                    if "application/json" in ct or "text/javascript" in ct or "application/javascript" in ct:
                         text = await response.text()
+                        
+                        # Debug logic for development
+                        if "listings" in text.lower() or "documents" in text.lower():
+                            print(f"📡 [OUTBRAIN API]: Captured potential data from {r_url[:60]}...")
+
                         data = None
+                        # Extract JSON from potential JSONP / Callback
                         if text.strip().startswith('{') or text.strip().startswith('['):
-                            data = json.loads(text)
-                        else:
-                            match = re.search(r'(\{.*\})|(\[.*\])', text)
-                            if match: data = json.loads(match.group(0))
+                            try:
+                                data = json.loads(text)
+                            except: pass
+                        
+                        if not data:
+                            # Try to find JSON inside a callback function wrapper
+                            match = re.search(r'\((\{.*\})\)', text) or re.search(r'(\{.*\})', text)
+                            if match:
+                                try:
+                                    data = json.loads(match.group(1) if match.group(1) else match.group(0))
+                                except: pass
                         
                         if data:
                             listings = []
-                            # Outbrain uses various formats like 'documents', 'doc', 'ads', 'items'
-                            possible_keys = ['documents', 'items', 'cards', 'ads', 'listings']
-                            if isinstance(data, dict):
-                                for key in possible_keys:
-                                    if key in data:
-                                        listings.extend(data[key])
-                                if 'doc' in data and isinstance(data['doc'], dict):
-                                    for key in possible_keys:
-                                        if key in data['doc']:
-                                            listings.extend(data['doc'][key])
-                            elif isinstance(data, list):
-                                listings = data
+                            # Drill down into common Outbrain nested structures
+                            def extract_recursive(obj):
+                                if isinstance(obj, list):
+                                    for item in obj:
+                                        if isinstance(item, dict) and ('title' in item or 'content' in item):
+                                            listings.append(item)
+                                elif isinstance(obj, dict):
+                                    for k, v in obj.items():
+                                        if k in ['documents', 'items', 'ads', 'listings', 'doc'] and isinstance(v, (list, dict)):
+                                            if isinstance(v, list): listings.extend(v)
+                                            else: extract_recursive(v)
+                                        elif isinstance(v, (dict, list)):
+                                            extract_recursive(v)
+
+                            extract_recursive(data)
                             
                             for item in listings:
-                                t = item.get('content') or item.get('title') or item.get('text') or item.get('name')
-                                l = item.get('url') or item.get('clickUrl') or item.get('link') or item.get('href')
+                                t = item.get('content') or item.get('title') or item.get('text')
+                                l = item.get('url') or item.get('clickUrl') or item.get('link')
                                 if t and l:
-                                    # Normalize image extraction
+                                    # Image extraction
                                     img = ""
-                                    if isinstance(item.get('image'), dict):
-                                        img = item['image'].get('url') or ""
-                                    elif isinstance(item.get('thumbnail'), dict):
-                                        img = item['thumbnail'].get('url') or ""
-                                    elif isinstance(item.get('thumbnail'), list) and len(item['thumbnail']) > 0:
-                                        img = item['thumbnail'][0].get('url') or ""
+                                    thumbnail = item.get('image') or item.get('thumbnail')
+                                    if isinstance(thumbnail, dict):
+                                        img = thumbnail.get('url') or thumbnail.get('src') or ""
+                                    elif isinstance(thumbnail, list) and len(thumbnail) > 0:
+                                        img = thumbnail[0].get('url') if isinstance(thumbnail[0], dict) else thumbnail[0]
                                     else:
-                                        img = item.get('image') or item.get('thumbnail') or ""
+                                        img = str(thumbnail or "")
+
+                                    if img.startswith('//'): img = 'https:' + img
                                     
                                     outbrain_ads.append({
                                         "title": str(t).strip(), 
@@ -191,7 +210,8 @@ async def scrape_outbrain(browser, url):
                                         "source": url, 
                                         "network": "OUTBRAIN"
                                     })
-                except: pass
+                except Exception as e:
+                    pass
 
         page.on("response", handle_response)
         

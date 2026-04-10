@@ -26,16 +26,32 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
   const resolveAndVisit = async (landingUrl: string, sourceUrl: string) => {
     const isTracking = landingUrl.includes("clck.mgid.com") || landingUrl.includes("clck.adskeeper.com");
     if (!isTracking) {
+      console.log("[AdModal] Direct link, opening:", landingUrl);
       window.open(landingUrl, "_blank");
       return;
     }
+
     setResolving(true);
+    console.log("[AdModal] Tracking link detected. Resolving via API...", { landingUrl, sourceUrl });
+
     try {
-      const ref = encodeURIComponent(sourceUrl || "https://brainberries.co/");
+      // Priority: ad.source -> sourceUrl -> fallback
+      const finalRef = sourceUrl || ad.source || "https://brainberries.co/";
+      const ref = encodeURIComponent(finalRef);
       const res = await fetch(`/api/resolve?url=${encodeURIComponent(landingUrl)}&ref=${ref}`);
+      
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      
       const data = await res.json();
-      window.open(data.resolved || landingUrl, "_blank");
-    } catch {
+      console.log("[AdModal] Resolution result:", data);
+      
+      if (data.resolved) {
+        window.open(data.resolved, "_blank");
+      } else {
+        window.open(landingUrl, "_blank");
+      }
+    } catch (err) {
+      console.error("[AdModal] Resolution failed:", err);
       window.open(landingUrl, "_blank");
     } finally {
       setResolving(false);
@@ -139,9 +155,12 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                     onError={e => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/42/600/340`; }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-all flex items-end justify-center pb-4">
-                    <a href={ad.landing} target="_blank" className="bg-white text-black font-bold px-5 py-2 rounded-full text-sm flex items-center gap-2 hover:scale-105 transition-transform">
+                    <button 
+                      onClick={() => resolveAndVisit(ad.landing, ad.source || "")}
+                      className="bg-white text-black font-bold px-5 py-2 rounded-full text-sm flex items-center gap-2 hover:scale-105 transition-transform"
+                    >
                       <ExternalLink size={14} /> Visit Landing Page
-                    </a>
+                    </button>
                   </div>
                 </div>
 
@@ -183,7 +202,7 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                     <Heart size={16} fill={isFav ? "currentColor" : "none"} /> {isFav ? "Saved" : "Save"}
                   </button>
                   <button
-                    onClick={() => resolveAndVisit(ad.landing, ad.source_url || "")}
+                    onClick={() => resolveAndVisit(ad.landing, ad.source || "")}
                     disabled={resolving}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white font-bold text-sm hover:bg-primary/90 transition-all disabled:opacity-60"
                   >
