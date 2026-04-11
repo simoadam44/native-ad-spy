@@ -131,12 +131,21 @@ async def scrape_mgid(browser, url):
                 nonlocal network_resolved_url
                 r_url = request.url
                 # نتجاهل روابط التتبع ونطاقات الحماية والمؤشرات التقنية
-                is_tracking = any(x in r_url.lower() for x in ["mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", "onetrust.com", "cookieconsent"])
+                is_tracking = any(x in r_url.lower() for x in [
+                    "mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", 
+                    "onetrust.com", "cookieconsent", "cookielaw.org", "bot-detected"
+                ])
                 is_resource = any(x in r_url.lower() for x in [".png", ".jpg", ".jpeg", ".gif", ".css", ".js", ".woff2"])
                 
                 if request.resource_type in ["document", "xhr", "fetch"] and not is_tracking and not is_resource:
                     if len(r_url) > 25 and r_url.startswith("http"):
-                        network_resolved_url = r_url
+                        # التأكد من أن الرابط ليس مجرد اسم وهمي بل يحتوي على نطاق صحيح
+                        from urllib.parse import urlparse
+                        try:
+                            parsed = urlparse(r_url)
+                            if parsed.netloc and "." in parsed.netloc:
+                                network_resolved_url = r_url
+                        except: pass
 
             resolver_page.on("request", catch_final_url)
             
@@ -157,8 +166,13 @@ async def scrape_mgid(browser, url):
                 curr_url = resolver_page.url
                 if curr_url and "mgid.com" not in curr_url and "adskeeper.com" not in curr_url and \
                    "ploynest.com" not in curr_url and "bot-detected" not in curr_url and \
-                   len(curr_url) > 25:
-                    return curr_url
+                   "cookielaw.org" not in curr_url and "onetrust.com" not in curr_url and len(curr_url) > 25:
+                    from urllib.parse import urlparse
+                    try:
+                        p = urlparse(curr_url)
+                        if p.netloc and "." in p.netloc:
+                            return curr_url
+                    except: pass
                 
                 await asyncio.sleep(1)
             
@@ -273,6 +287,16 @@ async def scrape_mgid(browser, url):
                                 let hash = item.hash || item.i || '';
                                 let realUrl = item.articleUrl || item.targetUrl || item.destinationUrl ||
                                               item.originalUrl || item.url || item.clickUrl || item.link || '';
+                                
+                                // التحقق من صحة الرابط المجرد من الكائنات
+                                if (realUrl && !realUrl.includes('clck.mgid.com')) {
+                                    try {
+                                        let u = new URL(realUrl, window.location.origin);
+                                        if (!u.hostname.includes('.')) realUrl = '';
+                                        else realUrl = u.href;
+                                    } catch(e) { realUrl = ''; }
+                                }
+
                                 results.push({
                                     title: item.title,
                                     landing: realUrl,
@@ -318,18 +342,30 @@ async def scrape_mgid(browser, url):
                             if not real_href:
                                 real_href = await el.evaluate("""
                                     (a) => {
+                                        function isValid(url) {
+                                            try {
+                                                let u = new URL(url, window.location.origin);
+                                                return u.hostname.includes('.') && 
+                                                       !u.href.includes('clck.mgid.com') && 
+                                                       !u.href.includes('clck.adskeeper.com');
+                                            } catch(e) { return false; }
+                                        }
+                                        
                                         let realUrl = a.dataset.url || a.dataset.href || a.dataset.link ||
                                                       a.dataset.articleUrl || a.dataset.targetUrl ||
                                                       a.getAttribute('data-url') || a.getAttribute('data-href') ||
                                                       a.getAttribute('data-link') || a.getAttribute('data-article-url') ||
                                                       a.getAttribute('data-original-url');
-                                        if (realUrl && !realUrl.includes('clck.mgid.com') && !realUrl.includes('clck.adskeeper.com')) {
-                                            return realUrl;
+                                        
+                                        if (realUrl && isValid(realUrl)) {
+                                            return new URL(realUrl, window.location.origin).href;
                                         }
                                         let parent = a.closest('[data-url],[data-href],[data-article-url]');
                                         if (parent) {
                                             let pUrl = parent.dataset.url || parent.dataset.href || parent.dataset.articleUrl;
-                                            if (pUrl && !pUrl.includes('clck.mgid.com')) return pUrl;
+                                            if (pUrl && isValid(pUrl)) {
+                                                return new URL(pUrl, window.location.origin).href;
+                                            }
                                         }
                                         return a.href;
                                     }

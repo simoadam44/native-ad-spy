@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
   console.log(`[RESOLVER] Starting resolution for: ${url} (Referer: ${referer})`);
 
   try {
-    const BOGUS_DOMAINS = ["ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", "bot-detected", "400-bad-request", "403-forbidden"];
+    const BOGUS_DOMAINS = [
+      "ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", 
+      "bot-detected", "400-bad-request", "403-forbidden", 
+      "cookielaw.org", "onetrust.com", "cookieconsent"
+    ];
     
     let currentUrl = url;
     let redirectCount = 0;
@@ -102,9 +106,21 @@ export async function GET(request: NextRequest) {
     }
 
     const isBogus = BOGUS_DOMAINS.some(d => currentUrl.toLowerCase().includes(d));
+    let finalUrl = currentUrl;
+    
+    // Check for valid hostname (must contain a dot)
+    try {
+      const parsedUrl = new URL(finalUrl);
+      if (!parsedUrl.hostname.includes('.')) {
+        finalUrl = url; // Fallback to original if completely invalid
+      }
+    } catch {
+      finalUrl = url;
+    }
+
     return NextResponse.json({ 
-      resolved: currentUrl, 
-      resolved_ok: !isBogus && currentUrl !== url,
+      resolved: finalUrl, 
+      resolved_ok: !isBogus && finalUrl !== url && finalUrl === currentUrl,
       redirects: redirectCount
     });
 
