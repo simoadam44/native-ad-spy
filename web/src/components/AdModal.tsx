@@ -39,19 +39,19 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
       const finalRef = ad.source || sourceUrl || "https://brainberries.co/";
       const ref = encodeURIComponent(finalRef);
       
-      // Wait a tiny bit for a smoother transition
-      await new Promise(r => setTimeout(r, 600));
-
       const res = await fetch(`/api/resolve?url=${encodeURIComponent(landingUrl)}&ref=${ref}`);
       
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       
       const data = await res.json();
-      console.log("[AdModal] Resolved to:", data.resolved);
+      console.log("[AdModal] Resolved to:", data.url || data.resolved);
       
-      if (data.resolved) {
-        window.open(data.resolved, "_blank");
+      const finalUrl = data.url || data.resolved;
+      
+      if (finalUrl && !finalUrl.includes('clck.mgid.com') && !finalUrl.includes('ploynest.com')) {
+        window.open(finalUrl, "_blank");
       } else {
+        console.warn("[AdModal] Resolution returned bogus or tracking link, fallback to raw.");
         window.open(landingUrl, "_blank");
       }
     } catch (err) {

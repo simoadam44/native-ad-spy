@@ -22,17 +22,17 @@ export async function GET(request: NextRequest) {
   console.log(`[RESOLVER] Starting resolution for: ${url} (Referer: ${referer})`);
 
   try {
-    const BOGUS_DOMAINS = ["ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", "bot-detected", "400-bad-request"];
+    const BOGUS_DOMAINS = ["ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", "bot-detected", "400-bad-request", "403-forbidden"];
     
     let currentUrl = url;
     let redirectCount = 0;
-    const maxRedirects = 6;
+    const maxRedirects = 8; // Increased for complex chains
 
     console.log(`[RESOLVER] Resolving: ${url} (Ref: ${referer})`);
 
     while (redirectCount < maxRedirects) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 7000);
+      const timeout = setTimeout(() => controller.abort(), 8000);
 
       try {
         const response = await fetch(currentUrl, {
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
           signal: controller.signal,
           headers: {
             "Referer": referer,
-            "User-Agent": redirectCount === 0 
+            "User-Agent": redirectCount % 2 === 0 
               ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
               : "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -50,28 +50,51 @@ export async function GET(request: NextRequest) {
 
         clearTimeout(timeout);
         
-        const location = response.headers.get("location");
         const status = response.status;
+        const location = response.headers.get("location");
 
-        if (status === 400 || status === 403) {
-          console.log(`[RESOLVER] Blocked at ${currentUrl} (Status: ${status})`);
-          break;
-        }
-        
+        // 1. Handle HTTP Redirects
         if (status >= 300 && status < 400 && location) {
           const nextUrl = new URL(location, currentUrl).toString();
-          console.log(`[RESOLVER] Step ${redirectCount + 1}: -> ${nextUrl}`);
+          console.log(`[RESOLVER] Step ${redirectCount + 1} (HTTP): -> ${nextUrl}`);
           
           if (BOGUS_DOMAINS.some(d => nextUrl.toLowerCase().includes(d))) {
-            console.log(`[RESOLVER] Bogus hit: ${nextUrl}`);
+            console.log(`[RESOLVER] Bogus hit (HTTP): ${nextUrl}`);
             break; 
           }
 
           currentUrl = nextUrl;
           redirectCount++;
-        } else {
-          break;
+          continue;
         }
+
+        // 2. Handle Meta Refresh (only for status 200)
+        if (status === 200) {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("text/html")) {
+            const html = await response.text();
+            
+            // Regex to find <meta http-equiv="refresh" content="...url=...">
+            const metaMatch = html.match(/<meta\s+http-equiv=["']refresh["']\s+content=["'][^"']*?url=([^"']*?)["']/i);
+            if (metaMatch && metaMatch[1]) {
+              const nextUrl = new URL(metaMatch[1], currentUrl).toString();
+              console.log(`[RESOLVER] Step ${redirectCount + 1} (Meta): -> ${nextUrl}`);
+              
+              if (BOGUS_DOMAINS.some(d => nextUrl.toLowerCase().includes(d))) {
+                console.log(`[RESOLVER] Bogus hit (Meta): ${nextUrl}`);
+                break;
+              }
+              
+              currentUrl = nextUrl;
+              redirectCount++;
+              continue;
+            }
+          }
+        }
+        
+        // No more redirects found
+        break;
+
       } catch (fError: any) {
         console.error(`[RESOLVER] Fetch error at step ${redirectCount}:`, fError.message);
         break;

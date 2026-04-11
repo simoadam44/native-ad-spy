@@ -63,8 +63,12 @@ async def save_to_supabase(ad):
         title_key = ad['title'].strip()[:80].lower()
         clean_url = ad['landing'].split('?')[0]
         
-        # البحث عن إعلان بنفس العنوان (لأن روابط MGID تتغير باستمرار)
-        # نستخدم عنوان مشابه بنسبة كبيرة
+        # كلمات مفتاحية لعناوين غير مفيدة (أسماء مواقع أو أقسام)
+        useless_titles = ["brainberries.co", "pop culture", "herbeauty.co", "easy moves", "trending", "sponsored", "advertisement"]
+        if any(ut in title_key for ut in useless_titles) and len(title_key) < 20:
+            return
+
+        # البحث عن إعلان بنفس العنوان
         res = supabase.table("ads").select("id, impressions, landing, title").ilike("title", title_key + "%").execute()
         
         if res.data:
@@ -73,10 +77,10 @@ async def save_to_supabase(ad):
             update_data = {"impressions": new_imp, "last_seen": "now()"}
             
             # إذا كان الرابط القديم تتبع والجديد حقيقي، نحدث الرابط
-            is_old_tracking = "mgid.com" in existing['landing'] or "adskeeper.com" in existing['landing']
-            is_new_real = "mgid.com" not in clean_url and "adskeeper.com" not in clean_url and "ploynest" not in clean_url
+            is_old_tracking = "mgid.com" in existing['landing'] or "adskeeper.com" in existing['landing'] or "clck." in existing['landing']
+            is_new_real = "mgid.com" not in clean_url and "adskeeper.com" not in clean_url and "ploynest" not in clean_url and "clck." not in clean_url
             
-            if is_old_tracking and is_new_real:
+            if is_old_tracking and is_new_real and len(clean_url) > 25:
                 update_data["landing"] = clean_url
                 print(f"🔄 [MGID]: تم تحديث رابط تتبع برابط حقيقي للإعلان: {title_key[:30]}...")
             
@@ -104,38 +108,61 @@ async def scrape_mgid(browser, url):
     
     page = await context.new_page()
     
-    # ✅ وظيفة لفك تشفير روابط التتبع مباشرة من Crawler
+    # ✅ وظيفة متطورة لفك تشفير روابط التتبع
     async def resolve_mgid_link(tracking_url, referer):
         if not tracking_url or not ("mgid.com" in tracking_url or "adskeeper.com" in tracking_url):
             return tracking_url
         
         resolver_page = None
         try:
+            # استخدام إعدادات موبايل للتخفي (أقل عرضة للحظر)
             resolver_page = await context.new_page()
-            # تعيين referer ضروري لتجاوز "Bad Request"
-            await resolver_page.set_extra_http_headers({"Referer": referer})
+            await resolver_page.set_viewport_size({"width": 390, "height": 844})
+            await resolver_page.set_extra_http_headers({
+                "Referer": referer,
+                "Accept-Language": "en-US,en;q=0.9"
+            })
             
-            # الانتقال للرابط وانتظار أول تحويل ناجح
-            # print(f"DEBUG: Resolving tracking URL: {tracking_url}")
-            await resolver_page.goto(tracking_url, wait_until="commit", timeout=15000)
+            # متغير لحفظ الرابط النهائي من الشبكة
+            network_resolved_url = None
             
-            # ننتظر حتى يتغير العنوان عن نطاق MGID
-            max_wait = 12
-            wait_step = 1.0
-            elapsed = 0
-            while elapsed < max_wait:
-                await asyncio.sleep(wait_step)
-                elapsed += wait_step
-                final_url = resolver_page.url
+            # اعتراض طلبات الشبكة للقبض على الرابط الحقيقي
+            async def catch_final_url(request):
+                nonlocal network_resolved_url
+                r_url = request.url
+                # نتجاهل روابط التتبع ونطاقات الحماية والمؤشرات التقنية
+                is_tracking = any(x in r_url.lower() for x in ["mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", "onetrust.com", "cookieconsent"])
+                is_resource = any(x in r_url.lower() for x in [".png", ".jpg", ".jpeg", ".gif", ".css", ".js", ".woff2"])
                 
-                # تخطي النطاقات الوهمية أو المروجة لـ MGID
-                if any(x in final_url.lower() for x in ["mgid.com", "adskeeper.com", "ploynest.com", "bot-detected"]):
-                    continue
-                
-                if final_url.startswith("http") and len(final_url) > 20:
-                    return final_url
+                if request.resource_type in ["document", "xhr", "fetch"] and not is_tracking and not is_resource:
+                    if len(r_url) > 25 and r_url.startswith("http"):
+                        network_resolved_url = r_url
+
+            resolver_page.on("request", catch_final_url)
             
-            return tracking_url # إذا فشلنا نعود للرابط الأصلي وليس ploynest
+            # الانتقال والانتظار - سنستخدم domcontentloaded لضمان تحميل السكريبتات الأولية
+            try:
+                await resolver_page.goto(tracking_url, wait_until="domcontentloaded", timeout=12000)
+            except:
+                pass # في حال حدوث timeout، قد نكون وصنا بالفعل للرابط
+            
+            # الانتظار حتى يتغير العنوان أو تدرك الشبكة الرابط
+            # سنقوم بالتحقق لمدة 10 ثوانٍ (ثانية بثانية)
+            for _ in range(10):
+                if network_resolved_url: 
+                    # التحقق أن الرابط ليس مجرد جزء من رابط تتبع آخر
+                    if "mgid.com" not in network_resolved_url:
+                        return network_resolved_url
+                
+                curr_url = resolver_page.url
+                if curr_url and "mgid.com" not in curr_url and "adskeeper.com" not in curr_url and \
+                   "ploynest.com" not in curr_url and "bot-detected" not in curr_url and \
+                   len(curr_url) > 25:
+                    return curr_url
+                
+                await asyncio.sleep(1)
+            
+            return tracking_url
         except:
             return tracking_url
         finally:
@@ -242,12 +269,15 @@ async def scrape_mgid(browser, url):
                             if (!Array.isArray(items)) continue;
                             for (let item of items) {
                                 if (!item || !item.title) continue;
+                                // البحث باستخدام الـ hash (نادر ولكنه موجود في الصور)
+                                let hash = item.hash || item.i || '';
                                 let realUrl = item.articleUrl || item.targetUrl || item.destinationUrl ||
                                               item.originalUrl || item.url || item.clickUrl || item.link || '';
                                 results.push({
                                     title: item.title,
                                     landing: realUrl,
-                                    image: item.mainImage || item.thumbnail || item.image || ''
+                                    image: item.mainImage || item.thumbnail || item.image || '',
+                                    hash: hash
                                 });
                             }
                         }
@@ -261,18 +291,31 @@ async def scrape_mgid(browser, url):
         except: pass
 
         # ✅ DOM Fallback
-        if not mgid_ads:
-            for frame in page.frames:
-                try:
-                    links = frame.locator('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a, .mg-teaser a')
-                    count = await links.count()
-                    for i in range(count):
-                        el = links.nth(i)
-                        title = await el.inner_text()
-                        href = await el.get_attribute("href")
-                        if title and href:
-                            title = title.strip()
-                            if len(title) > 5 and href.startswith('http'):
+        for frame in page.frames:
+            try:
+                links = frame.locator('.mgline a, .mgbox a, [id^="mgid_"] a, .mgid-widget a, .mg-teaser a')
+                count = await links.count()
+                for i in range(count):
+                    el = links.nth(i)
+                    title = await el.inner_text()
+                    href = await el.get_attribute("href")
+                    
+                    # استخراج الـ hash من الخصائص
+                    ad_hash = await el.evaluate("(a) => a.dataset.hash || a.dataset.i || a.getAttribute('data-hash') || a.getAttribute('data-i') || ''")
+                    
+                    if title and href:
+                        title = title.strip()
+                        if len(title) > 5 and href.startswith('http'):
+                            # محاولة العثور على الرابط باستخدام الـ hash في كائنات الصفحة
+                            real_href = None
+                            if ad_hash:
+                                # البحث في قائمة mgid_ads التي استخرجناها للتو من API أو JS
+                                for api_ad in mgid_ads:
+                                    if api_ad.get('hash') == ad_hash and api_ad.get('landing') and "mgid.com" not in api_ad['landing']:
+                                        real_href = api_ad['landing']
+                                        break
+                            
+                            if not real_href:
                                 real_href = await el.evaluate("""
                                     (a) => {
                                         let realUrl = a.dataset.url || a.dataset.href || a.dataset.link ||
@@ -291,20 +334,21 @@ async def scrape_mgid(browser, url):
                                         return a.href;
                                     }
                                 """)
-                                landing = real_href or href
-                                image_url = await el.evaluate("""
-                                    (a) => {
-                                        let img = a.querySelector('img');
-                                        if (img && (img.src || img.dataset.src)) return img.src || img.dataset.src;
-                                        let container = a.closest('.mgline, .mgbox, .mgid-widget, .mg-teaser, [id^="mgid_"]');
-                                        if (!container) container = a.parentElement;
-                                        let cImg = container.querySelector('img');
-                                        if (cImg && (cImg.src || cImg.dataset.src)) return cImg.src || cImg.dataset.src;
-                                        return '';
-                                    }
-                                """)
-                                mgid_ads.append({"title": title, "landing": landing, "image": image_url or "", "source": url, "network": "MGID"})
-                except: pass
+                            
+                            landing = real_href or href
+                            image_url = await el.evaluate("""
+                                (a) => {
+                                    let img = a.querySelector('img');
+                                    if (img && (img.src || img.dataset.src)) return img.src || img.dataset.src;
+                                    let container = a.closest('.mgline, .mgbox, .mgid-widget, .mg-teaser, [id^="mgid_"]');
+                                    if (!container) container = a.parentElement;
+                                    let cImg = container.querySelector('img');
+                                    if (cImg && (cImg.src || cImg.dataset.src)) return cImg.src || cImg.dataset.src;
+                                    return '';
+                                }
+                            """)
+                            mgid_ads.append({"title": title, "landing": landing, "image": image_url or "", "source": url, "network": "MGID"})
+            except: pass
 
         # --- معالجة وحفظ النتائج ---
         unique_ads = {}
