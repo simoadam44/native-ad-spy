@@ -462,12 +462,30 @@ async def scrape_mgid(browser, url):
             if resolved_count > 0:
                 print(f"🔓 [MGID]: تم فك تشفير {resolved_count} رابط بشكل سري!")
 
-            # 3. الحفظ النهائي
+            # 3. الحفظ النهائي والتصفية الصارمة (Dropping Unresolved/Malformed)
+            saved_count = 0
             for ad in unique_ads.values():
+                t_url = ad.get('landing', '').strip()
+                
+                # تخطي الروابط التي لم تنجح عملية فك التشفير لها
+                if "clck.mgid.com" in t_url or "clck.adskeeper.com" in t_url:
+                    continue
+                
+                # تخطي الروابط الخاطئة التي لا تملك اسم نطاق (TLD) صالح
+                from urllib.parse import urlparse
+                try:
+                    p = urlparse(t_url)
+                    if not p.netloc or "." not in p.netloc:
+                        continue
+                except: continue
+                
                 await save_to_supabase(ad)
-            print(f"✅ [MGID]: اكتملت المعالجة لـ {len(unique_ads)} إعلان في {url}")
+                saved_count += 1
+                
+            print(f"✅ [MGID]: تم حفظ {saved_count} إعلانات نقية و 100% حقيقية من أصل {len(unique_ads)} في {url}")
         else:
             print(f"ℹ️ [MGID]: لم يتم رصد إعلانات في {url}")
+
 
     except Exception as e:
         print(f"[MGID ERROR]: {e}")
