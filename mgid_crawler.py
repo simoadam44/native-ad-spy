@@ -403,18 +403,64 @@ async def scrape_mgid(browser, url):
                 elif "clck.mgid.com" in unique_ads[title_key]['landing'] and "clck.mgid.com" not in landing:
                     unique_ads[title_key] = ad
 
-            # 2. المرحلة الثانية: فك تشفير روابط التتبع
-            print(f"🔍 [MGID]: تم رصد {len(unique_ads)} إعلان، جاري فك روابط التتبع...")
+            # 2. المرحلة الثانية: فك تشفير روابط التتبع السري (AdPlexity Method)
+            print(f"🔍 [MGID]: تم رصد {len(unique_ads)} إعلان، جاري فك روابط التتبع بالحقن العميق...")
+            
+            resolved_map = {}
+            current_target = None
+            
+            async def catch_iframe_req(req):
+                nonlocal current_target, resolved_map
+                u = req.url
+                if req.resource_type in ["document", "sub_document"]:
+                    is_tracking = any(x in u.lower() for x in ["mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", "onetrust.com", "cookieconsent", "cookielaw.org", "bot-detected"])
+                    if not is_tracking and len(u) > 25:
+                        from urllib.parse import urlparse
+                        try:
+                            if "." in urlparse(u).netloc:
+                                if current_target and current_target not in resolved_map:
+                                    resolved_map[current_target] = u
+                        except: pass
+
+            page.on("request", catch_iframe_req)
+            
             resolved_count = 0
             for ad in unique_ads.values():
-                if "clck.mgid.com" in ad['landing'] or "clck.adskeeper.com" in ad['landing']:
-                    resolved_url = await resolve_mgid_link(ad['landing'], url)
-                    if resolved_url != ad['landing']:
-                        ad['landing'] = resolved_url
-                        resolved_count += 1
+                t_url = ad['landing']
+                if "clck.mgid.com" in t_url or "clck.adskeeper.com" in t_url:
+                    current_target = t_url
+                    try:
+                        await page.evaluate(f"""
+                            (url) => {{
+                                let iframe = document.getElementById('mgid_resolver_iframe');
+                                if (!iframe) {{
+                                    iframe = document.createElement('iframe');
+                                    iframe.id = 'mgid_resolver_iframe';
+                                    iframe.style.display = 'none';
+                                    document.body.appendChild(iframe);
+                                }}
+                                iframe.src = url;
+                            }}
+                        """, t_url)
+                        
+                        # نراقب لمدة 8 ثواني
+                        for _ in range(8):
+                            if current_target in resolved_map:
+                                ad['landing'] = resolved_map[current_target]
+                                resolved_count += 1
+                                break
+                            await asyncio.sleep(1)
+                    except: pass
+                    current_target = None
+            
+            # تنظيف
+            try:
+                page.remove_listener("request", catch_iframe_req)
+                await page.evaluate("document.getElementById('mgid_resolver_iframe')?.remove();")
+            except: pass
             
             if resolved_count > 0:
-                print(f"🔓 [MGID]: تم فك تشفير {resolved_count} رابط بنجاح!")
+                print(f"🔓 [MGID]: تم فك تشفير {resolved_count} رابط بشكل سري!")
 
             # 3. الحفظ النهائي
             for ad in unique_ads.values():
