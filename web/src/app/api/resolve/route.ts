@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
     const BOGUS_DOMAINS = [
       "ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", 
       "bot-detected", "400-bad-request", "403-forbidden", 
-      "cookielaw.org", "onetrust.com", "cookieconsent"
+      "cookielaw.org", "onetrust.com", "cookieconsent",
+      "adtrafficquality.google", "googleadservices.com", "activeview", "sodar"
     ];
     
     let currentUrl = url;

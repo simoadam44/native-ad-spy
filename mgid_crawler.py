@@ -133,7 +133,8 @@ async def scrape_mgid(browser, url):
                 # نتجاهل روابط التتبع ونطاقات الحماية والمؤشرات التقنية
                 is_tracking = any(x in r_url.lower() for x in [
                     "mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", 
-                    "onetrust.com", "cookieconsent", "cookielaw.org", "bot-detected"
+                    "onetrust.com", "cookieconsent", "cookielaw.org", "bot-detected",
+                    "adtrafficquality.google", "googleadservices.com", "activeview", "sodar"
                 ])
                 is_resource = any(x in r_url.lower() for x in [".png", ".jpg", ".jpeg", ".gif", ".css", ".js", ".woff2"])
                 
@@ -413,7 +414,11 @@ async def scrape_mgid(browser, url):
                 nonlocal current_target, resolved_map
                 u = req.url
                 if req.resource_type in ["document", "sub_document"]:
-                    is_tracking = any(x in u.lower() for x in ["mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", "onetrust.com", "cookieconsent", "cookielaw.org", "bot-detected"])
+                    is_tracking = any(x in u.lower() for x in [
+                        "mgid.com", "adskeeper.com", "ploynest.com", "clck.", "ghits/", 
+                        "onetrust.com", "cookieconsent", "cookielaw.org", "bot-detected",
+                        "adtrafficquality.google", "googleadservices.com", "activeview", "sodar"
+                    ])
                     if not is_tracking and len(u) > 25:
                         from urllib.parse import urlparse
                         try:
