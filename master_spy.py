@@ -36,7 +36,7 @@ def run_script(script_name, country):
             stderr=subprocess.STDOUT, 
             text=True, 
             env=env,
-            encoding='utf-8' # لضمان قراءة الكلمات العربية مثل "صيد جديد"
+            encoding='utf-8' 
         )
         
         for line in process.stdout:
@@ -62,7 +62,7 @@ def run_script(script_name, country):
 
 def show_dashboard(total_time):
     print("\n" + "*"*50)
-    print("📊 ملخص جولة التجسس (Focus Mode: MGID Only) 📊")
+    print("📊 ملخص جولة التجسس (Focus Mode: OUTBRAIN Only) 📊")
     print("*"*50)
     
     table_header = f"{'الشبكة':<15} | {'صيد جديد ✨':<12} | {'تحديثات 📈':<10}"
@@ -71,8 +71,8 @@ def show_dashboard(total_time):
     
     total_new = 0
     for network, data in stats.items():
-        # نظهر فقط الشبكات التي سجلت نتائج أو شبكة MGID
-        if data['new'] > 0 or data['updates'] > 0 or network == "MGID":
+        # نظهر فقط شبكة OUTBRAIN في هذا الوضع
+        if network == "OUTBRAIN":
             print(f"{network:<15} | {data['new']:<12} | {data['updates']:<10}")
             total_new += data['new']
     
@@ -84,7 +84,7 @@ def show_dashboard(total_time):
 if __name__ == "__main__":
     start_all = time.time()
     
-    print("🚀 بدء جولة البحث (Focus Mode Enabled: MGID Only)...")
+    print("🚀 بدء جولة البحث (Focus Mode Enabled: OUTBRAIN Only)...")
     
     scripts = [
         "revcontent_crawler.py",
@@ -101,10 +101,10 @@ if __name__ == "__main__":
         print(f"\n{'='*40}\n🌍 بدء المسح في: {country}\n{'='*40}")
         for script in scripts:
             
-            # --- الجملة الشرطية المركزية ---
-            if script != "mgid_crawler.py":
+            # --- الجملة الشرطية المركزية: تفعيل Outbrain فقط ---
+            if script != "outbrain_crawler.py":
                 continue 
-            # -------------------------------
+            # ----------------------------------------------
             
             if os.path.exists(script):
                 run_script(script, country)
