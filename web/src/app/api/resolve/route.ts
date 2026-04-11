@@ -22,56 +22,63 @@ export async function GET(request: NextRequest) {
   console.log(`[RESOLVER] Starting resolution for: ${url} (Referer: ${referer})`);
 
   try {
-    const BOGUS_DOMAINS = ["ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", "bot-detected"];
+    const BOGUS_DOMAINS = ["ploynest.com", "mgid.com", "adskeeper.com", "ipqualityscore.com", "bot-detected", "400-bad-request"];
     
     let currentUrl = url;
     let redirectCount = 0;
-    const maxRedirects = 5;
+    const maxRedirects = 6;
 
-    // We manually follow redirects to have better control and visibility
+    console.log(`[RESOLVER] Resolving: ${url} (Ref: ${referer})`);
+
     while (redirectCount < maxRedirects) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 7000);
 
-      const response = await fetch(currentUrl, {
-        method: "GET",
-        redirect: "manual", // Manually handle to inspect each step
-        signal: controller.signal,
-        headers: {
-          "Referer": referer,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-      });
+      try {
+        const response = await fetch(currentUrl, {
+          method: "GET",
+          redirect: "manual",
+          signal: controller.signal,
+          headers: {
+            "Referer": referer,
+            "User-Agent": redirectCount === 0 
+              ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+              : "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          },
+        });
 
-      clearTimeout(timeout);
-      
-      const location = response.headers.get("location");
-      
-      if (response.status >= 300 && response.status < 400 && location) {
-        // Build absolute URL if location is relative
-        const nextUrl = new URL(location, currentUrl).toString();
-        console.log(`[RESOLVER] Redirect ${redirectCount + 1}: ${currentUrl} -> ${nextUrl}`);
+        clearTimeout(timeout);
         
-        // Stop if we hit a known bogus domain at any step
-        if (BOGUS_DOMAINS.some(d => nextUrl.toLowerCase().includes(d))) {
-          console.log(`[RESOLVER] Target hit bogus domain: ${nextUrl}`);
-          break; 
-        }
+        const location = response.headers.get("location");
+        const status = response.status;
 
-        currentUrl = nextUrl;
-        redirectCount++;
-      } else {
-        // No more redirects
+        if (status === 400 || status === 403) {
+          console.log(`[RESOLVER] Blocked at ${currentUrl} (Status: ${status})`);
+          break;
+        }
+        
+        if (status >= 300 && status < 400 && location) {
+          const nextUrl = new URL(location, currentUrl).toString();
+          console.log(`[RESOLVER] Step ${redirectCount + 1}: -> ${nextUrl}`);
+          
+          if (BOGUS_DOMAINS.some(d => nextUrl.toLowerCase().includes(d))) {
+            console.log(`[RESOLVER] Bogus hit: ${nextUrl}`);
+            break; 
+          }
+
+          currentUrl = nextUrl;
+          redirectCount++;
+        } else {
+          break;
+        }
+      } catch (fError: any) {
+        console.error(`[RESOLVER] Fetch error at step ${redirectCount}:`, fError.message);
         break;
       }
     }
 
     const isBogus = BOGUS_DOMAINS.some(d => currentUrl.toLowerCase().includes(d));
-    
-    console.log(`[RESOLVER] Final Resolved URL: ${currentUrl} (Bogus: ${isBogus})`);
-
     return NextResponse.json({ 
       resolved: currentUrl, 
       resolved_ok: !isBogus && currentUrl !== url,
@@ -79,11 +86,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error("[RESOLVER] Error:", error.message);
-    return NextResponse.json({ 
-      resolved: url, 
-      resolved_ok: false, 
-      error: error.message 
-    });
+    console.error("[RESOLVER] Fatal Error:", error.message);
+    return NextResponse.json({ resolved: url, resolved_ok: false, error: error.message });
   }
 }

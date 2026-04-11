@@ -32,18 +32,22 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
     }
 
     setResolving(true);
-    console.log("[AdModal] Tracking link detected. Resolving via API...", { landingUrl, sourceUrl });
+    console.log("[AdModal] Resolving tracking link...", { landingUrl, sourceUrl });
 
     try {
-      // Priority: ad.source -> sourceUrl -> fallback
-      const finalRef = sourceUrl || ad.source || "https://brainberries.co/";
+      // Use ad.source as the definitive Referer
+      const finalRef = ad.source || sourceUrl || "https://brainberries.co/";
       const ref = encodeURIComponent(finalRef);
+      
+      // Wait a tiny bit for a smoother transition
+      await new Promise(r => setTimeout(r, 600));
+
       const res = await fetch(`/api/resolve?url=${encodeURIComponent(landingUrl)}&ref=${ref}`);
       
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       
       const data = await res.json();
-      console.log("[AdModal] Resolution result:", data);
+      console.log("[AdModal] Resolved to:", data.resolved);
       
       if (data.resolved) {
         window.open(data.resolved, "_blank");
@@ -51,7 +55,7 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
         window.open(landingUrl, "_blank");
       }
     } catch (err) {
-      console.error("[AdModal] Resolution failed:", err);
+      console.error("[AdModal] Resolution failed. Opening raw link as fallback.", err);
       window.open(landingUrl, "_blank");
     } finally {
       setResolving(false);
