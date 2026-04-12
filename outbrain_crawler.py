@@ -87,20 +87,19 @@ async def smart_scroll_and_wait(page):
 
                     if (totalHeight >= scrollHeight) {
                         patience++;
-                        // انتظر قليلاً لعل الصفحة تقوم بالتحميل الكسول (Lazy Load)
-                        if (patience > 3) { 
+                        if (patience > 4) { 
                             clearInterval(timer);
                             resolve();
                         }
                     } else {
-                        patience = 0; // Reset patience
+                        patience = 0;
                     }
                     
-                    if(totalHeight > 25000){ // سقف أقصى لعدم الدوران إلى الأبد
+                    if(totalHeight > 30000){
                         clearInterval(timer);
                         resolve();
                     }
-                }, 200);
+                }, 400);
             });
         }
     """)
@@ -139,8 +138,8 @@ async def scrape_outbrain(browser, url):
             res_type = req.resource_type
             url_low = req.url.lower()
 
-            # حظر صارم للميديا لتوفير الباندويث 
-            if res_type in ["image", "media", "font", "websocket", "manifest", "other"]:
+            # حظر الميديا الثقيلة فقط، مع السماح للفروع الأخرى التي قد يستخدمها Outbrain للتحقق من الرؤية
+            if res_type in ["image", "media", "font", "manifest"]:
                 await route.abort()
                 return
             
@@ -148,9 +147,16 @@ async def scrape_outbrain(browser, url):
             blocked_domains = [
                 "google-analytics", "googletagmanager", "facebook.com", "twitter.com", "tiktok.com",
                 "doubleclick", "scorecardresearch", "hotjar", "chartbeat", "quantserve",
-                "mgid.com", "taboola.com", "revcontent.com"
+                "mgid.com", "taboola.com", "revcontent.com", "doubleclick.net"
             ]
-            if any(kw in url_low for kw in blocked_domains) and "outbrain.com" not in url_low:
+            
+            # السماح المطلق لنطاقات Outbrain
+            outbrain_domains = ["outbrain.com", "outbrainimg.com", "widgets.outbrain.com", "log.outbrain.com"]
+            if any(kw in url_low for kw in outbrain_domains):
+                await route.continue_()
+                return
+
+            if any(kw in url_low for kw in blocked_domains):
                 await route.abort()
                 return
                 
