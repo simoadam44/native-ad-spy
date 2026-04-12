@@ -127,8 +127,8 @@ async def scrape_outbrain(browser, url):
             res_type = req.resource_type
             url_low = req.url.lower()
 
-            # حظر صارم لكل ما هو غير ضروري للسحب (بما في ذلك الـ CSS والخطوط)
-            if res_type in ["image", "media", "font", "stylesheet", "websocket", "manifest", "other"]:
+            # حظر صارم للميديا لتوفير الباندويث 
+            if res_type in ["image", "media", "font", "websocket", "manifest", "other"]:
                 await route.abort()
                 return
             
@@ -157,7 +157,7 @@ async def scrape_outbrain(browser, url):
             r_url = response.url.lower()
             
             # Outbrain responses can be JSON or JS callbacks (e.g. OB_REC_CALLBACK)
-            if ("outbrain.com" in r_url or "odb.outbrain.com" in r_url) and response.status == 200:
+            if "outbrain.com" in r_url and response.status == 200:
                 try:
                     ct = response.headers.get("content-type", "").lower()
                     if "application/json" in ct or "text/javascript" in ct or "application/javascript" in ct:
@@ -229,9 +229,21 @@ async def scrape_outbrain(browser, url):
         page.on("response", handle_response)
         print(f"🚀 [OUTBRAIN]: فحص الهدف: {url}")
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=35000)
         except Exception as e:
             print(f"⚠️ [OUTBRAIN WARNING]: Timeout reached, continuing with what loaded... ({e})")
+            
+        # الموافقة التلقائية على ملفات تعريف الارتباط لتفعيل Outbrain
+        try:
+            await page.evaluate("""
+                () => {
+                    let btn = Array.from(document.querySelectorAll('button, a')).find(el => 
+                        el.innerText.match(/accept all|agree|allow|yes|ok|continue|accepter|zustimmen/i)
+                    );
+                    if(btn) btn.click();
+                }
+            """)
+        except: pass
         
         await asyncio.sleep(2)
         await smart_scroll_and_wait(page)
@@ -264,7 +276,7 @@ async def scrape_outbrain(browser, url):
                             let img_el = link.querySelector('img') || link.parentElement.querySelector('img');
                             let src = img_el ? (img_el.dataset.src || img_el.getAttribute('data-src') || img_el.src) : '';
                             
-                            if (title.length > 10 && href && href.startsWith('http')) {
+                            if (title.length > 5 && href && href.startsWith('http')) {
                                 found.push({title, landing: href, image: src});
                             }
                         });
