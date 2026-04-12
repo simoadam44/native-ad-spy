@@ -51,7 +51,7 @@ OUTBRAIN_TARGETS = [url.strip() for url in [
     "https://www.foxnews.com/us/ex-biden-staffer-claims-accidental-shot-killed-girlfriend-dad-blasts-toxic-abusive-relationship-report",
     "https://www.foxnews.com/lifestyle/ivanka-trump-reveals-surprising-new-living-arrangement-her-grandmother-florida-privilege",
     "https://www.lemonde.fr/en/european-union/article/2024/05/21/the-eu-s-artificial-intelligence-act-is-finally-adopted_6672074_156.html",
-    "https://www.n-tv.de/politik/Biden-spricht-Machtwort-im-Gaza-Krieg-article24915609.html",
+    "https://www.9news.com.au/world/us-israel-iran-war-donald-trump-says-us-will-block-ships-crossing-strait-of-hormuz/2d285cc7-18a9-4061-971e-d0cc6a681169",
     "https://www.marca.com/en/football/real-madrid/2024/05/21/664c8d5046163f91598b4594.html",
     "https://www.lequipe.fr/Football/Article/Toni-kroos-real-madrid-la-legende-s-en-va/1470404"
 ]]
