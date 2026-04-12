@@ -24,6 +24,22 @@ const COUNTRY_NAMES: Record<string, string> = {
   KR: "South Korea", IN: "India", BR: "Brazil", MX: "Mexico"
 };
 
+const LANGUAGES = [
+  { code: "en", name: "English" },
+  { code: "fr", name: "French" },
+  { code: "ar", name: "Arabic" },
+  { code: "es", name: "Spanish" },
+  { code: "pt", name: "Portuguese" },
+  { code: "de", name: "German" },
+  { code: "it", name: "Italian" },
+  { code: "tr", name: "Turkish" },
+  { code: "ja", name: "Japanese" },
+  { code: "ko", name: "Korean" },
+  { code: "zh", name: "Chinese" },
+  { code: "ru", name: "Russian" },
+  { code: "hi", name: "Hindi" }
+];
+
 const PAGE_SIZE = 30;
 
 // Cross-platform Flag Component using FlagCDN (Windows doesn't support Emoji flags natively)
@@ -54,6 +70,7 @@ export default function DashboardPage() {
   const [search, setSearch] = useState("");
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("newest");
   const [minImpressions, setMinImpressions] = useState(0);
 
@@ -72,6 +89,7 @@ export default function DashboardPage() {
       query = query.in("network", dbNetworks);
     }
     if (selectedCountries.length > 0) query = query.in("country_code", selectedCountries);
+    if (selectedLanguages.length > 0) query = query.in("language", selectedLanguages);
     if (minImpressions > 0) query = query.gte("impressions", minImpressions);
 
     query = sortBy === "impressions"
@@ -87,12 +105,12 @@ export default function DashboardPage() {
     setTotalCount(count || 0);
     setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
     setLoading(false);
-  }, [search, selectedNetworks, selectedCountries, sortBy, minImpressions, page]);
+  }, [search, selectedNetworks, selectedCountries, selectedLanguages, sortBy, minImpressions, page, toggleNetwork]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
   // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, sortBy, minImpressions]);
+  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, sortBy, minImpressions]);
 
   const toggleNetwork = (net: string) => {
     setSelectedNetworks(prev =>
@@ -114,6 +132,16 @@ export default function DashboardPage() {
 
   const removeCountry = (code: string) => {
     setSelectedCountries(prev => prev.filter(c => c !== code));
+  };
+
+  const toggleLanguage = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === "all") setSelectedLanguages([]);
+    else if (!selectedLanguages.includes(value)) setSelectedLanguages([...selectedLanguages, value]);
+  };
+
+  const removeLanguage = (code: string) => {
+    setSelectedLanguages(prev => prev.filter(c => c !== code));
   };
 
 
@@ -180,13 +208,7 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="relative flex items-center gap-2">
-          {selectedCountries.map(code => (
-            <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-xs">
-              <Flag code={code} /> {COUNTRY_NAMES[code] || code}
-              <button onClick={() => removeCountry(code)} className="hover:text-red-400 ml-1"><X size={12}/></button>
-            </span>
-          ))}
+        <div className="flex items-center gap-2">
           <select
             onChange={toggleCountry}
             className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
@@ -196,6 +218,18 @@ export default function DashboardPage() {
             <option value="all">All Countries</option>
             {COUNTRIES.map(c => (
               <option key={c} value={c}>{COUNTRY_NAMES[c] || c}</option>
+            ))}
+          </select>
+
+          <select
+            onChange={toggleLanguage}
+            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
+            value=""
+          >
+            <option value="" disabled>+ Language</option>
+            <option value="all">All Languages</option>
+            {LANGUAGES.map(lang => (
+              <option key={lang.code} value={lang.code}>{lang.name}</option>
             ))}
           </select>
         </div>
@@ -210,15 +244,33 @@ export default function DashboardPage() {
           <option value="impressions">Most Impressions</option>
         </select>
 
-        { (selectedNetworks.length > 0 || selectedCountries.length > 0) && (
+        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0) && (
           <button
-            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); }}
-            className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white transition-all"
+            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); }}
+            className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white transition-all ml-auto"
           >
-            <X size={14} /> Clear Flters
+            <X size={14} /> Clear Filters
           </button>
         )}
       </div>
+
+      {/* Filter Tags */}
+      {(selectedCountries.length > 0 || selectedLanguages.length > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {selectedCountries.map(code => (
+            <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
+              <Flag code={code} /> {COUNTRY_NAMES[code] || code}
+              <button onClick={() => removeCountry(code)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+          {selectedLanguages.map(code => (
+            <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
+              <BrainCircuit size={10} className="text-secondary" /> {LANGUAGES.find(l => l.code === code)?.name || code}
+              <button onClick={() => removeLanguage(code)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Ad Grid */}
       {loading ? (
