@@ -111,8 +111,21 @@ async def scrape_outbrain(browser, url):
     context = None
     page = None
     try:
+        # 🕵️ تعزيز التخفي: تنويع بصمة المتصفح
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        ]
+        viewports = [
+            {"width": 1920, "height": 1080},
+            {"width": 1440, "height": 900},
+            {"width": 1366, "height": 768}
+        ]
+        
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            user_agent=random.choice(user_agents),
+            viewport=random.choice(viewports),
             locale=GEO["locale"],
             timezone_id=GEO["timezone_id"],
             permissions=["geolocation"]
@@ -256,16 +269,40 @@ async def scrape_outbrain(browser, url):
         except Exception as e:
             print(f"⚠️ [OUTBRAIN WARNING]: Timeout reached, continuing with what loaded... ({e})")
             
-        # الموافقة التلقائية على ملفات تعريف الارتباط لتفعيل Outbrain
+        # الموافقة التلقائية المتقدمة على ملفات تعريف الارتباط لتفعيل Outbrain
         try:
+            print("🍪 [OUTBRAIN]: جاري التعامل مع جدران الموافقة (Consent Walls)...")
             await page.evaluate("""
                 () => {
-                    let btn = Array.from(document.querySelectorAll('button, a')).find(el => 
-                        el.innerText.match(/accept all|agree|allow|yes|ok|continue|accepter|zustimmen/i)
-                    );
-                    if(btn) btn.click();
+                    const selectors = [
+                        '#onetrust-accept-btn-handler', // OneTrust
+                        '.sp-manager-button-accept', // Sourcepoint
+                        '#didomi-notice-agree-button', // Didomi
+                        '.cmp-button_accept', // CMP
+                        '.ok-button', '.allow-button', '.accept-all'
+                    ];
+                    
+                    // البحث عن الأزرار باستخدام النص إذا لم تنجح المحددات
+                    let buttons = Array.from(document.querySelectorAll('button, a'));
+                    let acceptBtn = buttons.find(b => {
+                        let txt = b.innerText.toLowerCase();
+                        return txt.includes('accept all') || txt.includes('accept and continue') || 
+                               txt.includes('alles akzeptieren') || txt.includes('accepter tout') ||
+                               txt.includes('zustimmen') || txt.includes('agree');
+                    });
+                    
+                    if (acceptBtn) {
+                        acceptBtn.click();
+                        return "Clicked via Text Search";
+                    }
+                    
+                    for (let s of selectors) {
+                        let el = document.querySelector(s);
+                        if (el) { el.click(); return "Clicked: " + s; }
+                    }
                 }
             """)
+            await asyncio.sleep(3) # انتظر قليلاً لتحميل الإعلانات بعد الموافقة
         except: pass
         
         await asyncio.sleep(2)
@@ -319,13 +356,65 @@ async def scrape_outbrain(browser, url):
         else:
             print(f"⚠️ [OUTBRAIN ERROR]: {err_msg}")
             
+        # 2. فك تشفير روابط Outbrain (Resolution Engine)
+        # سنستخدم إطار عمل مخفي للوصول للروابط الحقيقية بصمت
+        resolved_map = {}
+        current_target = None
+        
+        async def catch_ob_req(request):
+            nonlocal resolved_map, current_target
+            r_url = request.url
+            if request.resource_type in ["document", "xhr", "fetch"]:
+                # تجاهل الروابط التقنية
+                if not any(x in r_url.lower() for x in ["outbrain.com", "doubleclick", "googletag", "cookie", "bot-"]):
+                    if len(r_url) > 20 and r_url.startswith("http") and current_target:
+                        resolved_map[current_target] = r_url
+
+        page.on("request", catch_ob_req)
+        
+        print(f"🕵️ [OUTBRAIN]: جاري فك تشفير {len(outbrain_ads)} رابط لضمان النقاء...")
+        for ad in outbrain_ads:
+            t_url = ad['landing']
+            if "outbrain.com" in t_url:
+                current_target = t_url
+                try:
+                    await page.evaluate(f"""
+                        (url) => {{
+                            let ifr = document.getElementById('ob_resolver_ifr');
+                            if (!ifr) {{
+                                ifr = document.createElement('iframe');
+                                ifr.id = 'ob_resolver_ifr';
+                                ifr.style.display = 'none';
+                                document.body.appendChild(ifr);
+                            }}
+                            ifr.src = url;
+                        }}
+                    """, t_url)
+                    for _ in range(7): # ننتظر 7 ثواني للتحويل
+                        if current_target in resolved_map:
+                            ad['landing'] = resolved_map[current_target]
+                            break
+                        await asyncio.sleep(1)
+                except: pass
+        
+        page.remove_listener("request", catch_ob_req)
+        try: await page.evaluate("document.getElementById('ob_resolver_ifr')?.remove()")
+        except: pass
+
     # معالجة النتائج سواء تمت بنجاح تام أو بعد التوقف بسبب إعادة التحميل
     if outbrain_ads:
         unique_ads = {}
         for ad in outbrain_ads:
-            if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: unique_ads[ad['landing']] = ad
+            # تصفية صارمة: لا نحفظ روابط Outbrain الأصلية أو روابط القياس
+            final_url = ad['landing']
+            is_bogus = any(x in final_url.lower() for x in ["outbrain.com", "googleadservices", "sodar", "activeview"])
+            if is_bogus: continue
+            
+            if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: 
+                unique_ads[ad['landing']] = ad
+        
         for ad in unique_ads.values(): await save_to_supabase(ad)
-        print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان في {url}")
+        print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان نقي في {url}")
     else:
         print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
         
