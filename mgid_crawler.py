@@ -4,6 +4,10 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
 from langdetect import detect
+import sys as _sys
+import os as _os
+_sys.path.insert(0, _os.path.dirname(__file__))
+from utils.affiliate_detector import detect_affiliate_network
 
 # إعداد سوبابيز
 try:
@@ -100,7 +104,11 @@ async def save_to_supabase(ad):
                 lang = detect(ad['title'])
             except:
                 lang = 'en'
-            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang})
+            try:
+                aff = detect_affiliate_network(clean_url)
+            except:
+                aff = {'network': 'Direct / Unknown'}
+            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network']})
             supabase.table("ads").insert(ad).execute()
             print(f"[MGID] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:

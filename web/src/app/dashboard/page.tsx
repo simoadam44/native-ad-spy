@@ -40,6 +40,38 @@ const LANGUAGES = [
   { code: "hi", name: "Hindi" }
 ];
 
+const AFFILIATE_NETWORKS = [
+  "AdmitAd", "CPA.house", "CpaExchange", "AdCombo", "MaxBounty", "ClickBank",
+  "ClickDealer", "Mobidea", "CPAGrip", "Everad", "MyLead", "Encyl",
+  "Advertise", "KMA.BIZ", "3snet", "DrCash", "Adtrafico", "Terra Leads",
+  "Affstar", "ArabyAds", "Avazu", "Mobvista", "MarketHealth", "PeerFly",
+  "Neverblue", "Salesdoubler", "Taptica", "CityAds", "CPAgetti", "Aff1",
+  "RocketProfit", "Gambling.pro", "Affiliaxe", "Actionpay", "AffShark",
+  "Advidi", "Convert2Media", "Tapgerine", "Cpamatica", "ShareASale",
+  "Commission Junction", "Rakuten", "Impact", "Awin", "FlexOffers",
+  "JVZoo", "Digistore24", "Amazon Associates", "PartnerStack",
+  "Unknown Affiliate", "Direct / Unknown"
+];
+
+const AFFILIATE_COLORS: Record<string, string> = {
+  "AdmitAd": "#F59E0B", "CPA.house": "#F59E0B", "MaxBounty": "#F59E0B",
+  "ClickBank": "#F59E0B", "ClickDealer": "#F59E0B", "Everad": "#F59E0B",
+  "MyLead": "#F59E0B", "Encyl": "#F59E0B", "CPAGrip": "#F59E0B",
+  "CpaExchange": "#F59E0B", "AdCombo": "#F59E0B", "Adtrafico": "#F59E0B",
+  "Terra Leads": "#F59E0B", "KMA.BIZ": "#F59E0B", "3snet": "#F59E0B",
+  "DrCash": "#F59E0B", "Affstar": "#F59E0B", "AffShark": "#F59E0B",
+  "CPAgetti": "#F59E0B", "Aff1": "#F59E0B", "Affiliaxe": "#F59E0B",
+  "Neverblue": "#F59E0B", "PeerFly": "#F59E0B", "Advidi": "#F59E0B",
+  "Convert2Media": "#F59E0B", "Cpamatica": "#F59E0B",
+  "Mobidea": "#3B82F6", "Mobvista": "#3B82F6", "Avazu": "#3B82F6",
+  "Taptica": "#3B82F6", "CityAds": "#3B82F6",
+  "Gambling.pro": "#EF4444",
+  "ShareASale": "#10B981", "Commission Junction": "#10B981",
+  "Rakuten": "#10B981", "Impact": "#10B981", "Awin": "#10B981",
+  "FlexOffers": "#10B981", "Amazon Associates": "#10B981",
+  "Unknown Affiliate": "#6B7280", "Direct / Unknown": "#374151",
+};
+
 const PAGE_SIZE = 30;
 
 // Cross-platform Flag Component using FlagCDN (Windows doesn't support Emoji flags natively)
@@ -71,6 +103,7 @@ export default function DashboardPage() {
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedAffiliates, setSelectedAffiliates] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("newest");
   const [minImpressions, setMinImpressions] = useState(0);
 
@@ -90,6 +123,7 @@ export default function DashboardPage() {
     }
     if (selectedCountries.length > 0) query = query.in("country_code", selectedCountries);
     if (selectedLanguages.length > 0) query = query.in("language", selectedLanguages);
+    if (selectedAffiliates.length > 0) query = query.in("affiliate_network", selectedAffiliates);
     if (minImpressions > 0) query = query.gte("impressions", minImpressions);
 
     query = sortBy === "impressions"
@@ -105,12 +139,12 @@ export default function DashboardPage() {
     setTotalCount(count || 0);
     setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
     setLoading(false);
-  }, [search, selectedNetworks, selectedCountries, selectedLanguages, sortBy, minImpressions, page]);
+  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, sortBy, minImpressions, page]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, sortBy, minImpressions]);
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, sortBy, minImpressions]);
 
   const toggleNetwork = (net: string) => {
     setSelectedNetworks(prev =>
@@ -142,6 +176,16 @@ export default function DashboardPage() {
 
   const removeLanguage = (code: string) => {
     setSelectedLanguages(prev => prev.filter(c => c !== code));
+  };
+
+  const toggleAffiliate = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === "all") setSelectedAffiliates([]);
+    else if (!selectedAffiliates.includes(value)) setSelectedAffiliates([...selectedAffiliates, value]);
+  };
+
+  const removeAffiliate = (name: string) => {
+    setSelectedAffiliates(prev => prev.filter(a => a !== name));
   };
 
 
@@ -232,6 +276,18 @@ export default function DashboardPage() {
               <option key={lang.code} value={lang.code}>{lang.name}</option>
             ))}
           </select>
+
+          <select
+            onChange={toggleAffiliate}
+            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
+            value=""
+          >
+            <option value="" disabled>+ Affiliate Net</option>
+            <option value="all">All Networks</option>
+            {AFFILIATE_NETWORKS.map(net => (
+              <option key={net} value={net}>{net}</option>
+            ))}
+          </select>
         </div>
 
         <select
@@ -244,9 +300,9 @@ export default function DashboardPage() {
           <option value="impressions">Most Impressions</option>
         </select>
 
-        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0) && (
+        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0) && (
           <button
-            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); }}
+            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); setSelectedAffiliates([]); }}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white transition-all ml-auto"
           >
             <X size={14} /> Clear Filters
@@ -255,7 +311,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Filter Tags */}
-      {(selectedCountries.length > 0 || selectedLanguages.length > 0) && (
+      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0) && (
         <div className="flex flex-wrap gap-2">
           {selectedCountries.map(code => (
             <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
@@ -267,6 +323,12 @@ export default function DashboardPage() {
             <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
               <BrainCircuit size={10} className="text-secondary" /> {LANGUAGES.find(l => l.code === code)?.name || code}
               <button onClick={() => removeLanguage(code)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+          {selectedAffiliates.map(name => (
+            <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5" style={{backgroundColor: `${AFFILIATE_COLORS[name] || '#374151'}33`, borderColor: AFFILIATE_COLORS[name] || '#374151'}}>
+              <span style={{color: AFFILIATE_COLORS[name] || '#6B7280'}}>&#128279;</span> {name}
+              <button onClick={() => removeAffiliate(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
         </div>
@@ -332,6 +394,19 @@ export default function DashboardPage() {
                     {ad.country_code && (
                       <span className="px-2.5 py-1 flex items-center gap-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-black/40 backdrop-blur-md text-white border border-white/5 shadow-lg">
                         <Flag code={ad.country_code} /> {ad.country_code}
+                      </span>
+                    )}
+                    {ad.affiliate_network && ad.affiliate_network !== 'Direct / Unknown' && (
+                      <span
+                        className="px-2.5 py-1 flex items-center gap-1 rounded-lg text-[9px] font-black tracking-wider backdrop-blur-md text-white shadow-lg"
+                        style={{
+                          backgroundColor: `${AFFILIATE_COLORS[ad.affiliate_network] || '#374151'}33`,
+                          border: `1px solid ${AFFILIATE_COLORS[ad.affiliate_network] || '#374151'}66`
+                        }}
+                        title={`Affiliate: ${ad.affiliate_network}`}
+                      >
+                        <span style={{color: AFFILIATE_COLORS[ad.affiliate_network] || '#F59E0B'}}>&#128279;</span>
+                        {ad.affiliate_network}
                       </span>
                     )}
                   </div>

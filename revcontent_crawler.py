@@ -6,6 +6,10 @@ from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin
 from langdetect import detect
+import sys as _sys
+import os as _os
+_sys.path.insert(0, _os.path.dirname(__file__))
+from utils.affiliate_detector import detect_affiliate_network
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -89,9 +93,13 @@ async def save_or_update_ad(data):
             }).eq("id", existing.data[0]['id']).execute()
             print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:50]}...")
         else:
-            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang})
+            try:
+                aff = detect_affiliate_network(clean_landing)
+            except:
+                aff = {'network': 'Direct / Unknown'}
+            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network']})
             supabase.table("ads").insert(data).execute()
-            print(f"✨ [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:50]}...")
+            print(f"[REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:50]}...")
     except Exception as e:
         print(f"⚠️ [DB ERROR]: {str(e)[:50]}")
 

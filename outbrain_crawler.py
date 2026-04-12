@@ -6,6 +6,10 @@ from supabase import create_client
 import json
 import re
 from langdetect import detect
+import sys as _sys
+import os as _os
+_sys.path.insert(0, _os.path.dirname(__file__))
+from utils.affiliate_detector import detect_affiliate_network
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -68,6 +72,13 @@ async def save_to_supabase(ad):
             ad['language'] = detect(ad['title'])
         except:
             ad['language'] = 'en'
+        
+        # كشف شبكة الأفيلييت
+        try:
+            aff = detect_affiliate_network(ad.get('landing', ''))
+            ad['affiliate_network'] = aff['network']
+        except:
+            ad['affiliate_network'] = 'Direct / Unknown'
             
         clean_url = ad['landing'].split('&dicbo=')[0] if '&dicbo=' in ad['landing'] else ad['landing']
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()

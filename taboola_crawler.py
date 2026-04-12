@@ -7,6 +7,10 @@ import os
 import re
 import json
 from langdetect import detect
+import sys as _sys
+import os as _os
+_sys.path.insert(0, _os.path.dirname(__file__))
+from utils.affiliate_detector import detect_affiliate_network
 
 # إعدادات سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -81,9 +85,13 @@ async def save_or_update_ad(data):
             }).eq("id", existing.data[0]['id']).execute()
             print(f"📈 [TABOOLA] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:30]}")
         else:
-            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang})
+            try:
+                aff = detect_affiliate_network(clean_landing)
+            except:
+                aff = {'network': 'Direct / Unknown'}
+            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network']})
             supabase.table("ads").insert(data).execute()
-            print(f"✨ [TABOOLA] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:30]}")
+            print(f"[TABOOLA] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:30]}")
     except Exception as e:
         print(f"⚠️ [TABOOLA] DB Error: {e}")
 
