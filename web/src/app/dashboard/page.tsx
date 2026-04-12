@@ -105,7 +105,7 @@ export default function DashboardPage() {
     setTotalCount(count || 0);
     setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
     setLoading(false);
-  }, [search, selectedNetworks, selectedCountries, selectedLanguages, sortBy, minImpressions, page, toggleNetwork]);
+  }, [search, selectedNetworks, selectedCountries, selectedLanguages, sortBy, minImpressions, page]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
