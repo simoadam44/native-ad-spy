@@ -228,8 +228,32 @@ async def scrape_outbrain(browser, url):
 
         page.on("response", handle_response)
         print(f"🚀 [OUTBRAIN]: فحص الهدف: {url}")
+        
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=35000)
+            
+            # 🧠 منطق الذكاء الاصطناعي: شبكات الإعلانات مثل Outbrain لا تعمل في الصفحات الرئيسية! يجب أن نكون داخل مقال.
+            # إذا كنا في صفحة رئيسية أو تصنيف، سنبحث عن أول رابط لمقال حقيقي وندخل إليه.
+            if url.count('/') <= 4 or "world" in url or "news" == url.rstrip('/').split('/')[-1]:
+                print(f"🔄 [OUTBRAIN]: استكشاف أقسام الموقع للبحث عن مقال حقيقي...")
+                article_url = await page.evaluate("""
+                    () => {
+                        let links = Array.from(document.querySelectorAll('a[href]'));
+                        // نبحث عن الروابط التي تحتوي على سنة (2024, 2026)، أو كلمة article، أو طويلة كفاية لتكون مقالا
+                        let valid = links.filter(a => 
+                            a.href.startsWith('http') && 
+                            a.href.length > 60 && 
+                            (a.href.includes('/202') || a.href.includes('-')) &&
+                            !a.href.includes('/video/')
+                        );
+                        return valid.length > 0 ? valid[0].href : null;
+                    }
+                """)
+                if article_url:
+                    print(f"📄 [OUTBRAIN]: تم القنص! تحويل المسار إلى المقال المباشر: {article_url[:80]}...")
+                    url = article_url
+                    await page.goto(url, wait_until="domcontentloaded", timeout=35000)
+                    
         except Exception as e:
             print(f"⚠️ [OUTBRAIN WARNING]: Timeout reached, continuing with what loaded... ({e})")
             
