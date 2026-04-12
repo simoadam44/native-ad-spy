@@ -117,17 +117,24 @@ async def scrape_outbrain(browser, url):
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
         ]
         viewports = [
             {"width": 1920, "height": 1080},
             {"width": 1440, "height": 900},
-            {"width": 1366, "height": 768}
+            {"width": 1366, "height": 768},
+            {"width": 1536, "height": 864}
         ]
+        
+        # إضافة Referer عشوائي لإيهام الموقع بأن الزيارة طبيعية من بحث جوجل أو موقع شهير
+        referers = ["https://www.google.com/", "https://www.bing.com/", "https://news.google.com/"]
         
         context = await browser.new_context(
             user_agent=random.choice(user_agents),
             viewport=random.choice(viewports),
+            extra_http_headers={"Referer": random.choice(referers)},
             locale=GEO["locale"],
             timezone_id=GEO["timezone_id"],
             permissions=["geolocation"]
@@ -263,7 +270,7 @@ async def scrape_outbrain(browser, url):
                 article_url = await page.evaluate("""
                     () => {
                         let links = Array.from(document.querySelectorAll('a[href]'));
-                        // نركز على الروابط الطويلة والمقالات الحقيقية ونتجنب التصنيفات
+                        // نركز على الروابط الطويلة والمقالات الحقيقية ونتجنب التصنيفات والأخبار المباشرة
                         let valid = links.filter(a => {
                             let h = a.href.toLowerCase();
                             return h.startsWith('http') && 
@@ -273,6 +280,7 @@ async def scrape_outbrain(browser, url):
                                    !h.includes('/category/') &&
                                    !h.includes('/author/') &&
                                    !h.includes('/about/') &&
+                                   !h.includes('/live-news/') &&
                                    !h.includes('facebook.com') && 
                                    !h.includes('twitter.com');
                         });
@@ -282,7 +290,7 @@ async def scrape_outbrain(browser, url):
                 if article_url and article_url != url:
                     print(f"📄 [OUTBRAIN]: تم القنص! تحويل المسار فرعي إلى مقال عميق: {article_url[:80]}...")
                     url = article_url
-                    await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     
         except Exception as e:
             print(f"⚠️ [OUTBRAIN WARNING]: Timeout reached, continuing with what loaded... ({e})")
@@ -420,26 +428,37 @@ async def scrape_outbrain(browser, url):
         except: pass
 
     # معالجة النتائج سواء تمت بنجاح تام أو بعد التوقف بسبب إعادة التحميل
-    if outbrain_ads:
-        unique_ads = {}
-        for ad in outbrain_ads:
-            # تصفية صارمة: لا نحفظ روابط Outbrain الأصلية أو روابط القياس
-            final_url = ad['landing']
-            is_bogus = any(x in final_url.lower() for x in ["outbrain.com", "googleadservices", "sodar", "activeview"])
-            if is_bogus: continue
+        if outbrain_ads:
+            unique_ads = {}
+            for ad in outbrain_ads:
+                # تصفية صارمة: لا نحفظ روابط Outbrain الأصلية أو روابط القياس
+                final_url = ad['landing']
+                is_bogus = any(x in final_url.lower() for x in ["outbrain.com", "googleadservices", "sodar", "activeview"])
+                if is_bogus: continue
+                
+                if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: 
+                    unique_ads[ad['landing']] = ad
             
-            if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: 
-                unique_ads[ad['landing']] = ad
-        
-        for ad in unique_ads.values(): await save_to_supabase(ad)
-        print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان نقي في {url}")
-    else:
-        print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
-        
-    try:
-        if page: await page.close()
-        if context: await context.close()
-    except: pass
+            for ad in unique_ads.values(): await save_to_supabase(ad)
+            print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان نقي في {url}")
+            return True
+        else:
+            print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
+            return False
+
+    except Exception as e:
+        err_msg = str(e)
+        if "Execution context was destroyed" in err_msg:
+            print("⚠️ [OUTBRAIN WARNING]: اكتشاف إعادة تحميل للصفحة. جاري المحاولة النهائية...")
+            await asyncio.sleep(5)
+        else:
+            print(f"⚠️ [OUTBRAIN ERROR]: {err_msg}")
+        return False
+    finally:
+        try:
+            if page: await page.close()
+            if context: await context.close()
+        except: pass
 
 async def run():
     async with async_playwright() as p:
@@ -458,8 +477,18 @@ async def run():
             ]
         )
         for target in OUTBRAIN_TARGETS:
-            try: await scrape_outbrain(browser, target)
-            except: pass
+            success = False
+            for attempt in range(2): # محاولة ثانية في حال الفشل (Retry Logic)
+                if attempt > 0:
+                    print(f"🔄 [OUTBRAIN]: إعادة المحاولة ({attempt + 1}/2) للهدف: {target}")
+                    await asyncio.sleep(10)
+                
+                try: 
+                    success = await scrape_outbrain(browser, target)
+                    if success: break
+                except Exception as e:
+                    print(f"⚠️ [RETRY WARNING]: {e}")
+            
             await asyncio.sleep(random.uniform(3, 7))
         await browser.close()
 
