@@ -63,7 +63,14 @@ export default function DashboardPage() {
     let query = supabase.from("ads").select("*", { count: "exact" });
 
     if (search) query = query.ilike("title", `%${search}%`);
-    if (selectedNetworks.length > 0) query = query.in("network", selectedNetworks);
+    if (selectedNetworks.length > 0) {
+      // Map UI labels to database values (especially for OUTBRAIN/MGID casing)
+      const dbNetworks = selectedNetworks.map(n => {
+        if (n === "Outbrain") return "OUTBRAIN";
+        return n;
+      });
+      query = query.in("network", dbNetworks);
+    }
     if (selectedCountries.length > 0) query = query.in("country_code", selectedCountries);
     if (minImpressions > 0) query = query.gte("impressions", minImpressions);
 
