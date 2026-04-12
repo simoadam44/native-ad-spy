@@ -46,14 +46,13 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://edition.cnn.com/world",
-    "https://news.sky.com/video/exclusive-mega-poll-projects-who-will-rule-scotland-13530305",
-    "https://www.standard.co.uk/news/world/search-missing-us-airman-downed-f15-fighter-jet-b1277661.html",
-    "https://www.telegraph.co.uk/politics/2026/04/11/bridget-phillipson-accused-career-ahead-women-rights-trans/",
-    "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl",
-    "https://www.telegraph.co.uk/world-news/2026/04/12/iran-war-latest-news-peace-talks-trump-vance-strait-hormuz/",
-    "https://www.cnbc.com/2026/04/10/consumer-sentiment-inflation-fears-iran-war.html"
+    "https://www.spiegel.de/international/world/how-the-world-is-reacting-to-the-us-election-a-394ca0c8-47bc-49b0-96f7-bcaa9b98ec34",
+    "https://www.lemonde.fr/en/european-union/article/2024/05/21/the-eu-s-artificial-intelligence-act-is-finally-adopted_6672074_156.html",
+    "https://www.n-tv.de/politik/Biden-spricht-Machtwort-im-Gaza-Krieg-article24915609.html",
+    "https://www.marca.com/en/football/real-madrid/2024/05/21/664c8d5046163f91598b4594.html",
+    "https://www.lequipe.fr/Football/Article/Toni-kroos-real-madrid-la-legende-s-en-va/1470404"
 ]]
+
 
 
 async def save_to_supabase(ad):
