@@ -46,12 +46,15 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.standard.co.uk/news/world/search-missing-us-airman-downed-f15-fighter-jet-b1277661.html", 
-    "https://sabq.org",         
-    "https://edition.cnn.com/2026/04/02/europe/us-france-trump-macron-latam-intl",
-    "https://www.standard.co.uk/news/world/search-missing-us-airman-downed-f15-fighter-jet-b1277661.html",
-    "https://www.independent.co.uk/news/uk/crime/knife-crime-schools-attacks-harvey-willgoose-b2949295.html"
+    "https://edition.cnn.com/world",
+    "https://news.sky.com/world",
+    "https://www.washingtonpost.com/world/",
+    "https://www.telegraph.co.uk/news/",
+    "https://www.lequipe.fr/",
+    "https://english.elpais.com/",
+    "https://www.cnbc.com/world/"
 ]]
+
 
 async def save_to_supabase(ad):
     try:
@@ -75,20 +78,34 @@ async def smart_scroll_and_wait(page):
         async () => {
             await new Promise((resolve) => {
                 let totalHeight = 0;
-                let distance = 350;
+                let distance = 500;
+                let patience = 0;
+
                 let timer = setInterval(() => {
                     let scrollHeight = document.body.scrollHeight;
                     window.scrollBy(0, distance);
                     totalHeight += distance;
-                    if(totalHeight >= scrollHeight || totalHeight > 10000){
+
+                    if (totalHeight >= scrollHeight) {
+                        patience++;
+                        // انتظر قليلاً لعل الصفحة تقوم بالتحميل الكسول (Lazy Load)
+                        if (patience > 3) { 
+                            clearInterval(timer);
+                            resolve();
+                        }
+                    } else {
+                        patience = 0; // Reset patience
+                    }
+                    
+                    if(totalHeight > 25000){ // سقف أقصى لعدم الدوران إلى الأبد
                         clearInterval(timer);
                         resolve();
                     }
-                }, 150);
+                }, 200);
             });
         }
     """)
-    await asyncio.sleep(10)
+    await asyncio.sleep(12)
 
 async def scrape_outbrain(browser, url):
     outbrain_ads = []
@@ -126,13 +143,9 @@ async def scrape_outbrain(browser, url):
                 return
                 
             if res_type in ["script", "fetch", "xhr"]:
-                # السماح لـ Outbrain فقط
+                # السماح لـ Outbrain فقط ونطاقات المقالات المهمة
                 if "outbrain.com" in url_low:
                     await route.continue_()
-                    return
-                # حظر سكريبتات المواقع والـ CDNs الخارجية لتوفير البيانات
-                if any(sub in url_low for sub in ["static.", "assets.", "cdn.", "player.", "video.", "api."]):
-                    await route.abort()
                     return
 
             await route.continue_()
@@ -214,9 +227,13 @@ async def scrape_outbrain(browser, url):
                     pass
 
         page.on("response", handle_response)
-        
         print(f"🚀 [OUTBRAIN]: فحص الهدف: {url}")
-        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        except Exception as e:
+            print(f"⚠️ [OUTBRAIN WARNING]: Timeout reached, continuing with what loaded... ({e})")
+        
+        await asyncio.sleep(2)
         await smart_scroll_and_wait(page)
         
         # استخراج من DOM لجميع الإطارات (بإستخدام محددات أكثر شمولاً)
