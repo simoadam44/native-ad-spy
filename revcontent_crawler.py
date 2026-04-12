@@ -10,6 +10,7 @@ import sys as _sys
 import os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from utils.affiliate_detector import detect_affiliate_network
+from utils.tracker_detector import detect_tracking_tool
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -97,7 +98,11 @@ async def save_or_update_ad(data):
                 aff = detect_affiliate_network(clean_landing)
             except:
                 aff = {'network': 'Direct / Unknown'}
-            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network']})
+            try:
+                trk = detect_tracking_tool(clean_landing)
+            except:
+                trk = {'tracker': 'No Tracking'}
+            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network'], "tracking_tool": trk['tracker']})
             supabase.table("ads").insert(data).execute()
             print(f"[REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:50]}...")
     except Exception as e:

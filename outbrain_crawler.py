@@ -10,6 +10,7 @@ import sys as _sys
 import os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from utils.affiliate_detector import detect_affiliate_network
+from utils.tracker_detector import detect_tracking_tool
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -79,6 +80,13 @@ async def save_to_supabase(ad):
             ad['affiliate_network'] = aff['network']
         except:
             ad['affiliate_network'] = 'Direct / Unknown'
+
+        # كشف أداة التتبع
+        try:
+            trk = detect_tracking_tool(ad.get('landing', ''))
+            ad['tracking_tool'] = trk['tracker']
+        except:
+            ad['tracking_tool'] = 'No Tracking'
             
         clean_url = ad['landing'].split('&dicbo=')[0] if '&dicbo=' in ad['landing'] else ad['landing']
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()

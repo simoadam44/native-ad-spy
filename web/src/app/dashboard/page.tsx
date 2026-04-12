@@ -72,6 +72,24 @@ const AFFILIATE_COLORS: Record<string, string> = {
   "Unknown Affiliate": "#6B7280", "Direct / Unknown": "#374151",
 };
 
+const TRACKER_TOOLS = [
+  "Voluum", "Binom", "Prosper202", "Thrive", "RedTrack", "ClickMagick",
+  "Hyros", "Trackier", "Keitaro", "FunnelFlux", "CPVLab", "iMobiTrax",
+  "AdsBridge", "BeMob", "OctoTracker", "Scaleo", "AffiliaXe",
+  "Google Analytics", "Facebook Pixel", "TikTok Pixel", "No Tracking"
+];
+
+const TRACKER_COLORS: Record<string, string> = {
+  "Voluum": "#E84D1C", "Binom": "#FF6B00", "Prosper202": "#4A90D9",
+  "Thrive": "#00BCD4", "RedTrack": "#E53935", "ClickMagick": "#7B1FA2",
+  "Hyros": "#1565C0", "Trackier": "#2E7D32", "Keitaro": "#F57F17",
+  "FunnelFlux": "#6A1B9A", "CPVLab": "#37474F", "iMobiTrax": "#00695C",
+  "AdsBridge": "#C62828", "BeMob": "#1B5E20", "OctoTracker": "#4A148C",
+  "Scaleo": "#0D47A1", "AffiliaXe": "#BF360C",
+  "Google Analytics": "#F9A825", "Facebook Pixel": "#1877F2",
+  "TikTok Pixel": "#444444", "No Tracking": "#6B7280",
+};
+
 const PAGE_SIZE = 30;
 
 // Cross-platform Flag Component using FlagCDN (Windows doesn't support Emoji flags natively)
@@ -104,6 +122,7 @@ export default function DashboardPage() {
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedAffiliates, setSelectedAffiliates] = useState<string[]>([]);
+  const [selectedTrackers, setSelectedTrackers] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("newest");
   const [minImpressions, setMinImpressions] = useState(0);
 
@@ -124,6 +143,7 @@ export default function DashboardPage() {
     if (selectedCountries.length > 0) query = query.in("country_code", selectedCountries);
     if (selectedLanguages.length > 0) query = query.in("language", selectedLanguages);
     if (selectedAffiliates.length > 0) query = query.in("affiliate_network", selectedAffiliates);
+    if (selectedTrackers.length > 0) query = query.in("tracking_tool", selectedTrackers);
     if (minImpressions > 0) query = query.gte("impressions", minImpressions);
 
     query = sortBy === "impressions"
@@ -139,12 +159,12 @@ export default function DashboardPage() {
     setTotalCount(count || 0);
     setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
     setLoading(false);
-  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, sortBy, minImpressions, page]);
+  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, sortBy, minImpressions, page]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, sortBy, minImpressions]);
+  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, sortBy, minImpressions]);
 
   const toggleNetwork = (net: string) => {
     setSelectedNetworks(prev =>
@@ -188,6 +208,15 @@ export default function DashboardPage() {
     setSelectedAffiliates(prev => prev.filter(a => a !== name));
   };
 
+  const toggleTracker = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === "all") setSelectedTrackers([]);
+    else if (!selectedTrackers.includes(value)) setSelectedTrackers([...selectedTrackers, value]);
+  };
+
+  const removeTracker = (name: string) => {
+    setSelectedTrackers(prev => prev.filter(t => t !== name));
+  };
 
   const networkColor: Record<string, string> = {
     Taboola: "bg-blue-600",
@@ -288,6 +317,18 @@ export default function DashboardPage() {
               <option key={net} value={net}>{net}</option>
             ))}
           </select>
+
+          <select
+            onChange={toggleTracker}
+            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
+            value=""
+          >
+            <option value="" disabled>+ Tracker</option>
+            <option value="all">All Trackers</option>
+            {TRACKER_TOOLS.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
         </div>
 
         <select
@@ -300,9 +341,9 @@ export default function DashboardPage() {
           <option value="impressions">Most Impressions</option>
         </select>
 
-        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0) && (
+        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0) && (
           <button
-            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); setSelectedAffiliates([]); }}
+            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); setSelectedAffiliates([]); setSelectedTrackers([]); }}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white transition-all ml-auto"
           >
             <X size={14} /> Clear Filters
@@ -311,7 +352,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Filter Tags */}
-      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0) && (
+      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0) && (
         <div className="flex flex-wrap gap-2">
           {selectedCountries.map(code => (
             <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
@@ -326,9 +367,15 @@ export default function DashboardPage() {
             </span>
           ))}
           {selectedAffiliates.map(name => (
-            <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5" style={{backgroundColor: `${AFFILIATE_COLORS[name] || '#374151'}33`, borderColor: AFFILIATE_COLORS[name] || '#374151'}}>
+            <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border" style={{backgroundColor: `${AFFILIATE_COLORS[name] || '#374151'}22`, borderColor: AFFILIATE_COLORS[name] || '#374151'}}>
               <span style={{color: AFFILIATE_COLORS[name] || '#6B7280'}}>&#128279;</span> {name}
               <button onClick={() => removeAffiliate(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+          {selectedTrackers.map(name => (
+            <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border" style={{backgroundColor: `${TRACKER_COLORS[name] || '#374151'}22`, borderColor: TRACKER_COLORS[name] || '#374151'}}>
+              <span style={{color: TRACKER_COLORS[name] || '#6B7280'}}>&#128241;</span> {name}
+              <button onClick={() => removeTracker(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
         </div>
@@ -407,6 +454,19 @@ export default function DashboardPage() {
                       >
                         <span style={{color: AFFILIATE_COLORS[ad.affiliate_network] || '#F59E0B'}}>&#128279;</span>
                         {ad.affiliate_network}
+                      </span>
+                    )}
+                    {ad.tracking_tool && ad.tracking_tool !== 'No Tracking' && (
+                      <span
+                        className="px-2.5 py-1 flex items-center gap-1 rounded-lg text-[9px] font-black tracking-wider backdrop-blur-md text-white shadow-lg"
+                        style={{
+                          backgroundColor: `${TRACKER_COLORS[ad.tracking_tool] || '#374151'}33`,
+                          border: `1px solid ${TRACKER_COLORS[ad.tracking_tool] || '#374151'}66`
+                        }}
+                        title={`Tracker: ${ad.tracking_tool}`}
+                      >
+                        <span style={{color: TRACKER_COLORS[ad.tracking_tool] || '#F9A825'}}>&#128241;</span>
+                        {ad.tracking_tool}
                       </span>
                     )}
                   </div>
