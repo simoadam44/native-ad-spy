@@ -49,7 +49,7 @@ OUTBRAIN_TARGETS = [url.strip() for url in [
     "https://www.foxnews.com/politics/carney-casts-himself-nato-defender-amid-trump-beef-despite-canada-missing-key-benchmark-decades",
     "https://www.foxnews.com/world",
     "https://www.foxnews.com/us/ex-biden-staffer-claims-accidental-shot-killed-girlfriend-dad-blasts-toxic-abusive-relationship-report",
-    "https://www.foxnews.com/lifestyle/ivanka-trump-reveals-surprising-new-living-arrangement-her-grandmother-florida-privilege",
+    "https://www.dailymail.co.uk/news/article-15726397/Woman-raped-outside-church-surrey-police.html",
     "https://www.lemonde.fr/en/european-union/article/2024/05/21/the-eu-s-artificial-intelligence-act-is-finally-adopted_6672074_156.html",
     "https://www.9news.com.au/world/us-israel-iran-war-donald-trump-says-us-will-block-ships-crossing-strait-of-hormuz/2d285cc7-18a9-4061-971e-d0cc6a681169",
     "https://www.marca.com/en/football/real-madrid/2024/05/21/664c8d5046163f91598b4594.html",
