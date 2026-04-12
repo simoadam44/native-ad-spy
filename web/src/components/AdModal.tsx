@@ -504,13 +504,7 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                         </div>
                       </div>
 
-                      {/* Warning if new + single platform */}
-                      {!intel.isCrossNetwork && intel.daysSinceFirst < 14 && (
-                        <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3">
-                          <AlertTriangle size={14} className="text-yellow-400 mt-0.5 shrink-0" />
-                          <p className="text-[11px] text-yellow-400/80">New campaign on single network — monitor before copying.</p>
-                        </div>
-                      )}
+
                     </>
                   ) : (
                     <div className="flex flex-col items-center py-6 gap-2 text-neutral-700">
