@@ -174,8 +174,8 @@ async def scrape_outbrain(browser, url):
                             except: pass
                         
                         if not data:
-                            # Try to find JSON inside a callback function wrapper
-                            match = re.search(r'\((\{.*\})\)', text) or re.search(r'(\{.*\})', text)
+                            # Try to find JSON inside a callback function wrapper (must use re.DOTALL for multiline responses)
+                            match = re.search(r'\((\{.*?\})\)', text, re.DOTALL) or re.search(r'(\{.*?\})', text, re.DOTALL)
                             if match:
                                 try:
                                     data = json.loads(match.group(1) if match.group(1) else match.group(0))
@@ -311,19 +311,28 @@ async def scrape_outbrain(browser, url):
                         outbrain_ads.append({**ad, "source": url, "network": "OUTBRAIN"})
             except: pass
 
-        if outbrain_ads:
-            unique_ads = {}
-            for ad in outbrain_ads:
-                if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: unique_ads[ad['landing']] = ad
-            for ad in unique_ads.values(): await save_to_supabase(ad)
-            print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان في {url}")
-        else:
-            print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
     except Exception as e:
-        print(f"⚠️ [OUTBRAIN ERROR]: {e}")
-    finally:
+        err_msg = str(e)
+        if "Execution context was destroyed" in err_msg:
+            print("⚠️ [OUTBRAIN WARNING]: اكتشاف إعادة تحميل للصفحة (بسبب الكوكيز غالباً). جاري الانتظار لالتقاط إعلانات Outbrain...")
+            await asyncio.sleep(12)
+        else:
+            print(f"⚠️ [OUTBRAIN ERROR]: {err_msg}")
+            
+    # معالجة النتائج سواء تمت بنجاح تام أو بعد التوقف بسبب إعادة التحميل
+    if outbrain_ads:
+        unique_ads = {}
+        for ad in outbrain_ads:
+            if ad['landing'] and ad['title'] and ad['landing'] not in unique_ads: unique_ads[ad['landing']] = ad
+        for ad in unique_ads.values(): await save_to_supabase(ad)
+        print(f"✅ [OUTBRAIN]: تم صيد {len(unique_ads)} إعلان في {url}")
+    else:
+        print(f"ℹ️ [OUTBRAIN]: لم يتم رصد إعلانات في {url}")
+        
+    try:
         if page: await page.close()
         if context: await context.close()
+    except: pass
 
 async def run():
     async with async_playwright() as p:
