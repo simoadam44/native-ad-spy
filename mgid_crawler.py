@@ -3,6 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
+from langdetect import detect
 
 # إعداد سوبابيز
 try:
@@ -74,7 +75,14 @@ async def save_to_supabase(ad):
         if res.data:
             existing = res.data[0]
             new_imp = (existing.get('impressions') or 1) + 1
-            update_data = {"impressions": new_imp, "last_seen": "now()"}
+            
+            # كشف اللغة
+            try:
+                lang = detect(ad['title'])
+            except:
+                lang = 'en'
+                
+            update_data = {"impressions": new_imp, "last_seen": "now()", "language": lang}
             
             # إذا كان الرابط القديم تتبع والجديد حقيقي، نحدث الرابط
             is_old_tracking = "mgid.com" in existing['landing'] or "adskeeper.com" in existing['landing'] or "clck." in existing['landing']
@@ -85,11 +93,16 @@ async def save_to_supabase(ad):
                 print(f"🔄 [MGID]: تم تحديث رابط تتبع برابط حقيقي للإعلان: {title_key[:30]}...")
             
             supabase.table("ads").update(update_data).eq("id", existing['id']).execute()
-            print(f"[MGID] [{TARGET_COUNTRY}]: تحديث ({new_imp}): {ad['title'][:40]}...")
+            print(f"[MGID] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
-            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
+            # كشف اللغة للجديد
+            try:
+                lang = detect(ad['title'])
+            except:
+                lang = 'en'
+            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang})
             supabase.table("ads").insert(ad).execute()
-            print(f"[MGID] [{TARGET_COUNTRY}]: صيد جديد: {ad['title'][:40]}...")
+            print(f"[MGID] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:
         print(f"[DB ERROR]: {e}")
 

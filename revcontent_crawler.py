@@ -5,6 +5,7 @@ from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin
+from langdetect import detect
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -72,18 +73,25 @@ async def save_or_update_ad(data):
         
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
         
+        # كشف اللغة
+        try:
+            lang = detect(data['title'])
+        except:
+            lang = 'en'
+            
         if existing.data:
             new_count = (existing.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({
                 "impressions": new_count,
                 "last_seen": "now()",
-                "country_code": TARGET_COUNTRY
+                "country_code": TARGET_COUNTRY,
+                "language": lang
             }).eq("id", existing.data[0]['id']).execute()
-            print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}]: تحديث ({new_count}): {data['title'][:50]}...")
+            print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:50]}...")
         else:
-            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
+            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang})
             supabase.table("ads").insert(data).execute()
-            print(f"✨ [REVCONTENT] [{TARGET_COUNTRY}]: صيد جديد: {data['title'][:50]}...")
+            print(f"✨ [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:50]}...")
     except Exception as e:
         print(f"⚠️ [DB ERROR]: {str(e)[:50]}")
 

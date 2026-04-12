@@ -6,6 +6,7 @@ from urllib.parse import urljoin, unquote
 import os
 import re
 import json
+from langdetect import detect
 
 # إعدادات سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -63,18 +64,26 @@ async def save_or_update_ad(data):
         
         # منع تكرار الروابط في الذاكرة لتجنب استهلاك سوبابيز غير الضروري
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
+        
+        # كشف اللغة
+        try:
+            lang = detect(data['title'])
+        except:
+            lang = 'en'
+            
         if existing.data:
             new_count = (existing.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({
                 "impressions": new_count,
                 "last_seen": "now()",
-                "country_code": TARGET_COUNTRY
+                "country_code": TARGET_COUNTRY,
+                "language": lang
             }).eq("id", existing.data[0]['id']).execute()
-            print(f"📈 [TABOOLA] [{TARGET_COUNTRY}]: تحديث ({new_count}): {data['title'][:30]}")
+            print(f"📈 [TABOOLA] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:30]}")
         else:
-            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
+            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang})
             supabase.table("ads").insert(data).execute()
-            print(f"✨ [TABOOLA] [{TARGET_COUNTRY}]: صيد جديد: {data['title'][:30]}")
+            print(f"✨ [TABOOLA] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:30]}")
     except Exception as e:
         print(f"⚠️ [TABOOLA] DB Error: {e}")
 

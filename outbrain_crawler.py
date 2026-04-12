@@ -5,6 +5,7 @@ from playwright_stealth import Stealth
 from supabase import create_client
 import json
 import re
+from langdetect import detect
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -61,16 +62,29 @@ OUTBRAIN_TARGETS = [url.strip() for url in [
 async def save_to_supabase(ad):
     try:
         if not ad.get('title') or not ad.get('landing'): return
+        
+        # كشف اللغة تلقائياً
+        try:
+            ad['language'] = detect(ad['title'])
+        except:
+            ad['language'] = 'en'
+            
         clean_url = ad['landing'].split('&dicbo=')[0] if '&dicbo=' in ad['landing'] else ad['landing']
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
+        
         if res.data:
             new_imp = (res.data[0].get('impressions') or 1) + 1
-            supabase.table("ads").update({"impressions": new_imp, "last_seen": "now()", "country_code": TARGET_COUNTRY}).eq("id", res.data[0]['id']).execute()
-            print(f"📈 [OUTBRAIN] [{TARGET_COUNTRY}]: تحديث ({new_imp}): {ad['title'][:40]}...")
+            supabase.table("ads").update({
+                "impressions": new_imp, 
+                "last_seen": "now()", 
+                "country_code": TARGET_COUNTRY,
+                "language": ad['language']
+            }).eq("id", res.data[0]['id']).execute()
+            print(f"📈 [OUTBRAIN] [{TARGET_COUNTRY}] [{ad['language']}]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
             ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY})
             supabase.table("ads").insert(ad).execute()
-            print(f"✨ [OUTBRAIN] [{TARGET_COUNTRY}]: صيد جديد: {ad['title'][:40]}...")
+            print(f"✨ [OUTBRAIN] [{TARGET_COUNTRY}] [{ad['language']}]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:
         print(f"⚠️ [DB ERROR]: {e}")
 
