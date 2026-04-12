@@ -4,8 +4,10 @@ import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, BrainCircuit, Zap, Target, MessageSquare,
-  Star, Copy, CheckCircle2, Loader2, ExternalLink, Heart, RefreshCw
+  Star, Copy, CheckCircle2, Loader2, ExternalLink, Heart, RefreshCw,
+  TrendingUp, Globe, Shield, AlertTriangle
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface AdModalProps {
   ad: any;
@@ -21,6 +23,8 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [intel, setIntel] = useState<any>(null);
+  const [loadingIntel, setLoadingIntel] = useState(false);
 
   // Resolve MGID tracking links via server-side proxy
   const resolveAndVisit = async (landingUrl: string, sourceUrl: string) => {
@@ -80,6 +84,61 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
     setLoadingAnalysis(false);
   }, [ad]);
 
+  // Fetch Intelligence Report data (cross-network + publisher strategy)
+  const fetchIntelligence = useCallback(async () => {
+    if (!ad) return;
+    setLoadingIntel(true);
+    setIntel(null);
+    try {
+      // Extract landing domain
+      let domain = "";
+      try {
+        domain = new URL(ad.landing).hostname.replace(/^www\./, "");
+      } catch { domain = ad.landing; }
+
+      // Find all ads sharing the same landing domain
+      const { data: sameAdvertiser } = await supabase
+        .from("ads")
+        .select("id, network, title, created_at")
+        .ilike("landing", `%${domain}%`);
+
+      const advertiserAds = sameAdvertiser || [];
+
+      // Unique networks this advertiser runs on
+      const networks = [...new Set(advertiserAds.map((a: any) => a.network).filter(Boolean))];
+
+      // Unique titles for same advertiser
+      const titles = [...new Set(advertiserAds.map((a: any) => a.title).filter(Boolean))];
+
+      // Days since first seen (across all their ads)
+      const allDates = advertiserAds.map((a: any) => new Date(a.created_at).getTime()).filter(Boolean);
+      const firstSeen = allDates.length > 0 ? Math.min(...allDates) : Date.now();
+      const daysSinceFirst = Math.round((Date.now() - firstSeen) / (1000 * 60 * 60 * 24));
+
+      // Check cross-network: same title on multiple networks
+      const currentTitleNetworks = [...new Set(
+        advertiserAds
+          .filter((a: any) => a.title?.toLowerCase().trim() === ad.title?.toLowerCase().trim())
+          .map((a: any) => a.network)
+          .filter(Boolean)
+      )];
+      const isCrossNetwork = currentTitleNetworks.length > 1;
+
+      setIntel({
+        networks,
+        titles,
+        daysSinceFirst,
+        totalAds: advertiserAds.length,
+        isCrossNetwork,
+        crossNetworks: currentTitleNetworks,
+        domain,
+      });
+    } catch (e) {
+      console.error("[Intel] Failed:", e);
+    }
+    setLoadingIntel(false);
+  }, [ad]);
+
   const fetchHeadlines = useCallback(async () => {
     if (!ad) return;
     setLoadingHeadlines(true);
@@ -103,8 +162,10 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
     if (isOpen && ad) {
       setAnalysis(null);
       setHeadlines([]);
+      setIntel(null);
       fetchAnalysis();
       fetchHeadlines();
+      fetchIntelligence();
     }
   }, [isOpen, ad]);
 
@@ -341,10 +402,128 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                     )}
                   </div>
                 </section>
+              {/* ── Intelligence Report ── */}
+              <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-amber-500/5">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <TrendingUp size={16} />
+                    <span className="font-black text-xs uppercase tracking-widest">Intelligence Report</span>
+                  </div>
+                  <button onClick={fetchIntelligence} disabled={loadingIntel}
+                    className="text-neutral-600 hover:text-white disabled:opacity-40 transition-all"
+                    title="Refresh">
+                    <RefreshCw size={13} className={loadingIntel ? "animate-spin" : ""} />
+                  </button>
+                </div>
 
-              </div>
-            </div>
-          </div>
+                <div className="p-5 space-y-4">
+                  {loadingIntel ? (
+                    <div className="flex flex-col items-center py-6 gap-3">
+                      <Loader2 className="animate-spin text-amber-400" size={28} />
+                      <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest">Analyzing advertiser…</p>
+                    </div>
+                  ) : intel ? (
+                    <>
+                      {/* Cross-Network Badge */}
+                      {intel.isCrossNetwork && (
+                        <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl p-3.5">
+                          <Globe size={16} className="text-green-400 mt-0.5 shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-green-400 mb-1">Cross-Network Found</p>
+                            <p className="text-xs text-neutral-300 leading-relaxed">
+                              This ad is running on
+                              <span className="font-black text-green-400"> {intel.crossNetworks.length} platforms</span>:
+                              {intel.crossNetworks.map((net: string) => (
+                                <span key={net} className={`ml-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase inline-block ${net === 'Taboola' ? 'bg-blue-600/80' : net === 'MGID' ? 'bg-purple-600/80' : net === 'Outbrain' || net === 'OUTBRAIN' ? 'bg-orange-600/80' : 'bg-green-600/80'} text-white`}>
+                                  {net}
+                                </span>
+                              ))}
+                            </p>
+                            <p className="text-[10px] text-green-400/70 mt-1.5 italic">⚡ Multi-platform = high ROI signal</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* No cross-network: single platform */}
+                      {!intel.isCrossNetwork && (
+                        <div className="flex items-start gap-3 bg-neutral-800/50 border border-white/5 rounded-xl p-3.5">
+                          <Shield size={16} className="text-neutral-500 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-1">Single Platform</p>
+                            <p className="text-xs text-neutral-400">This ad title was only detected on <span className="text-white font-bold">{ad.network}</span>.</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Publisher Strategy */}
+                      <div className="bg-neutral-800/40 border border-white/5 rounded-xl p-4 space-y-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
+                          <Target size={12} /> Publisher Strategy
+                        </p>
+
+                        <div className="space-y-2.5 text-xs">
+                          {/* Networks used */}
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
+                            <span className="text-neutral-400">This advertiser uses</span>
+                            <span className="font-black text-white">{intel.networks.length}</span>
+                            <span className="text-neutral-400">{intel.networks.length === 1 ? "network" : "different networks"}</span>
+                            {intel.networks.length >= 3 && <span className="text-xs text-amber-400 ml-1">🔥 Power buyer</span>}
+                          </div>
+
+                          {/* Titles count */}
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+                            <span className="text-neutral-400">They have</span>
+                            <span className="font-black text-white">{intel.titles.length}</span>
+                            <span className="text-neutral-400">{intel.titles.length === 1 ? "unique headline" : "different creative titles"} for this domain</span>
+                            {intel.titles.length >= 5 && <span className="text-xs text-purple-400 ml-1">✨ A/B testing</span>}
+                          </div>
+
+                          {/* Days running */}
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+                            <span className="text-neutral-400">First seen</span>
+                            <span className="font-black text-white">{intel.daysSinceFirst} days</span>
+                            <span className="text-neutral-400">ago</span>
+                            {intel.daysSinceFirst >= 30 && (
+                              <span className="text-xs text-green-400 ml-1">
+                                {intel.daysSinceFirst >= 60 ? "🏆 Very profitable" : "✅ Proven offer"}
+                              </span>
+                            )}
+                            {intel.daysSinceFirst < 7 && (
+                              <span className="text-xs text-yellow-400 ml-1">🆕 New campaign</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Landing domain */}
+                        <div className="pt-2 border-t border-white/5">
+                          <p className="text-[10px] text-neutral-600 uppercase tracking-widest">Landing Domain</p>
+                          <p className="text-xs font-mono text-neutral-300 mt-0.5 truncate">{intel.domain}</p>
+                        </div>
+                      </div>
+
+                      {/* Warning if new + single platform */}
+                      {!intel.isCrossNetwork && intel.daysSinceFirst < 14 && (
+                        <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3">
+                          <AlertTriangle size={14} className="text-yellow-400 mt-0.5 shrink-0" />
+                          <p className="text-[11px] text-yellow-400/80">New campaign on single network — monitor before copying.</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center py-6 gap-2 text-neutral-700">
+                      <TrendingUp size={32} />
+                      <p className="text-xs font-bold uppercase tracking-widest">Intelligence unavailable</p>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              </div>{/* end right column */}
+            </div>{/* end grid */}
+          </div>{/* end scrollable body */}
 
           {/* Footer */}
           <div className="px-6 py-3 bg-neutral-950 border-t border-white/5 text-center shrink-0">
