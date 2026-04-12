@@ -8,13 +8,13 @@ import sys
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-# قائمة بـ 20 دولة مستهدفة رئيسية
+# قائمة الدول المستهدفة
 TARGET_COUNTRIES = [
     "US", "GB", "CA", "AU", "DE", "FR", "IT", "ES", "NL", "SE", 
     "SA", "AE", "ZA", "JP", "KR"
 ]
 
-# قاموس لتخزين الإحصائيات
+# قاموس لتخزين الإحصائيات لجميع الشبكات
 stats = {
     "REVCONTENT": {"new": 0, "updates": 0},
     "TABOOLA": {"new": 0, "updates": 0},
@@ -29,7 +29,6 @@ def run_script(script_name, country):
         env = os.environ.copy()
         env["TARGET_COUNTRY"] = country
         
-        # تشغيل السكربت باستخدام subprocess.PIPE لالتقاط المخرجات
         process = subprocess.Popen(
             ['python', script_name], 
             stdout=subprocess.PIPE, 
@@ -42,14 +41,12 @@ def run_script(script_name, country):
         for line in process.stdout:
             print(line, end='') 
             
-            # تحليل السطور لتحديث الإحصائيات في الوقت الحقيقي
-            if "صيد جديد" in line or "تم الحفظ" in line:
-                for network in stats:
-                    if f"[{network}]" in line.upper(): 
+            # تحليل السطور لتحديث الإحصائيات لجميع الشبكات
+            for network in stats:
+                if f"[{network}]" in line.upper():
+                    if "صيد جديد" in line or "تم الحفظ" in line:
                         stats[network]["new"] += 1
-            elif "تحديث" in line:
-                for network in stats:
-                    if f"[{network}]" in line.upper(): 
+                    elif "تحديث" in line:
                         stats[network]["updates"] += 1
 
         process.wait()
@@ -61,30 +58,31 @@ def run_script(script_name, country):
         return 0
 
 def show_dashboard(total_time):
-    print("\n" + "*"*50)
-    print("📊 ملخص جولة التجسس (Focus Mode: OUTBRAIN Only) 📊")
-    print("*"*50)
+    print("\n" + "*"*60)
+    print("📊 ملخص جولة التجسس الشاملة (All Networks Active) 📊")
+    print("*"*60)
     
     table_header = f"{'الشبكة':<15} | {'صيد جديد ✨':<12} | {'تحديثات 📈':<10}"
     print(table_header)
     print("-" * len(table_header))
     
     total_new = 0
+    total_updates = 0
     for network, data in stats.items():
-        # نظهر فقط شبكة OUTBRAIN في هذا الوضع
-        if network == "OUTBRAIN":
-            print(f"{network:<15} | {data['new']:<12} | {data['updates']:<10}")
-            total_new += data['new']
+        print(f"{network:<15} | {data['new']:<12} | {data['updates']:<10}")
+        total_new += data['new']
+        total_updates += data['updates']
     
     print("-" * len(table_header))
     print(f"🚀 إجمالي الصيد الجديد: {total_new} إعلان")
-    print(f"⏱️ الوقت الإجمالي: {total_time:.2f} دقيقة")
-    print("*"*50 + "\n")
+    print(f"📈 إجمالي التحديثات: {total_updates}")
+    print(f"⏱️ الوقت الإجمالي للجولة: {total_time:.2f} دقيقة")
+    print("*"*60 + "\n")
 
 if __name__ == "__main__":
     start_all = time.time()
     
-    print("🚀 بدء جولة البحث (Focus Mode Enabled: OUTBRAIN Only)...")
+    print("🚀 بدء جولة البحث الشاملة (Full Power Mode)...")
     
     scripts = [
         "revcontent_crawler.py",
@@ -93,19 +91,14 @@ if __name__ == "__main__":
         "outbrain_crawler.py"
     ]
     
-    # اختيار 5 دول عشوائياً لضمان تنوع مصادر الإعلانات
+    # اختيار 5 دول عشوائياً
     selected_countries = random.sample(TARGET_COUNTRIES, 5)
     print(f"🌐 الدول المستهدفة في هذه الدورة: {', '.join(selected_countries)}\n")
     
     for country in selected_countries:
-        print(f"\n{'='*40}\n🌍 بدء المسح في: {country}\n{'='*40}")
+        print(f"\n{'='*40}\n🌍 جاري المسح الشامل في: {country}\n{'='*40}")
         for script in scripts:
-            
-            # --- الجملة الشرطية المركزية: تفعيل Outbrain فقط ---
-            if script != "outbrain_crawler.py":
-                continue 
-            # ----------------------------------------------
-            
+            # تم إزالة شرط "continue" لتفعيل جميع السكريبتات
             if os.path.exists(script):
                 run_script(script, country)
             else:
@@ -114,4 +107,4 @@ if __name__ == "__main__":
     total_duration = (time.time() - start_all) / 60
     show_dashboard(total_duration)
     
-    print("🏁 انتهت العملية المركزة بنجاح!")
+    print("🏁 انتهت العملية الشاملة بنجاح! تفقد الـ Dashboard بالأعلى.")
