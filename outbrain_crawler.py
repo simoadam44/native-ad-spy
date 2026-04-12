@@ -46,7 +46,10 @@ COUNTRY_CONFIGS = {
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
 OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.spiegel.de/international/world/how-the-world-is-reacting-to-the-us-election-a-394ca0c8-47bc-49b0-96f7-bcaa9b98ec34",
+    "https://www.foxnews.com/politics/carney-casts-himself-nato-defender-amid-trump-beef-despite-canada-missing-key-benchmark-decades",
+    "https://www.foxnews.com/world",
+    "https://www.foxnews.com/us/ex-biden-staffer-claims-accidental-shot-killed-girlfriend-dad-blasts-toxic-abusive-relationship-report",
+    "https://www.foxnews.com/lifestyle/ivanka-trump-reveals-surprising-new-living-arrangement-her-grandmother-florida-privilege",
     "https://www.lemonde.fr/en/european-union/article/2024/05/21/the-eu-s-artificial-intelligence-act-is-finally-adopted_6672074_156.html",
     "https://www.n-tv.de/politik/Biden-spricht-Machtwort-im-Gaza-Krieg-article24915609.html",
     "https://www.marca.com/en/football/real-madrid/2024/05/21/664c8d5046163f91598b4594.html",
