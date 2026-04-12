@@ -4,3 +4,5 @@ requests
 beautifulsoup4
 supabase
 playwright-stealth
+langdetect
+pandas
