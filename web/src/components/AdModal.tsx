@@ -90,49 +90,11 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
     setLoadingIntel(true);
     setIntel(null);
     try {
-      // Extract landing domain
-      let domain = "";
-      try {
-        domain = new URL(ad.landing).hostname.replace(/^www\./, "");
-      } catch { domain = ad.landing; }
-
-      // Find all ads sharing the same landing domain
-      const { data: sameAdvertiser } = await supabase
-        .from("ads")
-        .select("id, network, title, created_at")
-        .ilike("landing", `%${domain}%`);
-
-      const advertiserAds = sameAdvertiser || [];
-
-      // Unique networks this advertiser runs on
-      const networks = [...new Set(advertiserAds.map((a: any) => a.network).filter(Boolean))];
-
-      // Unique titles for same advertiser
-      const titles = [...new Set(advertiserAds.map((a: any) => a.title).filter(Boolean))];
-
-      // Days since first seen (across all their ads)
-      const allDates = advertiserAds.map((a: any) => new Date(a.created_at).getTime()).filter(Boolean);
-      const firstSeen = allDates.length > 0 ? Math.min(...allDates) : Date.now();
-      const daysSinceFirst = Math.round((Date.now() - firstSeen) / (1000 * 60 * 60 * 24));
-
-      // Check cross-network: same title on multiple networks
-      const currentTitleNetworks = [...new Set(
-        advertiserAds
-          .filter((a: any) => a.title?.toLowerCase().trim() === ad.title?.toLowerCase().trim())
-          .map((a: any) => a.network)
-          .filter(Boolean)
-      )];
-      const isCrossNetwork = currentTitleNetworks.length > 1;
-
-      setIntel({
-        networks,
-        titles,
-        daysSinceFirst,
-        totalAds: advertiserAds.length,
-        isCrossNetwork,
-        crossNetworks: currentTitleNetworks,
-        domain,
-      });
+      const res = await fetch(`/api/intelligence?landing=${encodeURIComponent(ad.landing)}&title=${encodeURIComponent(ad.title)}&id=${ad.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setIntel(data);
+      }
     } catch (e) {
       console.error("[Intel] Failed:", e);
     }
