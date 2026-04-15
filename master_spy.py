@@ -98,9 +98,11 @@ if __name__ == "__main__":
     for country in selected_countries:
         print(f"\n{'='*40}\n🌍 جاري المسح الشامل في: {country}\n{'='*40}")
         for script in scripts:
-            # تم إزالة شرط "continue" لتفعيل جميع السكريبتات
             if os.path.exists(script):
                 run_script(script, country)
+                # استراحة (30 ثانية) لتصفير جلسات البروكسي كما هو موصى به لضمان الاستقرار
+                print(f"⏳ [SAFE MODE]: استراحة لمدة 30 ثانية قبل الانتقال للمهمة التالية...")
+                time.sleep(30)
             else:
                 print(f"⚠️ الملف {script} غير موجود، تخطي...")
 

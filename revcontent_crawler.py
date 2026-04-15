@@ -11,6 +11,7 @@ import os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from utils.affiliate_detector import detect_affiliate_network
 from utils.tracker_detector import detect_tracking_tool
+from utils.url_resolver import resolve_url
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -20,10 +21,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # إعداد الدولة والبروكسي المتطور (DataImpulse)
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
+# إعداد الدولة والبروكسي المتطور (DataImpulse Datacenter HTTP)
 PROXY_CONFIG = {
     "server": "http://gw.dataimpulse.com:823",
-    "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
-    "password": "78c188c405598b8a"
+    "username": "7dce367ee7442e94dcd3",
+    "password": "30243fe81b50b2de"
 }
 
 COUNTRY_CONFIGS = {
@@ -73,24 +75,45 @@ async def save_or_update_ad(data):
         if data.get('image') and data['image'].startswith('//'):
             data['image'] = 'https:' + data['image']
             
-        clean_landing = data['landing'].split('?')[0].split('#')[0]
-        data["landing"] = clean_landing
+        # Resolve final URL for accurate detection (Affiliate/Tracker)
+        print(f"🔍 [Revcontent] Resolving: {data['landing'][:50]}...")
+        final_url = resolve_url(data['landing'])
+        clean_landing = final_url.split('?')[0].split('#')[0]
         
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
         
-        # كشف اللغة
-        try:
-            lang = detect(data['title'])
-        except:
-            lang = 'en'
+        # كشف اللغة بشكل متقدم (خاصة للغة العربية)
+        def detect_lang(t):
+            if re.search(r'[\u0600-\u06FF]', t):
+                return 'ar'
+            try:
+                return detect(t)
+            except:
+                return 'en'
+
+        lang = detect_lang(data['title'])
             
+        try:
+            aff = detect_affiliate_network(final_url)
+            aff_net = aff['network']
+        except:
+            aff_net = 'Direct / Unknown'
+            
+        try:
+            trk = detect_tracking_tool(final_url)
+            trk_tool = trk['tracker']
+        except:
+            trk_tool = 'No Tracking'
+
         if existing.data:
             new_count = (existing.data[0].get('impressions') or 1) + 1
             supabase.table("ads").update({
                 "impressions": new_count,
                 "last_seen": "now()",
                 "country_code": TARGET_COUNTRY,
-                "language": lang
+                "language": lang,
+                "affiliate_network": aff_net,
+                "tracking_tool": trk_tool
             }).eq("id", existing.data[0]['id']).execute()
             print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:50]}...")
         else:
@@ -115,6 +138,7 @@ async def scrape_revcontent(browser, url, semaphore):
         rev_ads = []
         try:
             context = await browser.new_context(
+                proxy=PROXY_CONFIG,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
                 locale=GEO["locale"],
                 timezone_id=GEO["timezone_id"],
@@ -270,12 +294,11 @@ async def run_spy():
 
     if not sites: sites = REVCONTENT_TARGETS
 
-    semaphore = asyncio.Semaphore(2)
+    semaphore = asyncio.Semaphore(1)
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
         browser = await p.chromium.launch(
             headless=True, 
-            proxy=PROXY_CONFIG,
             args=[
                 "--blink-settings=imagesEnabled=false",
                 "--disable-features=IsolateOrigins,site-per-process",

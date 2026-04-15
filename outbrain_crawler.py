@@ -5,12 +5,14 @@ from playwright_stealth import Stealth
 from supabase import create_client
 import json
 import re
+import re
 from langdetect import detect
 import sys as _sys
 import os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from utils.affiliate_detector import detect_affiliate_network
 from utils.tracker_detector import detect_tracking_tool
+from utils.url_resolver import resolve_url
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -21,10 +23,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # إعداد الدولة والبروكسي المتطور
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
+# إعداد الدولة والبروكسي المتطور (DataImpulse Datacenter HTTP)
 PROXY_CONFIG = {
     "server": "http://gw.dataimpulse.com:823",
-    "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
-    "password": "78c188c405598b8a"
+    "username": "7dce367ee7442e94dcd3",
+    "password": "30243fe81b50b2de"
 }
 
 COUNTRY_CONFIGS = {
@@ -68,27 +71,37 @@ async def save_to_supabase(ad):
     try:
         if not ad.get('title') or not ad.get('landing'): return
         
-        # كشف اللغة تلقائياً
-        try:
-            ad['language'] = detect(ad['title'])
-        except:
-            ad['language'] = 'en'
+        # كشف اللغة بشكل متقدم (خاصة للغة العربية)
+        def detect_lang(t):
+            if re.search(r'[\u0600-\u06FF]', t):
+                return 'ar'
+            try:
+                return detect(t)
+            except:
+                return 'en'
+
+        ad['language'] = detect_lang(ad['title'])
+        
+        # Resolve final URL for accurate detection (Affiliate/Tracker)
+        ad_landing = ad.get('landing', '')
+        print(f"🔍 [Outbrain] Resolving: {ad_landing[:50]}...")
+        final_url = resolve_url(ad_landing)
         
         # كشف شبكة الأفيلييت
         try:
-            aff = detect_affiliate_network(ad.get('landing', ''))
+            aff = detect_affiliate_network(final_url)
             ad['affiliate_network'] = aff['network']
         except:
             ad['affiliate_network'] = 'Direct / Unknown'
 
         # كشف أداة التتبع
         try:
-            trk = detect_tracking_tool(ad.get('landing', ''))
+            trk = detect_tracking_tool(final_url)
             ad['tracking_tool'] = trk['tracker']
         except:
             ad['tracking_tool'] = 'No Tracking'
             
-        clean_url = ad['landing'].split('&dicbo=')[0] if '&dicbo=' in ad['landing'] else ad['landing']
+        clean_url = final_url.split('&dicbo=')[0] if '&dicbo=' in final_url else final_url
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
         
         if res.data:
@@ -97,7 +110,9 @@ async def save_to_supabase(ad):
                 "impressions": new_imp, 
                 "last_seen": "now()", 
                 "country_code": TARGET_COUNTRY,
-                "language": ad['language']
+                "language": ad['language'],
+                "affiliate_network": ad['affiliate_network'],
+                "tracking_tool": ad['tracking_tool']
             }).eq("id", res.data[0]['id']).execute()
             print(f"📈 [OUTBRAIN] [{TARGET_COUNTRY}] [{ad['language']}]: تحديث ({new_imp}): {ad['title'][:40]}...")
         else:
@@ -165,6 +180,7 @@ async def scrape_outbrain(browser, url):
         referers = ["https://www.google.com/", "https://www.bing.com/", "https://news.google.com/"]
         
         context = await browser.new_context(
+            proxy=PROXY_CONFIG,
             user_agent=random.choice(user_agents),
             viewport=random.choice(viewports),
             extra_http_headers={"Referer": random.choice(referers)},
@@ -181,7 +197,7 @@ async def scrape_outbrain(browser, url):
             res_type = req.resource_type
             url_low = req.url.lower()
 
-            # حظر الميديا الثقيلة فقط، مع السماح للفروع الأخرى التي قد يستخدمها Outbrain للتحقق من الرؤية
+            # حظر الميديا الثقيلة والخطوط لتوفير رصيد البيانات
             if res_type in ["image", "media", "font", "manifest"]:
                 await route.abort()
                 return
@@ -498,7 +514,6 @@ async def run():
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
         browser = await p.chromium.launch(
             headless=True,
-            proxy=PROXY_CONFIG,
             args=[
                 "--blink-settings=imagesEnabled=false",
                 "--disable-features=IsolateOrigins,site-per-process",

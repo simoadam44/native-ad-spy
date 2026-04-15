@@ -9,6 +9,7 @@ import os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from utils.affiliate_detector import detect_affiliate_network
 from utils.tracker_detector import detect_tracking_tool
+from utils.url_resolver import resolve_url
 
 # إعداد سوبابيز
 try:
@@ -24,10 +25,11 @@ except Exception as e:
 # إعداد الدولة والبروكسي المتطور (DataImpulse)
 TARGET_COUNTRY = os.environ.get("TARGET_COUNTRY", "US")
 
+# إعداد الدولة والبروكسي المتطور (DataImpulse Datacenter HTTP)
 PROXY_CONFIG = {
     "server": "http://gw.dataimpulse.com:823",
-    "username": f"85ccde32f1cc6c7ad458__country-{TARGET_COUNTRY}",
-    "password": "78c188c405598b8a"
+    "username": "7dce367ee7442e94dcd3",
+    "password": "30243fe81b50b2de"
 }
 
 COUNTRY_CONFIGS = {
@@ -67,9 +69,13 @@ MGID_TARGETS = [url.strip() for url in [
 async def save_to_supabase(ad):
     try:
         title_key = ad['title'].strip()[:80].lower()
-        clean_url = ad['landing'].split('?')[0]
         
-        # كلمات مفتاحية لعناوين غير مفيدة (أسماء مواقع أو أقسام)
+        # Resolve final URL for accurate detection (Affiliate/Tracker)
+        print(f"🔍 [MGID] Resolving: {ad['landing'][:50]}...")
+        final_url = resolve_url(ad['landing'])
+        clean_url = final_url.split('?')[0]
+        
+        # كلمات مفتاحية لعناوين غير مفيدة
         useless_titles = ["brainberries.co", "pop culture", "herbeauty.co", "easy moves", "trending", "sponsored", "advertisement"]
         if any(ut in title_key for ut in useless_titles) and len(title_key) < 20:
             return
@@ -81,13 +87,31 @@ async def save_to_supabase(ad):
             existing = res.data[0]
             new_imp = (existing.get('impressions') or 1) + 1
             
-            # كشف اللغة
+            # كشف اللغة والشبكات للتحديث
             try:
                 lang = detect(ad['title'])
             except:
                 lang = 'en'
+            
+            try:
+                aff = detect_affiliate_network(final_url) # Use final resolved URL here
+                aff_net = aff['network']
+            except:
+                aff_net = 'Direct / Unknown'
                 
-            update_data = {"impressions": new_imp, "last_seen": "now()", "language": lang}
+            try:
+                trk = detect_tracking_tool(final_url) # Use final resolved URL here
+                trk_tool = trk['tracker']
+            except:
+                trk_tool = 'No Tracking'
+
+            update_data = {
+                "impressions": new_imp, 
+                "last_seen": "now()", 
+                "language": lang,
+                "affiliate_network": aff_net,
+                "tracking_tool": trk_tool
+            }
             
             # إذا كان الرابط القديم تتبع والجديد حقيقي، نحدث الرابط
             is_old_tracking = "mgid.com" in existing['landing'] or "adskeeper.com" in existing['landing'] or "clck." in existing['landing']
@@ -106,14 +130,14 @@ async def save_to_supabase(ad):
             except:
                 lang = 'en'
             try:
-                aff = detect_affiliate_network(clean_url)
+                aff = detect_affiliate_network(final_url)
             except:
                 aff = {'network': 'Direct / Unknown'}
             try:
-                trk = detect_tracking_tool(clean_url)
+                trk = detect_tracking_tool(final_url)
             except:
                 trk = {'tracker': 'No Tracking'}
-            ad.update({"landing": clean_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network'], "tracking_tool": trk['tracker']})
+            ad.update({"landing": final_url, "impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network'], "tracking_tool": trk['tracker']})
             supabase.table("ads").insert(ad).execute()
             print(f"[MGID] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {ad['title'][:40]}...")
     except Exception as e:
@@ -529,7 +553,6 @@ async def run():
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
             browser = await p.chromium.launch(
                 headless=True, 
-                proxy=PROXY_CONFIG,
                 args=[
                     "--blink-settings=imagesEnabled=false",
                     "--disable-features=IsolateOrigins,site-per-process",
@@ -539,8 +562,9 @@ async def run():
                 ]
             )
             
-            # محاولة استخدام سياق واحد لتوفير الموارد
+            # محاولة استخدام سياق واحد مع البروكسي هنا (أكثر استقراراً للمصادقة)
             context = await browser.new_context(
+                proxy=PROXY_CONFIG,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
                 locale=GEO["locale"],
                 timezone_id=GEO["timezone_id"],

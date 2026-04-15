@@ -6,13 +6,13 @@ from urllib.parse import urlparse, parse_qs
 
 TRACKING_FINGERPRINTS = {
     "Voluum": {
-        "domains": ["voluum.com", "voluumtrk.com", "trkvol.com", "vlm.io"],
-        "url_patterns": ["voluum", "vlm.io", "voluumtrk"],
+        "domains": ["voluum.com", "voluumtrk.com", "trkvol.com", "vlm.io", "vltrack.com"],
+        "url_patterns": ["voluum", "vlm.io", "voluumtrk", "vltrack"],
         "color": "#E84D1C",
     },
     "Binom": {
-        "domains": ["binom.org"],
-        "url_patterns": ["binom", "bnm."],
+        "domains": ["binom.org", "binomtrk.com"],
+        "url_patterns": ["binom", "bnm.", "binomtrk"],
         "color": "#FF6B00",
     },
     "Prosper202": {
@@ -21,7 +21,7 @@ TRACKING_FINGERPRINTS = {
         "color": "#4A90D9",
     },
     "Thrive": {
-        "domains": ["thrivetracker.com", "thrivecart.com"],
+        "domains": ["thrivetracker.com", "thrivecart.com", "thr.io"],
         "url_patterns": ["thrivetracker", "thrivecart", "thr.io"],
         "color": "#00BCD4",
     },
@@ -46,17 +46,17 @@ TRACKING_FINGERPRINTS = {
         "color": "#2E7D32",
     },
     "Keitaro": {
-        "domains": ["keitaro.io"],
-        "url_patterns": ["keitaro", "ktr."],
+        "domains": ["keitaro.io", "ktrk.io", "ktr."],
+        "url_patterns": ["keitaro", "ktrk", "ktr."],
         "color": "#F57F17",
     },
     "FunnelFlux": {
-        "domains": ["funnelflux.com", "funnelflux.pro"],
+        "domains": ["funnelflux.com", "funnelflux.pro", "fnlflx.com"],
         "url_patterns": ["funnelflux", "fnlflx"],
         "color": "#6A1B9A",
     },
     "CPVLab": {
-        "domains": ["cpvlab.com"],
+        "domains": ["cpvlab.com", "cpvlab.pro"],
         "url_patterns": ["cpvlab"],
         "color": "#37474F",
     },
@@ -66,12 +66,12 @@ TRACKING_FINGERPRINTS = {
         "color": "#00695C",
     },
     "AdsBridge": {
-        "domains": ["adsbridge.com", "adbridg.com"],
+        "domains": ["adsbridge.com", "adbridg.com", "abtrck.com"],
         "url_patterns": ["adsbridge"],
         "color": "#C62828",
     },
     "BeMob": {
-        "domains": ["bemob.com", "bemobtrcks.com"],
+        "domains": ["bemob.com", "bemobtrcks.com", "bemobtrk.com"],
         "url_patterns": ["bemob"],
         "color": "#1B5E20",
     },
@@ -81,7 +81,7 @@ TRACKING_FINGERPRINTS = {
         "color": "#4A148C",
     },
     "Scaleo": {
-        "domains": ["scaleo.io"],
+        "domains": ["scaleo.io", "scaleo.cc"],
         "url_patterns": ["scaleo"],
         "color": "#0D47A1",
     },
@@ -89,6 +89,16 @@ TRACKING_FINGERPRINTS = {
         "domains": ["affiliaxe.com", "axetrack.com"],
         "url_patterns": ["affiliaxe", "axetrack"],
         "color": "#BF360C",
+    },
+    "AnyTrack": {
+        "domains": ["anytrack.io"],
+        "url_patterns": ["anytrack"],
+        "color": "#2196F3",
+    },
+    "Koji": {
+        "domains": ["withkoji.com"],
+        "url_patterns": ["koji"],
+        "color": "#000000",
     },
     "Facebook Pixel": {
         "domains": ["facebook.com/tr"],
@@ -109,25 +119,18 @@ TRACKING_FINGERPRINTS = {
 
 UNKNOWN_TRACKER = {"tracker": "No Tracking", "confidence": "unknown", "color": "#6B7280"}
 
-
 def detect_tracking_tool(url: str) -> dict:
     """
     Analyzes a landing URL and returns detected tracking tool info.
-
-    Returns:
-        {
-            "tracker": str,      # e.g "Voluum" or "No Tracking"
-            "confidence": str,   # "high" | "medium" | "unknown"
-            "color": str         # hex color
-        }
     """
     if not url or not isinstance(url, str) or len(url) < 10:
         return UNKNOWN_TRACKER
 
     try:
-        parsed = urlparse(url.lower().strip())
+        url_lower = url.lower().strip()
+        parsed = urlparse(url_lower)
         hostname = parsed.hostname or ""
-        full_url = url.lower()
+        full_url = url_lower
         params = parse_qs(parsed.query)
 
         # Special high-confidence signals first
