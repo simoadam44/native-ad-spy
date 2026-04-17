@@ -1,9 +1,6 @@
-import asyncio
-import re
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
-from supabase import create_client
 from urllib.parse import urljoin
+from utils.url_resolver import resolve_url
+from utils.advanced_detector import detect_from_chain
 
 SUPABASE_URL = "https://avxoumymzbioeabxfcca.supabase.co"
 SUPABASE_KEY = "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX"
@@ -19,13 +16,27 @@ NETWORKS = {
 
 async def save_ad(data):
     try:
-        clean_landing = data['landing'].split('?')[0]
+        # Resolve final URL for accurate detection (Affiliate/Tracker)
+        final_url, redirect_chain = resolve_url(data['landing'])
+        clean_landing = final_url.split('?')[0]
+        
         check = supabase.table("ads").select("id").eq("landing", clean_landing).execute()
         if not check.data:
-            data["landing"] = clean_landing
+            # Detect intelligence from chain
+            tracking_info = detect_from_chain(redirect_chain)
+            
+            data.update({
+                "landing": clean_landing,
+                "affiliate_network": tracking_info["affiliate_network"],
+                "tracking_tool": tracking_info["tracking_tool"],
+                "last_seen": "now()",
+                "impressions": 1
+            })
+            
             supabase.table("ads").insert(data).execute()
-            print(f"✅ صيد ثمين من {data['network']}: {data['title'][:30]}")
-    except: pass
+            print(f"✅ [{data['network']}] [{tracking_info['affiliate_network']}]: {data['title'][:30]}")
+    except Exception as e:
+        print(f"⚠️ [Save Error]: {e}")
 
 async def scrape_site(browser, url):
     page = await browser.new_page()

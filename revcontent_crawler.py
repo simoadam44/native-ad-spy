@@ -6,12 +6,8 @@ from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin
 from langdetect import detect
-import sys as _sys
-import os as _os
-_sys.path.insert(0, _os.path.dirname(__file__))
-from utils.affiliate_detector import detect_affiliate_network
-from utils.tracker_detector import detect_tracking_tool
 from utils.url_resolver import resolve_url
+from utils.advanced_detector import detect_from_chain
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -77,7 +73,7 @@ async def save_or_update_ad(data):
             
         # Resolve final URL for accurate detection (Affiliate/Tracker)
         print(f"🔍 [Revcontent] Resolving: {data['landing'][:50]}...")
-        final_url = resolve_url(data['landing'])
+        final_url, redirect_chain = resolve_url(data['landing'])
         clean_landing = final_url.split('?')[0].split('#')[0]
         
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
@@ -93,17 +89,10 @@ async def save_or_update_ad(data):
 
         lang = detect_lang(data['title'])
             
-        try:
-            aff = detect_affiliate_network(final_url)
-            aff_net = aff['network']
-        except:
-            aff_net = 'Direct / Unknown'
-            
-        try:
-            trk = detect_tracking_tool(final_url)
-            trk_tool = trk['tracker']
-        except:
-            trk_tool = 'No Tracking'
+        # Detect from chain
+        tracking_info = detect_from_chain(redirect_chain)
+        aff_net = tracking_info["affiliate_network"]
+        trk_tool = tracking_info["tracking_tool"]
 
         if existing.data:
             new_count = (existing.data[0].get('impressions') or 1) + 1
@@ -117,15 +106,14 @@ async def save_or_update_ad(data):
             }).eq("id", existing.data[0]['id']).execute()
             print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:50]}...")
         else:
-            try:
-                aff = detect_affiliate_network(clean_landing)
-            except:
-                aff = {'network': 'Direct / Unknown'}
-            try:
-                trk = detect_tracking_tool(clean_landing)
-            except:
-                trk = {'tracker': 'No Tracking'}
-            data.update({"impressions": 1, "last_seen": "now()", "country_code": TARGET_COUNTRY, "language": lang, "affiliate_network": aff['network'], "tracking_tool": trk['tracker']})
+            data.update({
+                "impressions": 1, 
+                "last_seen": "now()", 
+                "country_code": TARGET_COUNTRY, 
+                "language": lang, 
+                "affiliate_network": aff_net, 
+                "tracking_tool": trk_tool
+            })
             supabase.table("ads").insert(data).execute()
             print(f"[REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: صيد جديد: {data['title'][:50]}...")
     except Exception as e:

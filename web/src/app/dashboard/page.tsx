@@ -50,7 +50,8 @@ const AFFILIATE_NETWORKS = [
   "Advidi", "Convert2Media", "Tapgerine", "Cpamatica", "ShareASale",
   "Commission Junction", "Rakuten", "Impact", "Awin", "FlexOffers",
   "JVZoo", "Digistore24", "Amazon Associates", "PartnerStack",
-  "Unknown Affiliate", "Direct / Unknown"
+  "HasOffers (TUNE)", "System1", "LeadBit", "OfferVault (Meta)",
+  "Outbrain DSP", "Taboola DSP", "Unknown Affiliate", "Direct / Unknown"
 ];
 
 const AFFILIATE_COLORS: Record<string, string> = {
@@ -62,13 +63,15 @@ const AFFILIATE_COLORS: Record<string, string> = {
   "DrCash": "#F59E0B", "Affstar": "#F59E0B", "AffShark": "#F59E0B",
   "CPAgetti": "#F59E0B", "Aff1": "#F59E0B", "Affiliaxe": "#F59E0B",
   "Neverblue": "#F59E0B", "PeerFly": "#F59E0B", "Advidi": "#F59E0B",
-  "Convert2Media": "#F59E0B", "Cpamatica": "#F59E0B",
+  "Convert2Media": "#F59E0B", "Cpamatica": "#F59E0B", "LeadBit": "#F59E0B",
   "Mobidea": "#3B82F6", "Mobvista": "#3B82F6", "Avazu": "#3B82F6",
   "Taptica": "#3B82F6", "CityAds": "#3B82F6",
   "Gambling.pro": "#EF4444",
   "ShareASale": "#10B981", "Commission Junction": "#10B981",
   "Rakuten": "#10B981", "Impact": "#10B981", "Awin": "#10B981",
   "FlexOffers": "#10B981", "Amazon Associates": "#10B981",
+  "HasOffers (TUNE)": "#6366F1", "System1": "#6366F1", "OfferVault (Meta)": "#6366F1",
+  "Outbrain DSP": "#FF6B00", "Taboola DSP": "#2866D1",
   "Unknown Affiliate": "#6B7280", "Direct / Unknown": "#374151",
 };
 
@@ -76,6 +79,7 @@ const TRACKER_TOOLS = [
   "Voluum", "Binom", "Prosper202", "Thrive", "RedTrack", "ClickMagick",
   "Hyros", "Trackier", "Keitaro", "FunnelFlux", "CPVLab", "iMobiTrax",
   "AdsBridge", "BeMob", "OctoTracker", "Scaleo", "AffiliaXe",
+  "Bevo", "Funnelish", "PixelMe", "AnyTrack", "LinkTrackr", "ThriveTracker", "ClickMeter",
   "Google Analytics", "Facebook Pixel", "TikTok Pixel", "No Tracking"
 ];
 
@@ -86,9 +90,15 @@ const TRACKER_COLORS: Record<string, string> = {
   "FunnelFlux": "#6A1B9A", "CPVLab": "#37474F", "iMobiTrax": "#00695C",
   "AdsBridge": "#C62828", "BeMob": "#1B5E20", "OctoTracker": "#4A148C",
   "Scaleo": "#0D47A1", "AffiliaXe": "#BF360C",
+  "Bevo": "#00BCD4", "Funnelish": "#00BCD4", "PixelMe": "#00BCD4", "AnyTrack": "#00BCD4", 
+  "LinkTrackr": "#00BCD4", "ThriveTracker": "#00BCD4", "ClickMeter": "#00BCD4",
   "Google Analytics": "#F9A825", "Facebook Pixel": "#1877F2",
   "TikTok Pixel": "#444444", "No Tracking": "#6B7280",
 };
+
+const AD_TYPES = ["Affiliate", "Arbitrage", "Unknown"];
+const PAGE_SUBTYPES = ["VSL", "Advertorial", "Direct Sales", "Quiz", "General LP"];
+const CLOAKING_TYPES = ["news_to_sales", "tracker_to_offer", "domain_change"];
 
 const PAGE_SIZE = 30;
 
@@ -123,6 +133,9 @@ export default function DashboardPage() {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedAffiliates, setSelectedAffiliates] = useState<string[]>([]);
   const [selectedTrackers, setSelectedTrackers] = useState<string[]>([]);
+  const [selectedAdTypes, setSelectedAdTypes] = useState<string[]>([]);
+  const [selectedPageSubtypes, setSelectedPageSubtypes] = useState<string[]>([]);
+  const [selectedCloaking, setSelectedCloaking] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("newest");
   const [minImpressions, setMinImpressions] = useState(0);
 
@@ -144,6 +157,9 @@ export default function DashboardPage() {
     if (selectedLanguages.length > 0) query = query.in("language", selectedLanguages);
     if (selectedAffiliates.length > 0) query = query.in("affiliate_network", selectedAffiliates);
     if (selectedTrackers.length > 0) query = query.in("tracking_tool", selectedTrackers);
+    if (selectedAdTypes.length > 0) query = query.in("ad_type", selectedAdTypes);
+    if (selectedPageSubtypes.length > 0) query = query.in("page_subtype", selectedPageSubtypes);
+    if (selectedCloaking.length > 0) query = query.in("cloaking_type", selectedCloaking);
     if (minImpressions > 0) query = query.gte("impressions", minImpressions);
 
     query = sortBy === "impressions"
@@ -159,12 +175,12 @@ export default function DashboardPage() {
     setTotalCount(count || 0);
     setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
     setLoading(false);
-  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, sortBy, minImpressions, page]);
+  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, selectedAdTypes, selectedPageSubtypes, selectedCloaking, sortBy, minImpressions, page]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, sortBy, minImpressions]);
+  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, selectedAdTypes, selectedPageSubtypes, selectedCloaking, sortBy, minImpressions]);
 
   const toggleNetwork = (net: string) => {
     setSelectedNetworks(prev =>
@@ -216,6 +232,26 @@ export default function DashboardPage() {
 
   const removeTracker = (name: string) => {
     setSelectedTrackers(prev => prev.filter(t => t !== name));
+  };
+
+  const toggleAdType = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === "all") setSelectedAdTypes([]);
+    else if (!selectedAdTypes.includes(value)) setSelectedAdTypes([...selectedAdTypes, value]);
+  };
+
+  const removeAdType = (name: string) => {
+    setSelectedAdTypes(prev => prev.filter(t => t !== name));
+  };
+
+  const togglePageSubtype = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === "all") setSelectedPageSubtypes([]);
+    else if (!selectedPageSubtypes.includes(value)) setSelectedPageSubtypes([...selectedPageSubtypes, value]);
+  };
+
+  const removePageSubtype = (name: string) => {
+    setSelectedPageSubtypes(prev => prev.filter(t => t !== name));
   };
 
   const networkColor: Record<string, string> = {
@@ -329,6 +365,30 @@ export default function DashboardPage() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+
+          <select
+            onChange={toggleAdType}
+            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
+            value=""
+          >
+            <option value="" disabled>+ Ad Type</option>
+            <option value="all">All Types</option>
+            {AD_TYPES.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+
+          <select
+            onChange={togglePageSubtype}
+            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
+            value=""
+          >
+            <option value="" disabled>+ LP Type</option>
+            <option value="all">All Types</option>
+            {PAGE_SUBTYPES.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
         </div>
 
         <select
@@ -341,9 +401,13 @@ export default function DashboardPage() {
           <option value="impressions">Most Impressions</option>
         </select>
 
-        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0) && (
+        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0 || selectedAdTypes.length > 0 || selectedPageSubtypes.length > 0) && (
           <button
-            onClick={() => { setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); setSelectedAffiliates([]); setSelectedTrackers([]); }}
+            onClick={() => { 
+                setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); 
+                setSelectedAffiliates([]); setSelectedTrackers([]); setSelectedAdTypes([]); 
+                setSelectedPageSubtypes([]); setSelectedCloaking([]);
+            }}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white transition-all ml-auto"
           >
             <X size={14} /> Clear Filters
@@ -376,6 +440,18 @@ export default function DashboardPage() {
             <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border" style={{backgroundColor: `${TRACKER_COLORS[name] || '#374151'}22`, borderColor: TRACKER_COLORS[name] || '#374151'}}>
               <span style={{color: TRACKER_COLORS[name] || '#6B7280'}}>&#128241;</span> {name}
               <button onClick={() => removeTracker(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+          {selectedAdTypes.map(name => (
+            <span key={name} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
+              <Zap size={10} className="text-amber-500" /> {name}
+              <button onClick={() => removeAdType(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+          {selectedPageSubtypes.map(name => (
+            <span key={name} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
+              <Layout size={10} className="text-blue-400" /> {name}
+              <button onClick={() => removePageSubtype(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
         </div>

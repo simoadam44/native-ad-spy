@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, BrainCircuit, Zap, Target, MessageSquare,
   Star, Copy, CheckCircle2, Loader2, ExternalLink, Heart, RefreshCw,
-  TrendingUp, Globe, Shield, AlertTriangle
+  Layout, Search, Download, Eye, ChevronDown, Calendar
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -23,8 +23,6 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [isFav, setIsFav] = useState(false);
   const [resolving, setResolving] = useState(false);
-  const [intel, setIntel] = useState<any>(null);
-  const [loadingIntel, setLoadingIntel] = useState(false);
 
   // Resolve MGID tracking links via server-side proxy
   const resolveAndVisit = async (landingUrl: string, sourceUrl: string) => {
@@ -84,22 +82,6 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
     setLoadingAnalysis(false);
   }, [ad]);
 
-  // Fetch Intelligence Report data (cross-network + publisher strategy)
-  const fetchIntelligence = useCallback(async () => {
-    if (!ad) return;
-    setLoadingIntel(true);
-    setIntel(null);
-    try {
-      const res = await fetch(`/api/intelligence?landing=${encodeURIComponent(ad.landing)}&title=${encodeURIComponent(ad.title)}&id=${ad.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setIntel(data);
-      }
-    } catch (e) {
-      console.error("[Intel] Failed:", e);
-    }
-    setLoadingIntel(false);
-  }, [ad]);
 
   const fetchHeadlines = useCallback(async () => {
     if (!ad) return;
@@ -124,10 +106,8 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
     if (isOpen && ad) {
       setAnalysis(null);
       setHeadlines([]);
-      setIntel(null);
       fetchAnalysis();
       fetchHeadlines();
-      fetchIntelligence();
     }
   }, [isOpen, ad]);
 
@@ -163,9 +143,18 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
               </span>
               <h2 className="font-bold text-base font-syne truncate">{ad.title}</h2>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all shrink-0 ml-2">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2 shrink-0 ml-2">
+              <button
+                onClick={() => setIsFav(!isFav)}
+                className={`p-2 rounded-full transition-all ${isFav ? 'text-red-500 bg-red-500/10' : 'text-neutral-500 hover:bg-white/10 hover:text-white'}`}
+                title={isFav ? "Remove from favorites" : "Save to favorites"}
+              >
+                <Heart size={18} fill={isFav ? "currentColor" : "none"} />
+              </button>
+              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all text-neutral-500 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Body — scrollable */}
@@ -202,44 +191,148 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                   <p className="text-sm font-bold font-syne leading-snug">{ad.title}</p>
                 </div>
 
-                {/* Stats */}
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3">
-                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">Impressions</p>
-                    <p className="text-lg font-bold text-primary mt-0.5">{(ad.impressions || 0).toLocaleString()}</p>
-                  </div>
-                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3">
-                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">Network</p>
-                    <p className="text-sm font-bold mt-0.5">{ad.network}</p>
-                  </div>
-                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3">
-                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">First Seen</p>
-                    <p className="text-sm font-bold mt-0.5">
-                      {new Date(ad.created_at).toLocaleDateString("en", { month: "short", day: "numeric" })}
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
+                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                      <Calendar size={10} className="text-primary" /> First Seen
                     </p>
+                    <p className="text-xs font-bold text-white">
+                      {new Date(ad.created_at).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
+                  </div>
+                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
+                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                      <Zap size={10} className="text-amber-500" /> Ad Type
+                    </p>
+                    <p className="text-xs font-bold text-white flex items-center gap-2">
+                      {ad.ad_type || "Unknown"}
+                      {ad.cloaking_type && ad.cloaking_type !== 'none' && (
+                        <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded border border-red-500/20">CLOAKED</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
+                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                      <Layout size={10} className="text-blue-400" /> Page Type
+                    </p>
+                    <p className="text-xs font-bold text-white truncate px-1">
+                      {ad.page_subtype || "General LP"}
+                    </p>
+                  </div>
+                  <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
+                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                      <BrainCircuit size={10} className="text-purple-400" /> Features
+                    </p>
+                    <div className="flex gap-1">
+                      {ad.has_video && <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1 rounded" title="Video Sales Letter">VSL</span>}
+                      {ad.has_countdown && <span className="text-[9px] bg-red-500/20 text-red-400 px-1 rounded" title="Countdown Timer">⏱</span>}
+                      {ad.price_found && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded">{ad.price_found}</span>}
+                    </div>
                   </div>
                 </div>
 
-                {/* Fav + Visit */}
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setIsFav(!isFav)}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border font-bold text-sm transition-all ${isFav ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-border bg-white/5 hover:border-red-500/30 text-neutral-400'}`}
-                  >
-                    <Heart size={16} fill={isFav ? "currentColor" : "none"} /> {isFav ? "Saved" : "Save"}
-                  </button>
-                  <button
-                    onClick={() => resolveAndVisit(ad.landing, ad.source || "")}
-                    disabled={resolving}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white font-bold text-sm hover:bg-primary/90 transition-all disabled:opacity-60"
-                  >
-                    {resolving ? (
-                      <><Loader2 size={16} className="animate-spin" /> Resolving...</>
-                    ) : (
-                      <><ExternalLink size={16} /> Visit Ad</>
-                    )}
-                  </button>
+                {/* Screenshots Section */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest px-1">Landing Page</span>
+                    <div className="aspect-[4/3] bg-black/40 rounded-xl overflow-hidden border border-white/5 group/ss cursor-zoom-in">
+                       {ad.lp_screenshot_url ? (
+                         <img 
+                           src={ad.lp_screenshot_url} 
+                           className="w-full h-full object-cover transition-transform group-hover/ss:scale-110" 
+                           onClick={() => window.open(ad.lp_screenshot_url, '_blank')}
+                         />
+                       ) : (
+                         <div className="w-full h-full flex items-center justify-center text-neutral-700 text-[10px] font-bold">NO SCREENSHOT</div>
+                       )}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest px-1">Offer Page</span>
+                    <div className="aspect-[4/3] bg-black/40 rounded-xl overflow-hidden border border-white/5 group/ss cursor-zoom-in">
+                        {ad.offer_screenshot_url ? (
+                         <img 
+                           src={ad.offer_screenshot_url} 
+                           className="w-full h-full object-cover transition-transform group-hover/ss:scale-110" 
+                           onClick={() => window.open(ad.offer_screenshot_url, '_blank')}
+                         />
+                       ) : (
+                         <div className="w-full h-full flex items-center justify-center text-neutral-700 text-[10px] font-bold">OFFER HIDDEN</div>
+                       )}
+                    </div>
+                  </div>
                 </div>
+
+                {/* ── Landing Pages Moved Here ── */}
+                <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-emerald-500/5">
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <Layout size={16} />
+                      <span className="font-black text-[10px] uppercase tracking-widest">Landing pages</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-2 py-0.5 bg-neutral-900 border border-white/10 rounded-md text-[9px] text-neutral-500 font-bold uppercase cursor-not-allowed">
+                      All <ChevronDown size={10} />
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+                    <div className="space-y-3">
+                      <div className="group hover:bg-white/[0.02] transition-colors p-3 rounded-xl border border-white/5 bg-black/20">
+                        <div className="flex items-center gap-3 mb-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
+                            <Layout size={14} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                             <div className="flex items-center justify-between gap-2">
+                               <p className="text-[11px] font-bold text-white truncate" title={ad.landing}>{ad.landing}</p>
+                               <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black uppercase ${ad.network === 'Taboola' || ad.network === 'TABOOLA' ? 'bg-blue-600/80' : ad.network === 'MGID' ? 'bg-purple-600/80' : 'bg-orange-600/80'} text-white`}>
+                                {ad.ad_type || "Ad"}
+                              </span>
+                             </div>
+                             {ad.final_offer_url && (
+                               <p className="text-[9px] text-emerald-400 mt-1 truncate font-bold" title={ad.final_offer_url}>
+                                 🎯 Offer: {ad.final_offer_url}
+                               </p>
+                             )}
+                             <p className="text-[9px] text-neutral-500 mt-0.5">
+                               {ad.first_seen ? `${new Date(ad.first_seen).toLocaleDateString()} .. ` : "Discovery .. "}
+                               {new Date().toLocaleDateString()}
+                             </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2.5 border-t border-white/5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex flex-col">
+                              <span className="text-[8px] font-black text-neutral-600 uppercase">Shows</span>
+                              <span className="text-xs font-bold text-neutral-300">{ad.impressions || 1}</span>
+                            </div>
+                            <div className="w-px h-6 bg-white/5 mx-1" />
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => window.open(ad.landing, '_blank')} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
+                                <Search size={12} />
+                              </button>
+                              <button onClick={() => copyToClipboard(ad.landing)} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
+                                <Copy size={12} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1 group/btn border border-emerald-400/20 shadow-lg shadow-emerald-900/40">
+                              <Download size={11} className="group-hover/btn:scale-110 transition-transform" />
+                              Zip
+                            </button>
+                            <button onClick={() => resolveAndVisit(ad.landing, ad.source)} className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-all border border-emerald-500/20" title="Show Preview">
+                              <Eye size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
               </div>
 
               {/* ── Right: AI Sections ── */}
@@ -364,118 +457,6 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                     )}
                   </div>
                 </section>
-              {/* ── Intelligence Report ── */}
-              <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-amber-500/5">
-                  <div className="flex items-center gap-2 text-amber-400">
-                    <TrendingUp size={16} />
-                    <span className="font-black text-xs uppercase tracking-widest">Intelligence Report</span>
-                  </div>
-                  <button onClick={fetchIntelligence} disabled={loadingIntel}
-                    className="text-neutral-600 hover:text-white disabled:opacity-40 transition-all"
-                    title="Refresh">
-                    <RefreshCw size={13} className={loadingIntel ? "animate-spin" : ""} />
-                  </button>
-                </div>
-
-                <div className="p-5 space-y-4">
-                  {loadingIntel ? (
-                    <div className="flex flex-col items-center py-6 gap-3">
-                      <Loader2 className="animate-spin text-amber-400" size={28} />
-                      <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest">Analyzing advertiser…</p>
-                    </div>
-                  ) : intel ? (
-                    <>
-                      {/* Cross-Network Badge */}
-                      {intel.isCrossNetwork && (
-                        <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/30 rounded-xl p-3.5">
-                          <Globe size={16} className="text-green-400 mt-0.5 shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-green-400 mb-1">Cross-Network Found</p>
-                            <p className="text-xs text-neutral-300 leading-relaxed">
-                              This ad is running on
-                              <span className="font-black text-green-400"> {intel.crossNetworks.length} platforms</span>:
-                              {intel.crossNetworks.map((net: string) => (
-                                <span key={net} className={`ml-1.5 px-2 py-0.5 rounded text-[10px] font-black uppercase inline-block ${net === 'Taboola' ? 'bg-blue-600/80' : net === 'MGID' ? 'bg-purple-600/80' : net === 'Outbrain' || net === 'OUTBRAIN' ? 'bg-orange-600/80' : 'bg-green-600/80'} text-white`}>
-                                  {net}
-                                </span>
-                              ))}
-                            </p>
-                            <p className="text-[10px] text-green-400/70 mt-1.5 italic">⚡ Multi-platform = high ROI signal</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* No cross-network: single platform */}
-                      {!intel.isCrossNetwork && (
-                        <div className="flex items-start gap-3 bg-neutral-800/50 border border-white/5 rounded-xl p-3.5">
-                          <Shield size={16} className="text-neutral-500 mt-0.5 shrink-0" />
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-1">Single Platform</p>
-                            <p className="text-xs text-neutral-400">This ad title was only detected on <span className="text-white font-bold">{ad.network}</span>.</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Publisher Strategy */}
-                      <div className="bg-neutral-800/40 border border-white/5 rounded-xl p-4 space-y-3">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
-                          <Target size={12} /> Publisher Strategy
-                        </p>
-
-                        <div className="space-y-2.5 text-xs">
-                          {/* Networks used */}
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-                            <span className="text-neutral-400">This advertiser uses</span>
-                            <span className="font-black text-white">{intel.networks.length}</span>
-                            <span className="text-neutral-400">{intel.networks.length === 1 ? "network" : "different networks"}</span>
-                            {intel.networks.length >= 3 && <span className="text-xs text-amber-400 ml-1">🔥 Power buyer</span>}
-                          </div>
-
-                          {/* Titles count */}
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
-                            <span className="text-neutral-400">They have</span>
-                            <span className="font-black text-white">{intel.titles.length}</span>
-                            <span className="text-neutral-400">{intel.titles.length === 1 ? "unique headline" : "different creative titles"} for this domain</span>
-                            {intel.titles.length >= 5 && <span className="text-xs text-purple-400 ml-1">✨ A/B testing</span>}
-                          </div>
-
-                          {/* Days running */}
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
-                            <span className="text-neutral-400">First seen</span>
-                            <span className="font-black text-white">{intel.daysSinceFirst} days</span>
-                            <span className="text-neutral-400">ago</span>
-                            {intel.daysSinceFirst >= 30 && (
-                              <span className="text-xs text-green-400 ml-1">
-                                {intel.daysSinceFirst >= 60 ? "🏆 Very profitable" : "✅ Proven offer"}
-                              </span>
-                            )}
-                            {intel.daysSinceFirst < 7 && (
-                              <span className="text-xs text-yellow-400 ml-1">🆕 New campaign</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Landing domain */}
-                        <div className="pt-2 border-t border-white/5">
-                          <p className="text-[10px] text-neutral-600 uppercase tracking-widest">Landing Domain</p>
-                          <p className="text-xs font-mono text-neutral-300 mt-0.5 truncate">{intel.domain}</p>
-                        </div>
-                      </div>
-
-
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center py-6 gap-2 text-neutral-700">
-                      <TrendingUp size={32} />
-                      <p className="text-xs font-bold uppercase tracking-widest">Intelligence unavailable</p>
-                    </div>
-                  )}
-                </div>
-              </section>
 
               </div>{/* end right column */}
             </div>{/* end grid */}

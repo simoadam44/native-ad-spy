@@ -10,13 +10,12 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
 ]
 
-def resolve_url(url: str, max_redirects: int = 5, timeout: int = 10) -> str:
+def resolve_url(url: str, max_redirects: int = 5, timeout: int = 10) -> tuple[str, list[str]]:
     """
-    Follows redirects to find the final landing page URL.
-    Useful for ad spy tools to bypass clck.mgid.com or outbrain.com redirects.
+    Follows redirects and returns (final_url, full_redirect_chain).
     """
     if not url or not url.startswith("http"):
-        return url
+        return url, [url]
 
     headers = {
         "User-Agent": USER_AGENTS[0],
@@ -27,29 +26,24 @@ def resolve_url(url: str, max_redirects: int = 5, timeout: int = 10) -> str:
     }
 
     try:
-        # Using the new Datacenter Proxy for resolution
+        # Using the Datacenter Proxy for resolution
         proxy_url = "http://7dce367ee7442e94dcd3:30243fe81b50b2de@gw.dataimpulse.com:823"
         proxies = {"http": proxy_url, "https": proxy_url}
         
-        # We use a session to handle cookies if needed
         session = requests.Session()
         session.proxies.update(proxies)
         
-        # We only need the headers/metadata to find the redirect, but some sites
-        # require a full GET to actually trigger the next location.
-        # We'll use stream=True to avoid downloading large HTML bodies.
+        # Follow redirects and capture the history
         response = session.get(url, headers=headers, allow_redirects=True, timeout=timeout, stream=True)
         
+        # Build the chain: list of all intermediate URLs + the final one
+        redirect_chain = [resp.url for resp in response.history] + [response.url]
         final_url = response.url
         
-        # Quick clean up (remove common ad network junk if it's still there)
-        # But we want the real final URL where affiliate params are.
-        return final_url
+        return final_url, redirect_chain
         
-    except Exception as e:
-        # If it fails, return original URL as fallback
-        # print(f"Resolve Error for {url}: {e}")
-        return url
+    except Exception:
+        return url, [url]
 
 if __name__ == "__main__":
     # Test

@@ -4,15 +4,8 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
 import json
-import re
-import re
-from langdetect import detect
-import sys as _sys
-import os as _os
-_sys.path.insert(0, _os.path.dirname(__file__))
-from utils.affiliate_detector import detect_affiliate_network
-from utils.tracker_detector import detect_tracking_tool
 from utils.url_resolver import resolve_url
+from utils.advanced_detector import detect_from_chain
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -85,21 +78,12 @@ async def save_to_supabase(ad):
         # Resolve final URL for accurate detection (Affiliate/Tracker)
         ad_landing = ad.get('landing', '')
         print(f"🔍 [Outbrain] Resolving: {ad_landing[:50]}...")
-        final_url = resolve_url(ad_landing)
+        final_url, redirect_chain = resolve_url(ad_landing)
         
-        # كشف شبكة الأفيلييت
-        try:
-            aff = detect_affiliate_network(final_url)
-            ad['affiliate_network'] = aff['network']
-        except:
-            ad['affiliate_network'] = 'Direct / Unknown'
-
-        # كشف أداة التتبع
-        try:
-            trk = detect_tracking_tool(final_url)
-            ad['tracking_tool'] = trk['tracker']
-        except:
-            ad['tracking_tool'] = 'No Tracking'
+        # Detect from chain
+        tracking_info = detect_from_chain(redirect_chain)
+        ad['affiliate_network'] = tracking_info["affiliate_network"]
+        ad['tracking_tool'] = tracking_info["tracking_tool"]
             
         clean_url = final_url.split('&dicbo=')[0] if '&dicbo=' in final_url else final_url
         res = supabase.table("ads").select("id, impressions").eq("landing", clean_url).execute()
