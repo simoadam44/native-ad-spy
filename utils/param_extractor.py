@@ -22,8 +22,11 @@ def extract_affiliate_params(url: str) -> dict:
     # --- 1. Map Common Parameters ---
     # Affiliate ID
     result["affiliate_id"] = (
+        params.get("hop", [None])[0] or 
         params.get("affid", [None])[0] or 
         params.get("affiliate_id", [None])[0] or 
+        params.get("uid", [None])[0] or
+        params.get("shaff", [None])[0] or
         params.get("pid", [None])[0] or 
         params.get("pubid", [None])[0] or
         params.get("source", [None])[0]
@@ -33,7 +36,8 @@ def extract_affiliate_params(url: str) -> dict:
     result["offer_id"] = (
         params.get("offid", [None])[0] or 
         params.get("offer_id", [None])[0] or 
-        params.get("oid", [None])[0]
+        params.get("oid", [None])[0] or
+        params.get("page", [None])[0]
     )
 
     # Sub ID
@@ -47,22 +51,33 @@ def extract_affiliate_params(url: str) -> dict:
     result["click_id"] = (
         params.get("clickid", [None])[0] or 
         params.get("transaction_id", [None])[0] or 
-        params.get("click_id", [None])[0]
+        params.get("click_id", [None])[0] or
+        params.get("rc_uuid", [None])[0]
     )
 
     # --- 2. Detect Network based on URL or Params ---
     domain = parsed.netloc.lower()
     
-    if "cake" in url or "aff_id" in params:
-        result["detected_network"] = "Cake"
-    elif "everflow" in url or "ef_id" in params:
+    if "clickbank" in domain or "hop" in params or "hopId" in params:
+        result["detected_network"] = "ClickBank"
+    elif "everflow" in domain or "vndr" in params and "evf" in params["vndr"] or "ef_id" in params:
         result["detected_network"] = "Everflow"
+    elif "buygoods" in domain or "bg_id" in params:
+        result["detected_network"] = "BuyGoods"
+    elif "shaff" in params or "derila" in url.lower():
+        result["detected_network"] = "GiddyUp"
+    elif "rc_uuid" in params:
+        result["detected_network"] = "Revcontent Tracker"
+    elif "cake" in url or "aff_id" in params:
+        result["detected_network"] = "Cake"
     elif "hasoffers" in url or "aff_c" in url or "go2cloud.org" in domain:
         result["detected_network"] = "HasOffers (TUNE)"
     elif "voluum" in domain:
         result["detected_network"] = "Voluum"
-    elif "clickbank" in domain:
-        result["detected_network"] = "ClickBank"
+    elif "binom" in domain or "clickid" in params:
+        # Simplistic binom heuristic backup
+        if result["detected_network"] == "Direct / Unknown":
+            result["detected_network"] = "Binom (Probable)"
     elif "maxbounty" in domain or "mb103" in domain:
         result["detected_network"] = "MaxBounty"
     elif "advidi" in domain:

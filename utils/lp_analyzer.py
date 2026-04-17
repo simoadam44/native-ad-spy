@@ -31,7 +31,8 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         page.on("response", handle_response)
 
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        await asyncio.sleep(2)
+        # Smart Wait: Allow 5 seconds for async tracking scripts & pixels to inject 
+        await asyncio.sleep(5)
 
         # 2. Human Simulation
         for _ in range(2):
@@ -67,38 +68,75 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         if price_match:
             result["price_found"] = price_match.group(0)
 
-        # 5. Find and Click CTA
-        cta_selectors = [
-            "a:has-text('Order Now')", "a:has-text('Buy Now')", 
-            "a:has-text('Get Started')", "a:has-text('Claim Offer')",
-            "button:has-text('Order Now')", ".cta-button", "#cta"
-        ]
-        
-        cta_clicked = False
-        for selector in cta_selectors:
-            try:
-                cta_btn = await page.wait_for_selector(selector, timeout=2000)
-                if cta_btn and await cta_btn.is_visible():
-                    result["cta_text"] = await cta_btn.inner_text()
-                    # Scroll into view and click
-                    await cta_btn.scroll_into_view_if_needed()
+        # 5. Universal CTA Detection & Link Hunting (The Golden Rule)
+        try:
+            link_hunted = await page.evaluate(f'''() => {{
+                const links = Array.from(document.querySelectorAll('a[href], button'));
+                for(let el of links) {{
+                    const href = (el.href || '').toLowerCase();
+                    const text = el.innerText.toLowerCase();
                     
-                    # Click with expectation of navigation
-                    try:
-                        async with page.expect_navigation(timeout=10000):
-                            await cta_btn.click()
-                        cta_clicked = True
-                        break
-                    except:
-                        # Fallback click if navigation doesn't trigger traditionally
-                        await cta_btn.click()
-                        await asyncio.sleep(3)
-                        cta_clicked = True
-                        break
-            except:
-                continue
-        
-        result["final_offer_url"] = page.url
+                    // Check if it's an outgoing offer link or explicit intent
+                    if (href.includes('hop=') || href.includes('clickid=') || href.includes('vndr=') ||
+                        href.includes('aff_id=') || href.includes('/out/') || text.includes('click')) {{
+                        
+                        try {{
+                            const myDomain = new URL(window.location.href).hostname;
+                            const targetDomain = new URL(href).hostname;
+                            if (myDomain !== targetDomain || href.includes('/out/')) {{
+                                el.scrollIntoView();
+                                el.click();
+                                return text;
+                            }}
+                        }} catch(e) {{}}
+                    }}
+                }}
+                return null;
+            }}''')
+            
+            if link_hunted:
+                result["cta_text"] = link_hunted.strip()
+                await asyncio.sleep(4) # Wait for redirect cascade
+                result["final_offer_url"] = page.url
+                cta_clicked = True
+            else:
+                cta_clicked = False
+                
+        except Exception as e:
+            cta_clicked = False
+
+        if not cta_clicked:
+            # Fallback to Text Intent & Buttons across all frames (Bypassing IFrames)
+            intent_regex = re.compile(r'\b(get|order|watch|claim|shop|discount|check|70%|off|availability)\b', re.IGNORECASE)
+            
+            for f in page.frames:
+                if cta_clicked: break
+                try:
+                    elements = await f.query_selector_all("a, button, .cta-button, [role='button']")
+                    for el in elements:
+                        text = await el.inner_text()
+                        if text and intent_regex.search(text):
+                            await el.scroll_into_view_if_needed()
+                            result["cta_text"] = text.strip()
+                            
+                            try:
+                                async with page.expect_navigation(timeout=8000):
+                                    await el.click()
+                                cta_clicked = True
+                                result["final_offer_url"] = page.url
+                                break
+                            except:
+                                await el.click()
+                                await asyncio.sleep(4)
+                                cta_clicked = True
+                                result["final_offer_url"] = page.url
+                                break
+                except:
+                    continue
+
+        if not result["final_offer_url"]:
+            result["final_offer_url"] = page.url
+
         
         # 6. Cloaking Detection
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], redirect_chain)

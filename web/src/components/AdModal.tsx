@@ -191,6 +191,76 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                   <p className="text-sm font-bold font-syne leading-snug">{ad.title}</p>
                 </div>
 
+                {/* ── Landing Pages Moved Here ── */}
+                <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-emerald-500/5">
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <Layout size={16} />
+                      <span className="font-black text-[10px] uppercase tracking-widest">Landing pages</span>
+                    </div>
+                    <div className="flex items-center gap-2 px-2 py-0.5 bg-neutral-900 border border-white/10 rounded-md text-[9px] text-neutral-500 font-bold uppercase cursor-not-allowed">
+                      All <ChevronDown size={10} />
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+                    <div className="space-y-3">
+                      <div className="group hover:bg-white/[0.02] transition-colors p-3 rounded-xl border border-white/5 bg-black/20">
+                        <div className="flex items-center gap-3 mb-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
+                            <Layout size={14} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                             <div className="flex items-center justify-between gap-2">
+                               <p className="text-[11px] font-bold text-white truncate" title={ad.landing}>{ad.landing}</p>
+                               <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black uppercase ${ad.network === 'Taboola' || ad.network === 'TABOOLA' ? 'bg-blue-600/80' : ad.network === 'MGID' ? 'bg-purple-600/80' : 'bg-orange-600/80'} text-white`}>
+                                {ad.ad_type || "Ad"}
+                              </span>
+                             </div>
+                             {ad.final_offer_url && (
+                               <p className="text-[9px] text-emerald-400 mt-1 truncate font-bold" title={ad.final_offer_url}>
+                                 🎯 Offer: {ad.final_offer_url}
+                               </p>
+                             )}
+                             <p className="text-[9px] text-neutral-500 mt-0.5">
+                               {ad.first_seen ? `${new Date(ad.first_seen).toLocaleDateString()} .. ` : "Discovery .. "}
+                               {new Date().toLocaleDateString()}
+                             </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2.5 border-t border-white/5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex flex-col">
+                              <span className="text-[8px] font-black text-neutral-600 uppercase">Shows</span>
+                              <span className="text-xs font-bold text-neutral-300">{ad.impressions || 1}</span>
+                            </div>
+                            <div className="w-px h-6 bg-white/5 mx-1" />
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => window.open(ad.landing, '_blank')} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
+                                <Search size={12} />
+                              </button>
+                              <button onClick={() => copyToClipboard(ad.landing)} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
+                                <Copy size={12} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1 group/btn border border-emerald-400/20 shadow-lg shadow-emerald-900/40">
+                              <Download size={11} className="group-hover/btn:scale-110 transition-transform" />
+                              Zip
+                            </button>
+                            <button onClick={() => resolveAndVisit(ad.landing, ad.source)} className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-all border border-emerald-500/20" title="Show Preview">
+                              <Eye size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
@@ -264,75 +334,7 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                   </div>
                 </div>
 
-                {/* ── Landing Pages Moved Here ── */}
-                <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-emerald-500/5">
-                    <div className="flex items-center gap-2 text-emerald-400">
-                      <Layout size={16} />
-                      <span className="font-black text-[10px] uppercase tracking-widest">Landing pages</span>
-                    </div>
-                    <div className="flex items-center gap-2 px-2 py-0.5 bg-neutral-900 border border-white/10 rounded-md text-[9px] text-neutral-500 font-bold uppercase cursor-not-allowed">
-                      All <ChevronDown size={10} />
-                    </div>
-                  </div>
 
-                  <div className="p-4">
-                    <div className="space-y-3">
-                      <div className="group hover:bg-white/[0.02] transition-colors p-3 rounded-xl border border-white/5 bg-black/20">
-                        <div className="flex items-center gap-3 mb-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
-                            <Layout size={14} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                             <div className="flex items-center justify-between gap-2">
-                               <p className="text-[11px] font-bold text-white truncate" title={ad.landing}>{ad.landing}</p>
-                               <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black uppercase ${ad.network === 'Taboola' || ad.network === 'TABOOLA' ? 'bg-blue-600/80' : ad.network === 'MGID' ? 'bg-purple-600/80' : 'bg-orange-600/80'} text-white`}>
-                                {ad.ad_type || "Ad"}
-                              </span>
-                             </div>
-                             {ad.final_offer_url && (
-                               <p className="text-[9px] text-emerald-400 mt-1 truncate font-bold" title={ad.final_offer_url}>
-                                 🎯 Offer: {ad.final_offer_url}
-                               </p>
-                             )}
-                             <p className="text-[9px] text-neutral-500 mt-0.5">
-                               {ad.first_seen ? `${new Date(ad.first_seen).toLocaleDateString()} .. ` : "Discovery .. "}
-                               {new Date().toLocaleDateString()}
-                             </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2.5 border-t border-white/5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex flex-col">
-                              <span className="text-[8px] font-black text-neutral-600 uppercase">Shows</span>
-                              <span className="text-xs font-bold text-neutral-300">{ad.impressions || 1}</span>
-                            </div>
-                            <div className="w-px h-6 bg-white/5 mx-1" />
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => window.open(ad.landing, '_blank')} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
-                                <Search size={12} />
-                              </button>
-                              <button onClick={() => copyToClipboard(ad.landing)} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
-                                <Copy size={12} />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <button className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1 group/btn border border-emerald-400/20 shadow-lg shadow-emerald-900/40">
-                              <Download size={11} className="group-hover/btn:scale-110 transition-transform" />
-                              Zip
-                            </button>
-                            <button onClick={() => resolveAndVisit(ad.landing, ad.source)} className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-all border border-emerald-500/20" title="Show Preview">
-                              <Eye size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
               </div>
 
               {/* ── Right: AI Sections ── */}
