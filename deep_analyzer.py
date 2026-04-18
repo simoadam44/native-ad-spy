@@ -129,6 +129,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "offer_screenshot_url": offer_screenshot_url,
                     "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
                     "language": lp_result.get("language") or detected_lang,
+                    "analysis_params": lp_result.get("params"), # Forensic parameters
                     "deep_analyzed_at": "now()"
                 }
                 

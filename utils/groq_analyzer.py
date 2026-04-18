@@ -108,20 +108,107 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
         except Exception as e:
             print(f"Groq Attempt {attempt+1} failed: {e}")
             if attempt < 2:
-                # Wait briefly before retry
                 import time
                 time.sleep(2 * (attempt + 1))
+
+    # 4. Save to Cache and Return
+    if parsed_json and "decision" in parsed_json:
+        dec = parsed_json["decision"]
+        try:
+            supabase.table("ai_domain_cache").upsert({
+                "domain": domain,
+                "target_url": dec.get("target_url"),
+                "ad_type": dec.get("ad_type"),
+                "funnel_type": dec.get("funnel_type"),
+                "cloaking_detected": dec.get("cloaking_detected"),
+                "confidence_score": dec.get("confidence_score"),
+                "detected_tracker": dec.get("detected_tracker"),
+                "detected_network": dec.get("detected_network"),
+                "language": dec.get("language"),
+                "reasoning": parsed_json.get("reasoning", "")
+            }).execute()
+        except Exception as e:
+            print(f"⚠️ Cache write error: {e}")
+        return parsed_json
+
     # Final fallback if Groq completely fails
     return {
-        "decision": {
-            "target_url": None,
-            "ad_type": "Unknown",
-            "funnel_type": None,
-            "cloaking_detected": False,
-            "confidence_score": 0.0,
-            "detected_tracker": None,
-            "detected_network": None,
-            "language": "en"
-        },
+        "decision": {"ad_type": "Unknown", "confidence_score": 0.0},
         "reasoning": "Groq AI failed after 3 attempts."
     }
+
+def find_cta_selector(links_data: list, text_content: str) -> dict:
+    """
+    Identifies the best CTA selector for an affiliate offer using Groq.
+    """
+    system_prompt = """
+    Role: Affiliate CTA Discovery Agent.
+    Task: Identify the CSS selector or Text for the primary 'Bridge-to-Offer' button.
+    Data: A list of links/buttons found on the page.
+    
+    Priority:
+    - Text like 'Buy', 'Order', 'Get Discount', 'Claim', 'Haz clic aquí'.
+    - Links with parameters (?prod=, ?aff=, etc).
+    - Links leading to a different domain.
+    
+    Output ONLY JSON:
+    {
+      "step": "click_cta",
+      "selector_type": "text | css | xpath",
+      "target_selector": "the specific value",
+      "scroll_required": true,
+      "wait_after_click_ms": 5000,
+      "reasoning": "why this button?"
+    }
+    """
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+              {"role": "system", "content": system_prompt},
+              {"role": "user", "content": f"Links and Buttons: {json.dumps(links_data[:50])}\nPage Context: {text_content[:800]}"}
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        return json.loads(completion.choices[0].message.content)
+    except:
+        return None
+
+def dissect_tracking_link(final_url: str) -> dict:
+    """
+    Performs forensic analysis of an affiliate redirect link using Groq.
+    """
+    system_prompt = """
+    Role: Affiliate Tracking Forensic Analyst.
+    Task: Extract Network and Tracker Tool from a final offer URL.
+
+    Logic:
+    - Look for parameters like 'net', 'affid', 'oid', 'clickid'.
+    - Map 'net=1673' or similar to Private Networks.
+    - Identify Voluum, Binom, Keitaro, Keitaro patterns in URL structure.
+    
+    Output ONLY JSON:
+    {
+      "intelligence": {
+        "detected_network": "Name or ID",
+        "tracker_tool": "Voluum/Binom/Keitaro/Unknown",
+        "parameters": { "name": "value" },
+        "is_direct_link": boolean
+      },
+      "reasoning": "explanation"
+    }
+    """
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+              {"role": "system", "content": system_prompt},
+              {"role": "user", "content": f"Final URL: {final_url}"}
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        return json.loads(completion.choices[0].message.content)
+    except:
+        return None

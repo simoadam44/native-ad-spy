@@ -61,26 +61,30 @@ def extract_affiliate_params(url: str) -> dict:
     
     if "clickbank" in domain or "hop" in params or "hopId" in params or "v" in params and "bvsl" in params["v"]:
         result["detected_network"] = "ClickBank"
-    elif "everflow" in domain or "vndr" in params and "evf" in params["vndr"] or "ef_id" in params:
+    elif "everflow" in domain or "vndr" in params and "evf" in params["vndr"] or "ef_id" in params or "affid" in params:
         result["detected_network"] = "Everflow"
     elif "buygoods" in domain or "bg_id" in params or "screen_id" in params or "account_id" in params:
         result["detected_network"] = "BuyGoods"
     elif "shaff" in params or "derila" in url.lower():
         result["detected_network"] = "GiddyUp"
-    elif domain.startswith("offer.") and ("lptoken" in params or "offer_id" in params):
+    elif "lptoken" in params or (domain.startswith("offer.") and "offer_id" in params):
         result["detected_network"] = "Fanyil / Native Ecom"
+    elif params.get("net") == ["1673"] or "net=1673" in url:
+        result["detected_network"] = "Network ID 1673 (Private)"
     elif "rc_uuid" in params:
         result["detected_network"] = "Revcontent Tracker"
     elif "cake" in url or "aff_id" in params:
         result["detected_network"] = "Cake"
     elif "hasoffers" in url or "aff_c" in url or "go2cloud.org" in domain:
         result["detected_network"] = "HasOffers (TUNE)"
-    elif "voluum" in domain:
-        result["detected_network"] = "Voluum"
-    elif "binom" in domain or "clickid" in params:
-        # Simplistic binom heuristic backup
-        if result["detected_network"] == "Direct / Unknown":
-            result["detected_network"] = "Binom (Probable)"
+    elif "voluum" in domain or "cid" in params:
+        result["detected_network"] = "Voluum Tracker"
+    elif "binom" in domain or "clickid" in params or "b_click" in url:
+        result["detected_network"] = "Binom Tracker"
+    elif "keitaro" in domain or "k_click" in url or "subid" in params:
+        result["detected_network"] = "Keitaro Tracker"
+    elif "rt.redtrack" in url or "rt" in params:
+        result["detected_network"] = "RedTrack"
     elif "maxbounty" in domain or "mb103" in domain:
         result["detected_network"] = "MaxBounty"
     elif "advidi" in domain:

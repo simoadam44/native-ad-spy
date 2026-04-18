@@ -3,7 +3,7 @@ import random
 import re
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
-from utils.groq_analyzer import invoke_groq_intelligence
+from utils.groq_analyzer import invoke_groq_intelligence, find_cta_selector, dissect_tracking_link
 
 async def analyze_landing_page_with_page(page, url: str) -> dict:
     """
@@ -18,7 +18,10 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         "price_found": None,
         "cta_text": None,
         "cloaking": {},
-        "popups": {}
+        "popups": {},
+        "detected_network": "Direct / Unknown",
+        "detected_tracker": "Unknown",
+        "params": {}
     }
 
     try:
@@ -74,6 +77,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         # 4. Detect Subtype & Content
         content = await page.content()
         text_content = await page.evaluate("document.body.innerText")
+        result["text_content"] = text_content # Added for AI context
         
         # VSL check
         has_video = await page.query_selector("video") or "youtube.com/embed" in content or "vimeo.com" in content
@@ -96,71 +100,66 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         if price_match:
             result["price_found"] = price_match.group(0)
 
-        # 5. Universal CTA Detection & Link Hunting (The Golden Rule)
+        # 5. Universal CTA Detection (AI-Guided Discovery)
+        cta_clicked = False
         try:
-            link_hunted = await page.evaluate(f'''() => {{
-                const links = Array.from(document.querySelectorAll('a[href], button'));
-                for(let el of links) {{
-                    const href = (el.href || '').toLowerCase();
-                    const text = el.innerText.toLowerCase();
-                    
-                    // Check if it's an outgoing offer link or explicit intent
-                    if (href.includes('hop=') || href.includes('clickid=') || href.includes('vndr=') ||
-                        href.includes('aff_id=') || href.includes('/out/') || text.includes('click')) {{
-                        
-                        try {{
-                            const myDomain = new URL(window.location.href).hostname;
-                            const targetDomain = new URL(href).hostname;
-                            if (myDomain !== targetDomain || href.includes('/out/')) {{
-                                el.scrollIntoView();
-                                el.click();
-                                return text;
-                            }}
-                        }} catch(e) {{}}
-                    }}
-                }}
-                return null;
-            }}''')
+            # First, pull all possible interactable elements
+            links_list = await page.evaluate('''() => {
+                return Array.from(document.querySelectorAll('a[href], button, [role="button"]')).map(el => ({
+                    text: (el.innerText || el.value || "").trim(),
+                    href: el.href || '',
+                    tag: el.tagName
+                })).filter(e => e.text.length > 2 || e.href.length > 5);
+            }''')
             
-            if link_hunted:
-                result["cta_text"] = link_hunted.strip()
-                await asyncio.sleep(4) # Wait for redirect cascade
-                result["final_offer_url"] = page.url
-                cta_clicked = True
-            else:
-                cta_clicked = False
+            # AI Selects the "Bridge" button
+            cta_decision = find_cta_selector(links_list, text_content)
+            
+            if cta_decision and cta_decision.get("target_selector"):
+                sel = cta_decision["target_selector"]
+                stype = cta_decision.get("selector_type", "text")
+                print(f"AI Selected CTA: {sel} (Strategy: {stype})")
                 
-        except Exception as e:
-            cta_clicked = False
-
-        if not cta_clicked:
-            # Fallback to Text Intent & Buttons across all frames (Bypassing IFrames)
-            intent_regex = re.compile(r'\b(get|order|watch|claim|shop|discount|check|70%|off|availability)\b', re.IGNORECASE)
-            
-            for f in page.frames:
-                if cta_clicked: break
                 try:
-                    elements = await f.query_selector_all("a, button, .cta-button, [role='button']")
-                    for el in elements:
-                        text = await el.inner_text()
-                        if text and intent_regex.search(text):
-                            await el.scroll_into_view_if_needed()
-                            result["cta_text"] = text.strip()
-                            
-                            try:
-                                async with page.expect_navigation(timeout=8000):
-                                    await el.click()
-                                cta_clicked = True
-                                result["final_offer_url"] = page.url
-                                break
-                            except:
-                                await el.click()
+                    target_el = None
+                    if stype == "text":
+                        target_el = page.get_by_text(sel).first
+                    elif stype in ["css", "xpath"]:
+                        target_el = page.locator(sel).first
+                    
+                    if target_el:
+                        if cta_decision.get("scroll_required"):
+                            await target_el.scroll_into_view_if_needed()
+                            await asyncio.sleep(1)
+                        
+                        # Human-like click with jitter
+                        await target_el.click(delay=random.randint(50, 200))
+                        cta_clicked = True
+                        result["cta_text"] = sel
+                        await asyncio.sleep(cta_decision.get("wait_after_click_ms", 5000) / 1000)
+                        result["final_offer_url"] = page.url
+                except Exception as click_err:
+                    print(f"AI Click Action Failed: {click_err}")
+
+            # Iframe Scanning Fallback
+            if not cta_clicked:
+                for f in page.frames:
+                    if cta_clicked: break
+                    try:
+                        btns = await f.query_selector_all("a, button")
+                        for btn in btns:
+                            txt = await btn.inner_text()
+                            if any(k in txt.lower() for k in ['order', 'get', 'buy', 'claim']):
+                                await btn.scroll_into_view_if_needed()
+                                await btn.click()
                                 await asyncio.sleep(4)
                                 cta_clicked = True
                                 result["final_offer_url"] = page.url
                                 break
-                except:
-                    continue
+                    except: continue
+
+        except Exception as e:
+            print(f"CTA Hunting Error: {e}")
 
         if not result["final_offer_url"] or result["final_offer_url"] == url:
             result["final_offer_url"] = page.url
@@ -169,7 +168,6 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], redirect_chain)
 
         # 7. Fallback to Groq AI if high confidence target not secured, or cloaked
-        # Extracted links array just in case Groq needs it
         if result["final_offer_url"] == url or result["cloaking"].get("cloaking_detected"):
             print("Invoking Groq AI Intelligence Fallback...")
             try:
@@ -184,14 +182,12 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                 )
                 if groq_data and "decision" in groq_data:
                     dec = groq_data["decision"]
-                    # Override if AI has higher confidence
                     if dec.get("target_url") and dec.get("target_url") != "null":
                         result["final_offer_url"] = dec["target_url"]
                     if dec.get("funnel_type"):
                         result["page_subtype"] = dec["funnel_type"]
                     if dec.get("cloaking_detected"):
                         result["cloaking"]["cloaking_detected"] = True
-                        result["cloaking"]["cloaking_type"] = "ai_detected"
                     if dec.get("detected_tracker"):
                         result["detected_tracker"] = dec["detected_tracker"]
                     if dec.get("detected_network"):
@@ -200,6 +196,17 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                         result["language"] = dec["language"]
             except Exception as e:
                 print(f"Groq API skipped/failed: {e}")
+
+        # 8. POST-CLICK FORENSIC ANALYSIS (The Deep Linker Tracer)
+        if result["final_offer_url"] and result["final_offer_url"] != url:
+            print(f"Performing Forensic Analysis on Final URL: {result['final_offer_url'][:60]}...")
+            forensic = dissect_tracking_link(result["final_offer_url"])
+            if forensic and "intelligence" in forensic:
+                intel = forensic["intelligence"]
+                result["detected_network"] = intel.get("detected_network") or result.get("detected_network")
+                result["detected_tracker"] = intel.get("tracker_tool") or result.get("detected_tracker")
+                result["params"] = intel.get("parameters", {})
+                print(f"Forensic Result: Network={result['detected_network']}, Tracker={result['detected_tracker']}")
 
     except Exception as e:
         print(f"Analysis Error: {e}")
