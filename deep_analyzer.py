@@ -4,6 +4,7 @@ import random
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
+from langdetect import detect
 
 from utils.ad_classifier import classify_ad
 from utils.lp_analyzer import analyze_landing_page_with_page
@@ -99,7 +100,14 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 if lp_result.get("cloaking", {}).get("force_affiliate"):
                     final_ad_type = "Affiliate"
                 
-                # Step 8: Persistence
+                # Step 8: Language Detection
+                detected_lang = "en"
+                try:
+                    detected_lang = detect(text_content[:500])
+                except:
+                    pass
+
+                # Step 9: Persistence
                 full_updates = {
                     "ad_type": final_ad_type,
                     "page_subtype": lp_result.get("page_subtype"),
@@ -115,6 +123,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "lp_screenshot_url": lp_screenshot_url,
                     "offer_screenshot_url": offer_screenshot_url,
                     "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
+                    "language": detected_lang,
                     "deep_analyzed_at": "now()"
                 }
                 
@@ -125,6 +134,12 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             except Exception as e:
                 print(f"Master Analyzer Error for {ad_id}: {e}")
                 await log_error(ad_id, "master_script", str(e))
+                # Fallback persistence so queue consumer doesn't freeze
+                supabase.table("ads").update({
+                    "ad_type": "Manual Review Required",
+                    "deep_analyzed_at": "now()"
+                }).eq("id", ad_id).execute()
+                
                 return {"error": str(e)}
             finally:
                 if browser:

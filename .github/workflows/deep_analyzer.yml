@@ -1,0 +1,37 @@
+name: Deep Ad Intelligence Analyst
+
+on:
+  schedule:
+    # Runs every 4 hours to process the backlog
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    # Allows manual triggering from the Actions tab
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours max
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium
+
+      - name: Run Deep Batch Processor
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          # Process up to 50 ads per run to remain within runtime limits
+          python detect_existing_ads.py --limit 50

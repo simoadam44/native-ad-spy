@@ -6,3 +6,6 @@ supabase
 playwright-stealth
 langdetect
 pandas
+groq
+tqdm
+tldextract

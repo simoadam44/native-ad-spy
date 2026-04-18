@@ -3,6 +3,7 @@ import random
 import re
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
+from utils.groq_analyzer import invoke_groq_intelligence
 
 async def analyze_landing_page_with_page(page, url: str) -> dict:
     """
@@ -30,15 +31,42 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                 redirect_chain.append(response.url)
         page.on("response", handle_response)
 
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        # Smart Wait: Allow 5 seconds for async tracking scripts & pixels to inject 
-        await asyncio.sleep(5)
+        # Setup Network Traffic Monitor
+        active_trackers = 0
+        def on_request(r):
+            nonlocal active_trackers
+            if any(k in r.url.lower() for k in ['pixel', 'track', 'click', 'vsl']):
+                active_trackers += 1
 
-        # 2. Human Simulation
-        for _ in range(2):
-            await page.mouse.wheel(0, random.randint(300, 600))
+        def on_request_done(r):
+            nonlocal active_trackers
+            if any(k in r.url.lower() for k in ['pixel', 'track', 'click', 'vsl']):
+                active_trackers = max(0, active_trackers - 1)
+
+        page.on("request", on_request)
+        page.on("requestfinished", on_request_done)
+        page.on("requestfailed", on_request_done)
+
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        
+        current_url_lower = page.url.lower()
+        if any(token in current_url_lower for token in ['lptoken=', 'cep=', 'hop=', 'affid=']):
+            result["final_offer_url"] = page.url
+            result["page_subtype"] = "Direct Affiliate Hybrid"
+            return result
+
+        # Active Network Wait (up to 8 seconds)
+        for _ in range(16):
+            if active_trackers <= 0:
+                await asyncio.sleep(2)
+                break
             await asyncio.sleep(0.5)
-        await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+
+        # 2. Human Simulation with Extended Mouse Jitter
+        for _ in range(3):
+            await page.mouse.wheel(0, random.randint(200, 700))
+            await page.mouse.move(random.randint(100, 700), random.randint(100, 700))
+            await asyncio.sleep(0.5)
 
         # 3. Dismiss Popups
         result["popups"] = await dismiss_popups(page)
@@ -134,12 +162,38 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                 except:
                     continue
 
-        if not result["final_offer_url"]:
+        if not result["final_offer_url"] or result["final_offer_url"] == url:
             result["final_offer_url"] = page.url
-
-        
+            
         # 6. Cloaking Detection
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], redirect_chain)
+
+        # 7. Fallback to Groq AI if high confidence target not secured, or cloaked
+        # Extracted links array just in case Groq needs it
+        if result["final_offer_url"] == url or result["cloaking"].get("cloaking_detected"):
+            print("Invoking Groq AI Intelligence Fallback...")
+            try:
+                extracted_links = await page.evaluate(
+                    "Array.from(document.querySelectorAll('a[href]')).map(a => a.href).filter(h => h.startsWith('http'))"
+                )
+                groq_data = invoke_groq_intelligence(
+                    title="Unknown Title (AI Probe)",
+                    landing_url=result["final_offer_url"],
+                    text_snippet=text_content,
+                    extracted_links=extracted_links
+                )
+                if groq_data and "decision" in groq_data:
+                    dec = groq_data["decision"]
+                    # Override if AI has higher confidence
+                    if dec.get("target_url") and dec.get("target_url") != "null":
+                        result["final_offer_url"] = dec["target_url"]
+                    if dec.get("funnel_type"):
+                        result["page_subtype"] = dec["funnel_type"]
+                    if dec.get("cloaking_detected"):
+                        result["cloaking"]["cloaking_detected"] = True
+                        result["cloaking"]["cloaking_type"] = "ai_detected"
+            except Exception as e:
+                print(f"Groq API skipped/failed: {e}")
 
     except Exception as e:
         print(f"Analysis Error: {e}")

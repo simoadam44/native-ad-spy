@@ -37,7 +37,8 @@ def extract_affiliate_params(url: str) -> dict:
         params.get("offid", [None])[0] or 
         params.get("offer_id", [None])[0] or 
         params.get("oid", [None])[0] or
-        params.get("page", [None])[0]
+        params.get("page", [None])[0] or
+        params.get("lptoken", [None])[0]
     )
 
     # Sub ID
@@ -58,14 +59,16 @@ def extract_affiliate_params(url: str) -> dict:
     # --- 2. Detect Network based on URL or Params ---
     domain = parsed.netloc.lower()
     
-    if "clickbank" in domain or "hop" in params or "hopId" in params:
+    if "clickbank" in domain or "hop" in params or "hopId" in params or "v" in params and "bvsl" in params["v"]:
         result["detected_network"] = "ClickBank"
     elif "everflow" in domain or "vndr" in params and "evf" in params["vndr"] or "ef_id" in params:
         result["detected_network"] = "Everflow"
-    elif "buygoods" in domain or "bg_id" in params:
+    elif "buygoods" in domain or "bg_id" in params or "screen_id" in params or "account_id" in params:
         result["detected_network"] = "BuyGoods"
     elif "shaff" in params or "derila" in url.lower():
         result["detected_network"] = "GiddyUp"
+    elif domain.startswith("offer.") and ("lptoken" in params or "offer_id" in params):
+        result["detected_network"] = "Fanyil / Native Ecom"
     elif "rc_uuid" in params:
         result["detected_network"] = "Revcontent Tracker"
     elif "cake" in url or "aff_id" in params:
