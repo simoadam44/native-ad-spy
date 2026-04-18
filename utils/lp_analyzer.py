@@ -192,6 +192,12 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                     if dec.get("cloaking_detected"):
                         result["cloaking"]["cloaking_detected"] = True
                         result["cloaking"]["cloaking_type"] = "ai_detected"
+                    if dec.get("detected_tracker"):
+                        result["detected_tracker"] = dec["detected_tracker"]
+                    if dec.get("detected_network"):
+                        result["detected_network"] = dec["detected_network"]
+                    if dec.get("language"):
+                        result["language"] = dec["language"]
             except Exception as e:
                 print(f"Groq API skipped/failed: {e}")
 

@@ -115,7 +115,8 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "offer_id": params.get("offer_id"),
                     "sub_id": params.get("sub_id1"),
                     "final_offer_url": final_offer_url,
-                    "detected_network": params.get("detected_network"),
+                    "detected_network": lp_result.get("detected_network") or params.get("detected_network"),
+                    "detected_tracker": lp_result.get("detected_tracker"),
                     "cta_text": lp_result.get("cta_text"),
                     "has_countdown": lp_result.get("has_countdown"),
                     "has_video": lp_result.get("has_video"),
@@ -123,7 +124,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "lp_screenshot_url": lp_screenshot_url,
                     "offer_screenshot_url": offer_screenshot_url,
                     "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
-                    "language": detected_lang,
+                    "language": lp_result.get("language") or detected_lang,
                     "deep_analyzed_at": "now()"
                 }
                 

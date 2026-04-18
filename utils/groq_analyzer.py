@@ -34,7 +34,10 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
                     "ad_type": item.get("ad_type"),
                     "funnel_type": item.get("funnel_type"),
                     "cloaking_detected": item.get("cloaking_detected"),
-                    "confidence_score": item.get("confidence_score")
+                    "confidence_score": item.get("confidence_score"),
+                    "detected_tracker": item.get("detected_tracker"),
+                    "detected_network": item.get("detected_network"),
+                    "language": item.get("language")
                 },
                 "reasoning": item.get("reasoning", "Loaded from cache")
             }
@@ -57,6 +60,9 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
     Ad Types: "Affiliate" (Focuses on buying a product) OR "Arbitrage" (Focuses on articles, top 10 lists).
     Funnel Types: "VSL", "Advertorial", "Quiz", or "Direct Sales".
     Cloaking: Set cloaking_detected to true if the landing page domain acts like a news site but links point to e-com product checkouts.
+    Tracker Tools: Identify tools like Voluum, Binom, Keitaro, RedTrack, etc.
+    Affiliate Networks: Identify networks like ClickBank, BuyGoods, Everflow, GiddyUp, etc.
+    Language: Detect the primary language code (e.g., "en", "ar", "es").
 
     You MUST respond with a valid JSON object matching exactly this structure:
     {
@@ -65,7 +71,10 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
         "ad_type": "string",
         "funnel_type": "string",
         "cloaking_detected": boolean,
-        "confidence_score": 0.0 to 1.0 float
+        "confidence_score": 0.0 to 1.0 float,
+        "detected_tracker": "string or null",
+        "detected_network": "string or null",
+        "language": "string (ISO code)"
       },
       "reasoning": "Brief explanation"
     }
@@ -108,6 +117,9 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
                     "funnel_type": dec.get("funnel_type"),
                     "cloaking_detected": dec.get("cloaking_detected"),
                     "confidence_score": dec.get("confidence_score"),
+                    "detected_tracker": dec.get("detected_tracker"),
+                    "detected_network": dec.get("detected_network"),
+                    "language": dec.get("language"),
                     "reasoning": parsed_json.get("reasoning", "")
                 }).execute()
             except Exception as e:
