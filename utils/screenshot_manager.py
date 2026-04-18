@@ -4,11 +4,10 @@ from supabase import create_client
 
 # Supabase Credentials
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 def get_db_client():
     if not SUPABASE_URL or not SUPABASE_KEY:
-        print("Missing Supabase credentials for screenshot manager.")
         return None
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 

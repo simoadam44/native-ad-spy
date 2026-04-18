@@ -92,19 +92,33 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
     {safe_links}
     """
     
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-              {"role": "system", "content": system_prompt},
-              {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-        
-        response_str = completion.choices[0].message.content
-        parsed_json = json.loads(response_str)
+    # 3. Groq Request with Retries
+    for attempt in range(3):
+        try:
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            
+            response_str = completion.choices[0].message.content
+            parsed_json = json.loads(response_str)
+            break # Success
+        except Exception as e:
+            print(f"Groq Attempt {attempt+1} failed: {e}")
+            if attempt < 2:
+                # Wait briefly before retry
+                import asyncio
+                # Use a small non-blocking sleep if possible, otherwise time.sleep
+                # Since we are in a sync function called in a thread or async loop
+                import time
+                time.sleep(2 * (attempt + 1))
+            else:
+                return None
         
         # 4. Save to Cache
         if parsed_json and "decision" in parsed_json:

@@ -7,13 +7,18 @@ from deep_analyzer import deep_analyze_ad
 
 # Supabase Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 async def batch_process(limit=10, network=None, delay=0):
     """
     Fetches ads from Supabase that haven't been deep analyzed and processes them.
     """
+    # Initialize Supabase inside the loop to avoid "Different Loop" error
+    SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
     print(f"Fetching up to {limit} un-analyzed ads...")
     
     query = supabase.table("ads").select("id, landing, title, network").is_("deep_analyzed_at", "null")
@@ -37,22 +42,28 @@ async def batch_process(limit=10, network=None, delay=0):
     
     async def wrapped_analyze(ad):
         try:
+            # We don't need a global semaphore here since deep_analyze_ad has one
             result = await deep_analyze_ad(ad['id'], ad['landing'], ad['title'])
             if "error" in result:
                 stats["Failed"] += 1
             else:
                 stats[result.get("ad_type", "Unknown")] += 1
         except Exception as e:
-            print(f"Error in batch: {e}")
+            print(f"Error in batch for ad {ad['id']}: {e}")
             stats["Failed"] += 1
         finally:
             pbar.update(1)
             pbar.set_postfix(stats)
 
-    # We use gather but deep_analyze_ad has internal Semaphore(3)
-    # to prevent system collapse
-    tasks = [wrapped_analyze(ad) for ad in ads]
-    await asyncio.gather(*tasks)
+    # Process in chunks to maintain loop stability
+    # Although deep_analyze_ad has its own semaphore, 
+    # creating 50 tasks at once is causing the loop mismatch in some environments
+    for i in range(0, len(ads), 3):
+        chunk = ads[i:i+3]
+        tasks = [wrapped_analyze(ad) for ad in chunk]
+        await asyncio.gather(*tasks)
+        if delay > 0:
+            await asyncio.sleep(delay)
     
     pbar.close()
     print("\n" + "="*30)
