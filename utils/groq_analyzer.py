@@ -4,9 +4,30 @@ from urllib.parse import urlparse
 from groq import Groq
 from supabase import create_client
 
-# Fallback Groq Setup
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY, timeout=60.0)
+# Groq Setup with Rotation support
+GROQ_KEYS = [
+    os.environ.get("GROQ_API_KEY"),
+    os.environ.get("GROQ_API_KEY_SECONDARY")
+]
+# Filter out None values and initialize clients
+groq_clients = [Groq(api_key=k, timeout=60.0) for k in GROQ_KEYS if k]
+
+def get_groq_completion(messages, response_format={"type": "json_object"}):
+    """
+    Helper to try completions across multiple API keys if one fails.
+    """
+    for client in groq_clients:
+        try:
+            return client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=messages,
+                temperature=0.0,
+                response_format=response_format
+            )
+        except Exception as e:
+            print(f"⚠️ Groq client error: {e}. Trying next key if available...")
+            continue
+    return None
 
 # Supabase Setup for Cache
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
@@ -88,28 +109,19 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
     {safe_links}
     """
     
-    # 3. Groq Request with Retries
+    # 3. Groq Request with Retries and Rotation
     parsed_json = None
-    for attempt in range(3):
+    completion = get_groq_completion([
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ])
+    
+    if completion:
         try:
-            completion = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[
-                  {"role": "system", "content": system_prompt},
-                  {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0,
-                response_format={"type": "json_object"}
-            )
-            
             response_str = completion.choices[0].message.content
             parsed_json = json.loads(response_str)
-            break # Success
         except Exception as e:
-            print(f"Groq Attempt {attempt+1} failed: {e}")
-            if attempt < 2:
-                import time
-                time.sleep(2 * (attempt + 1))
+            print(f"JSON Parsing Error: {e}")
 
     # 4. Save to Cache and Return
     if parsed_json and "decision" in parsed_json:
@@ -162,16 +174,12 @@ def find_cta_selector(links_data: list, text_content: str) -> dict:
     }
     """
     try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-              {"role": "system", "content": system_prompt},
-              {"role": "user", "content": f"Links and Buttons: {json.dumps(links_data[:50])}\nPage Context: {text_content[:800]}"}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-        return json.loads(completion.choices[0].message.content)
+        completion = get_groq_completion([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Links and Buttons: {json.dumps(links_data[:50])}\nPage Context: {text_content[:800]}"}
+        ])
+        if completion:
+            return json.loads(completion.choices[0].message.content)
     except:
         return None
 
@@ -200,15 +208,11 @@ def dissect_tracking_link(final_url: str) -> dict:
     }
     """
     try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-              {"role": "system", "content": system_prompt},
-              {"role": "user", "content": f"Final URL: {final_url}"}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-        return json.loads(completion.choices[0].message.content)
+        completion = get_groq_completion([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Final URL: {final_url}"}
+        ])
+        if completion:
+            return json.loads(completion.choices[0].message.content)
     except:
         return None
