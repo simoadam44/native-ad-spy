@@ -3,10 +3,32 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  X, BrainCircuit, Zap, Target, MessageSquare,
-  Star, Copy, CheckCircle2, Loader2, ExternalLink, Heart, RefreshCw,
-  Layout, Search, Download, Eye, ChevronDown, Calendar
+  X, 
+  ExternalLink, 
+  Target, 
+  Layout, 
+  ShieldCheck, 
+  Zap, 
+  TrendingUp, 
+  BrainCircuit,
+  Globe,
+  Flame,
+  MousePointer2,
+  Lock,
+  Search,
+  ChevronDown,
+  LayoutGrid,
+  Heart,
+  SlidersHorizontal,
+  Copy,
+  CheckCircle2,
+  Loader2,
+  RefreshCw,
+  Download,
+  Eye,
+  Calendar
 } from "lucide-react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 interface AdModalProps {
@@ -325,9 +347,9 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                        )}
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest px-1">Offer Page</span>
-                    <div className="aspect-[4/3] bg-black/40 rounded-xl overflow-hidden border border-white/5 group/ss cursor-zoom-in">
+                  <div className="space-y-1.5 col-span-2">
+                    <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest px-1">Final Offer Destination</span>
+                    <div className="aspect-video bg-black/40 rounded-xl overflow-hidden border border-white/5 group/ss cursor-zoom-in relative">
                         {ad.offer_screenshot_url ? (
                          <img 
                            src={ad.offer_screenshot_url} 
@@ -335,8 +357,11 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                            onClick={() => window.open(ad.offer_screenshot_url, '_blank')}
                          />
                        ) : (
-                         <div className="w-full h-full flex items-center justify-center text-neutral-700 text-[10px] font-bold">OFFER HIDDEN</div>
+                         <div className="w-full h-full flex items-center justify-center text-neutral-700 text-[10px] font-bold">OFFER SCREENSHOT PENDING</div>
                        )}
+                       <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[8px] font-bold text-white uppercase tracking-widest border border-white/10">
+                         {ad.offer_domain || "Final URL"}
+                       </div>
                     </div>
                   </div>
 
@@ -367,8 +392,71 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
               {/* ── Right: AI Sections ── */}
               <div className="space-y-5">
 
+                {/* Intelligence Section (Affiliate Only) */}
+                {ad.ad_type === 'Affiliate' && (
+                  <section className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl overflow-hidden mt-6">
+                    <div className="flex items-center gap-2 px-5 py-3 border-b border-emerald-500/20 text-emerald-400">
+                      <Zap size={16} />
+                      <span className="font-black text-xs uppercase tracking-widest">Affiliate Intelligence</span>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-black/20 rounded-xl p-3 border border-white/5">
+                          <p className="text-[9px] font-black text-neutral-500 uppercase mb-1">Affiliate Network</p>
+                          <p className="text-xs font-bold text-white">{ad.affiliate_network || "Unknown"}</p>
+                        </div>
+                        <div className="bg-black/20 rounded-xl p-3 border border-white/5">
+                          <p className="text-[9px] font-black text-neutral-500 uppercase mb-1">Tracker Tool</p>
+                          <p className="text-xs font-bold text-white">{ad.tracker_tool || "None"}</p>
+                        </div>
+                        <div className="bg-black/20 rounded-xl p-3 border border-white/5">
+                          <p className="text-[9px] font-black text-neutral-500 uppercase mb-1">Offer ID</p>
+                          {ad.offer_id ? (
+                            <Link href={`/offer/${ad.offer_id}`} className="text-xs font-bold text-emerald-400 hover:text-white underline decoration-emerald-500/30 transition-colors">
+                              {ad.offer_id}
+                            </Link>
+                          ) : (
+                            <p className="text-xs font-bold text-neutral-600">N/A</p>
+                          )}
+                        </div>
+                        <div className="bg-black/20 rounded-xl p-3 border border-white/5">
+                          <p className="text-[9px] font-black text-neutral-500 uppercase mb-1">Affiliate ID</p>
+                          {ad.affiliate_id ? (
+                            <Link href={`/advertiser/${ad.affiliate_id}`} className="text-xs font-bold text-emerald-400 hover:text-white underline decoration-emerald-500/30 transition-colors">
+                              {ad.affiliate_id}
+                            </Link>
+                          ) : (
+                            <p className="text-xs font-bold text-neutral-600">N/A</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Redirect Chain */}
+                      {ad.redirect_chain_json && (
+                        <div className="bg-black/40 rounded-xl p-4 border border-white/5">
+                          <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-3">Redirect Chain Traversed</p>
+                          <div className="space-y-2">
+                            {(() => {
+                              try {
+                                const chain = typeof ad.redirect_chain_json === 'string' ? JSON.parse(ad.redirect_chain_json) : ad.redirect_chain_json;
+                                return Array.isArray(chain) ? chain.map((step, idx) => (
+                                  <div key={idx} className="flex items-center gap-3 text-[10px] text-neutral-400 font-medium font-mono">
+                                    <span className="shrink-0 text-neutral-600">{idx + 1}.</span>
+                                    <span className="truncate" title={step.from || step.url}>{step.from || step.url}</span>
+                                    <span className="shrink-0 text-emerald-500">→</span>
+                                  </div>
+                                )) : <p className="text-[10px] text-neutral-600 italic">No chain data available</p>;
+                              } catch { return null; }
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+
                 {/* Strategic Analysis */}
-                <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden">
+                <section className="bg-neutral-900/40 border border-white/5 rounded-2xl overflow-hidden mt-6">
                   <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-primary/5">
                     <div className="flex items-center gap-2 text-primary">
                       <BrainCircuit size={16} />

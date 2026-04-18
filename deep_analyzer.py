@@ -1,16 +1,17 @@
 import asyncio
 import os
 import random
+import json
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
 from langdetect import detect
 
 from utils.ad_classifier import calculate_ad_score
-from utils.lp_analyzer import analyze_landing_page_with_page
-from utils.screenshot_manager import take_and_store_screenshot
-from utils.param_extractor import extract_affiliate_params
 from utils.url_resolver import resolve_real_url
+from utils.offer_extractor import extract_offer_intelligence
+from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture
+from utils.screenshot_manager import take_and_store_screenshot
 
 # Supabase Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
@@ -33,17 +34,14 @@ async def log_error(ad_id, step, message):
 async def deep_analyze_ad(ad_id, landing_url, title):
     """
     Ties together all utilities to perform a deep analysis of a single ad.
-    Uses a neutral scoring system and tracker resolution.
     """
     async with semaphore:
         print(f"Starting Deep Analysis for Ad: {ad_id}...")
         
-        # FIX 2: Follow Tracker Redirect URLs First
+        # 1. Resolve Tracker Redirects Before Browser
         actual_url = resolve_real_url(landing_url)
-        if actual_url != landing_url:
-            print(f"Resolved Tracker: {landing_url[:40]} -> {actual_url[:60]}...")
 
-        # Step 3: Launch Browser for Deep Analysis
+        # 2. Launch Browser
         async with async_playwright() as p:
             browser = None
             try:
@@ -52,71 +50,92 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
                 
-                context = await browser.new_context(
-                    viewport={"width": 1280, "height": 800}
-                )
+                context = await browser.new_context(viewport={"width": 1280, "height": 800})
                 page = await context.new_page()
                 await Stealth().apply_stealth_async(page)
 
-                # Step 4: Perform LP Analysis
+                # 3. Initial LP Analysis (Passive)
                 lp_result = await analyze_landing_page_with_page(page, actual_url)
                 
-                # Step 5: Screenshots
+                # 4. Screenshot of Landing Page
                 lp_screenshot_url = await take_and_store_screenshot(page, ad_id, "landing_page")
-                offer_screenshot_url = None
-                if lp_result.get("final_offer_url") and lp_result["final_offer_url"] != actual_url:
-                    offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
-
-                # Step 6: Parameter Extraction
-                final_offer_url = lp_result.get("final_offer_url") or actual_url
-                params = extract_affiliate_params(final_offer_url)
                 
-                # Step 7: Neutral Scoring System (Fix 4)
+                # 5. Core Classification (Neutral Scoring)
                 text_content = lp_result.get("text_content", "")
                 scoring = calculate_ad_score(
                     url=landing_url, 
                     title=title, 
-                    final_url=final_offer_url, 
+                    final_url=page.url, 
                     page_content=text_content
                 )
                 
                 final_ad_type = scoring["ad_type"]
                 
-                # Step 8: Language Detection
+                # 6. Intelligence Extraction Flow (Affiliate Only)
+                intelligence = {}
+                click_result = {}
+                offer_screenshot_url = None
+                
+                if final_ad_type == "Affiliate":
+                    print(f"Ad {ad_id} is Affiliate. Clicking CTA to extract offer intelligence...")
+                    click_result = await click_cta_and_capture(page, "Affiliate")
+                    
+                    if click_result.get("cta_found"):
+                        # Screenshot of the Final Offer Page
+                        offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
+                        
+                        # Extract IDs, Trackers, Networks
+                        intelligence = extract_offer_intelligence(
+                            final_url=click_result["final_offer_url"],
+                            redirect_chain=click_result["redirect_chain"]
+                        )
+                        print(f"✅ Extracted: {intelligence['affiliate_network']} via {intelligence['tracker_tool']}")
+
+                # 7. Language Detection
                 detected_lang = "en"
                 try:
                     if text_content:
                         detected_lang = detect(text_content[:500])
                 except: pass
 
-                # Step 9: Persistence (Fix 1)
+                # 8. Persistence
                 full_updates = {
                     "ad_type": final_ad_type,
                     "classification_score": scoring.get("score", 0),
                     "classification_confidence": scoring.get("confidence"),
                     "page_subtype": lp_result.get("page_subtype"),
-                    "affiliate_id": params.get("affiliate_id"),
-                    "offer_id": params.get("offer_id"),
-                    "sub_id": params.get("sub_id1"),
-                    "final_offer_url": final_offer_url,
-                    "detected_network": lp_result.get("detected_network") or params.get("detected_network"),
-                    "detected_tracker": lp_result.get("detected_tracker"),
-                    "cta_text": lp_result.get("cta_text"),
-                    "has_countdown": lp_result.get("has_countdown"),
-                    "has_video": lp_result.get("has_video"),
+                    
+                    # Intelligence Fields
+                    "final_offer_url": intelligence.get("final_offer_url") or page.url,
+                    "offer_domain": intelligence.get("offer_domain"),
+                    "offer_vertical": intelligence.get("offer_vertical"),
+                    "affiliate_network": intelligence.get("affiliate_network"),
+                    "tracker_tool": intelligence.get("tracker_tool"),
+                    "offer_id": intelligence.get("offer_id"),
+                    "affiliate_id": intelligence.get("affiliate_id"),
+                    "sub_id": intelligence.get("sub_id1"),
+                    
+                    # CTA interaction
+                    "cta_found": click_result.get("cta_found", False),
+                    "cta_text": click_result.get("cta_text"),
+                    
+                    # Evidence data
+                    "redirect_chain_json": json.dumps(click_result.get("redirect_chain", [])),
+                    "all_params_json": json.dumps(intelligence.get("all_params", {})),
+                    
+                    # Assets & Metadata
                     "lp_screenshot_url": lp_screenshot_url,
                     "offer_screenshot_url": offer_screenshot_url,
+                    "has_countdown": lp_result.get("has_countdown"),
+                    "has_video": lp_result.get("has_video"),
                     "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
                     "language": detected_lang,
-                    "analysis_params": scoring.get("signals"), # Storing tokens for transparency
+                    "analysis_params": scoring.get("signals"),
                     "deep_analyzed_at": "now()"
                 }
                 
-                # IMPORTANT: No wrong fallback logic here. 
-                # Ad type remains what the scoring system decided.
-                
                 supabase.table("ads").update(full_updates).eq("id", ad_id).execute()
-                print(f"Ad {ad_id} Analysis Complete. Type: {final_ad_type} (Score: {scoring.get('score')})")
+                print(f"Ad {ad_id} Analysis Complete. Vertical: {intelligence.get('offer_vertical', 'N/A')}")
                 return full_updates
 
             except Exception as e:
@@ -131,4 +150,5 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 if browser: await browser.close()
 
 if __name__ == "__main__":
-    asyncio.run(deep_analyze_ad("test-id", "https://example.com", "Buy Now 50% Off"))
+    # Test block
+    asyncio.run(deep_analyze_ad("test-id", "https://healthierlivingtips.org/int_di_spl_fbpp/?c=test", "Test Ad"))

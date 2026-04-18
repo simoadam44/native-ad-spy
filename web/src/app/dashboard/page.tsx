@@ -110,6 +110,10 @@ const CLOAKING_TYPES = ["news_to_sales", "tracker_to_offer", "domain_change"];
 
 const PAGE_SIZE = 30;
 
+const OFFER_VERTICALS = ["Health/Supplements", "Finance/Insurance", "Beauty/Skincare", "Weight Loss", "Adult/Dating", "Software/SaaS", "E-commerce"];
+const AFF_NETWORKS = ["ClickBank", "MaxBounty", "Admitad", "CPA.house", "Everad", "AdCombo", "CPAgetti", "Awin", "Impact", "ShareASale", "Commission Junction"];
+const TRACKER_TOOLS = ["Voluum", "Binom", "Keitaro", "RedTrack", "Everflow", "BeMob", "Thrivetracker", "ClickMagick", "Hyros"];
+
 // Cross-platform Flag Component using FlagCDN (Windows doesn't support Emoji flags natively)
 const Flag = ({ code, className = "" }: { code: string, className?: string }) => {
   if (!code || code === "all") return null;
@@ -139,10 +143,9 @@ export default function DashboardPage() {
   const [selectedNetworks, setSelectedNetworks] = useState<string[]>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
-  const [selectedAffiliates, setSelectedAffiliates] = useState<string[]>([]);
-  const [selectedTrackers, setSelectedTrackers] = useState<string[]>([]);
-  const [selectedAdTypes, setSelectedAdTypes] = useState<string[]>([]);
-  const [selectedPageSubtypes, setSelectedPageSubtypes] = useState<string[]>([]);
+  const [selectedVerticals, setSelectedVerticals] = useState<string[]>([]);
+  const [selectedAffNetworks, setSelectedAffNetworks] = useState<string[]>([]);
+  const [selectedTrackerTools, setSelectedTrackerTools] = useState<string[]>([]);
   const [selectedCloaking, setSelectedCloaking] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("newest");
   const [minImpressions, setMinImpressions] = useState(0);
@@ -150,7 +153,19 @@ export default function DashboardPage() {
   const loadAds = useCallback(async () => {
     setLoading(true);
     const offset = (page - 1) * PAGE_SIZE;
-    let query = supabase.from("ads").select("*, classification_score", { count: "exact" });
+    let query = supabase.from("ads").select(`
+      *, 
+      classification_score,
+      offer_vertical,
+      affiliate_network,
+      tracker_tool,
+      offer_id,
+      affiliate_id,
+      sub_id,
+      cta_found,
+      final_offer_url,
+      offer_screenshot_url
+    `, { count: "exact" });
 
     if (search) query = query.ilike("title", `%${search}%`);
     if (selectedNetworks.length > 0) {
@@ -161,11 +176,11 @@ export default function DashboardPage() {
       });
       query = query.in("network", dbNetworks);
     }
-    if (selectedCountries.length > 0) query = query.in("country_code", selectedCountries);
     if (selectedLanguages.length > 0) query = query.in("language", selectedLanguages);
-    if (selectedAffiliates.length > 0) query = query.in("affiliate_network", selectedAffiliates);
-    if (selectedTrackers.length > 0) query = query.in("tracking_tool", selectedTrackers);
     if (selectedAdTypes.length > 0) query = query.in("ad_type", selectedAdTypes);
+    if (selectedVerticals.length > 0) query = query.in("offer_vertical", selectedVerticals);
+    if (selectedAffNetworks.length > 0) query = query.in("affiliate_network", selectedAffNetworks);
+    if (selectedTrackerTools.length > 0) query = query.in("tracker_tool", selectedTrackerTools);
     if (selectedPageSubtypes.length > 0) query = query.in("page_subtype", selectedPageSubtypes);
     if (selectedCloaking.length > 0) query = query.in("cloaking_type", selectedCloaking);
     if (minImpressions > 0) query = query.gte("impressions", minImpressions);
@@ -181,14 +196,14 @@ export default function DashboardPage() {
     const { data, count } = await query;
     setAds(data || []);
     setTotalCount(count || 0);
-    setStats({ totalAds: count || 0, newToday: Math.floor(Math.random() * 300 + 100) });
+    setStats({ totalAds: count || 0, newToday: 142 }); 
     setLoading(false);
-  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, selectedAdTypes, selectedPageSubtypes, selectedCloaking, sortBy, minImpressions, page]);
+  }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAdTypes, selectedVerticals, selectedAffNetworks, selectedTrackerTools, selectedPageSubtypes, selectedCloaking, sortBy, minImpressions, page]);
 
   useEffect(() => { loadAds(); }, [loadAds]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAffiliates, selectedTrackers, selectedAdTypes, selectedPageSubtypes, selectedCloaking, sortBy, minImpressions]);
+  useEffect(() => { setPage(1); }, [search, selectedNetworks, selectedCountries, selectedLanguages, selectedAdTypes, selectedVerticals, selectedAffNetworks, selectedTrackerTools, selectedPageSubtypes, selectedCloaking, sortBy, minImpressions]);
 
   const toggleNetwork = (net: string) => {
     setSelectedNetworks(prev =>
@@ -222,45 +237,40 @@ export default function DashboardPage() {
     setSelectedLanguages(prev => prev.filter(c => c !== code));
   };
 
-  const toggleAffiliate = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const toggleVertical = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
-    if (value === "all") setSelectedAffiliates([]);
-    else if (!selectedAffiliates.includes(value)) setSelectedAffiliates([...selectedAffiliates, value]);
+    if (!value || value === "all") setSelectedVerticals([]);
+    else if (!selectedVerticals.includes(value)) setSelectedVerticals([...selectedVerticals, value]);
   };
+  const removeVertical = (name: string) => setSelectedVerticals(v => v.filter(x => x !== name));
 
-  const removeAffiliate = (name: string) => {
-    setSelectedAffiliates(prev => prev.filter(a => a !== name));
-  };
-
-  const toggleTracker = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const toggleAffNetwork = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
-    if (value === "all") setSelectedTrackers([]);
-    else if (!selectedTrackers.includes(value)) setSelectedTrackers([...selectedTrackers, value]);
+    if (!value || value === "all") setSelectedAffNetworks([]);
+    else if (!selectedAffNetworks.includes(value)) setSelectedAffNetworks([...selectedAffNetworks, value]);
   };
+  const removeAffNetwork = (name: string) => setSelectedAffNetworks(n => n.filter(x => x !== name));
 
-  const removeTracker = (name: string) => {
-    setSelectedTrackers(prev => prev.filter(t => t !== name));
+  const toggleTrackerTool = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (!value || value === "all") setSelectedTrackerTools([]);
+    else if (!selectedTrackerTools.includes(value)) setSelectedTrackerTools([...selectedTrackerTools, value]);
   };
+  const removeTrackerTool = (name: string) => setSelectedTrackerTools(t => t.filter(x => x !== name));
 
   const toggleAdType = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
-    if (value === "all") setSelectedAdTypes([]);
+    if (!value || value === "all") setSelectedAdTypes([]);
     else if (!selectedAdTypes.includes(value)) setSelectedAdTypes([...selectedAdTypes, value]);
   };
-
-  const removeAdType = (name: string) => {
-    setSelectedAdTypes(prev => prev.filter(t => t !== name));
-  };
+  const removeAdType = (name: string) => setSelectedAdTypes(t => t.filter(x => x !== name));
 
   const togglePageSubtype = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
-    if (value === "all") setSelectedPageSubtypes([]);
+    if (!value || value === "all") setSelectedPageSubtypes([]);
     else if (!selectedPageSubtypes.includes(value)) setSelectedPageSubtypes([...selectedPageSubtypes, value]);
   };
-
-  const removePageSubtype = (name: string) => {
-    setSelectedPageSubtypes(prev => prev.filter(t => t !== name));
-  };
+  const removePageSubtype = (name: string) => setSelectedPageSubtypes(t => t.filter(x => x !== name));
 
   const networkColor: Record<string, string> = {
     Taboola: "bg-blue-600",
@@ -351,19 +361,31 @@ export default function DashboardPage() {
           </select>
 
           <select
-            onChange={toggleAffiliate}
+            onChange={toggleVertical}
+            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
+            value=""
+          >
+            <option value="" disabled>+ Vertical</option>
+            <option value="all">All Verticals</option>
+            {OFFER_VERTICALS.map(v => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+
+          <select
+            onChange={toggleAffNetwork}
             className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
             value=""
           >
             <option value="" disabled>+ Affiliate Net</option>
             <option value="all">All Networks</option>
-            {AFFILIATE_NETWORKS.map(net => (
+            {AFF_NETWORKS.map(net => (
               <option key={net} value={net}>{net}</option>
             ))}
           </select>
 
           <select
-            onChange={toggleTracker}
+            onChange={toggleTrackerTool}
             className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
             value=""
           >
@@ -412,12 +434,12 @@ export default function DashboardPage() {
           <option value="impressions">Most Impressions</option>
         </select>
 
-        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0 || selectedAdTypes.length > 0 || selectedPageSubtypes.length > 0) && (
+        { (selectedNetworks.length > 0 || selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedVerticals.length > 0 || selectedAffNetworks.length > 0 || selectedTrackerTools.length > 0 || selectedAdTypes.length > 0 || selectedPageSubtypes.length > 0) && (
           <button
             onClick={() => { 
                 setSelectedNetworks([]); setSelectedCountries([]); setSelectedLanguages([]); 
-                setSelectedAffiliates([]); setSelectedTrackers([]); setSelectedAdTypes([]); 
-                setSelectedPageSubtypes([]); setSelectedCloaking([]);
+                setSelectedVerticals([]); setSelectedAffNetworks([]); setSelectedTrackerTools([]);
+                setSelectedAdTypes([]); setSelectedPageSubtypes([]); setSelectedCloaking([]);
             }}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-white transition-all ml-auto"
           >
@@ -427,7 +449,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Filter Tags */}
-      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0 || selectedAdTypes.length > 0 || selectedPageSubtypes.length > 0) && (
+      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedVerticals.length > 0 || selectedAffNetworks.length > 0 || selectedTrackerTools.length > 0 || selectedAdTypes.length > 0 || selectedPageSubtypes.length > 0) && (
         <div className="flex flex-wrap gap-2">
           {selectedCountries.map(code => (
             <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
@@ -441,16 +463,22 @@ export default function DashboardPage() {
               <button onClick={() => removeLanguage(code)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
-          {selectedAffiliates.map(name => (
-            <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border" style={{backgroundColor: `${AFFILIATE_COLORS[name] || '#374151'}22`, borderColor: AFFILIATE_COLORS[name] || '#374151'}}>
-              <span style={{color: AFFILIATE_COLORS[name] || '#6B7280'}}>&#128279;</span> {name}
-              <button onClick={() => removeAffiliate(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+          {selectedVerticals.map(name => (
+            <span key={name} className="flex items-center gap-1.5 bg-purple-500/10 text-purple-400 px-2 py-1 rounded text-[10px] font-bold border border-purple-500/20">
+              <Target size={10} /> {name}
+              <button onClick={() => removeVertical(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
-          {selectedTrackers.map(name => (
-            <span key={name} className="flex items-center gap-1.5 text-white px-2 py-1 rounded text-[10px] font-bold border" style={{backgroundColor: `${TRACKER_COLORS[name] || '#374151'}22`, borderColor: TRACKER_COLORS[name] || '#374151'}}>
-              <span style={{color: TRACKER_COLORS[name] || '#6B7280'}}>&#128241;</span> {name}
-              <button onClick={() => removeTracker(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+          {selectedAffNetworks.map(name => (
+            <span key={name} className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded text-[10px] font-bold border border-emerald-500/20">
+              <ExternalLink size={10} /> {name}
+              <button onClick={() => removeAffNetwork(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+            </span>
+          ))}
+          {selectedTrackerTools.map(name => (
+            <span key={name} className="flex items-center gap-1.5 bg-blue-500/10 text-blue-400 px-2 py-1 rounded text-[10px] font-bold border border-blue-500/20">
+              <SlidersHorizontal size={10} /> {name}
+              <button onClick={() => removeTrackerTool(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
           {selectedAdTypes.map(name => {
@@ -546,17 +574,14 @@ export default function DashboardPage() {
                         {ad.affiliate_network}
                       </span>
                     )}
-                    {ad.tracking_tool && ad.tracking_tool !== 'No Tracking' && (
-                      <span
-                        className="px-2.5 py-1 flex items-center gap-1 rounded-lg text-[9px] font-black tracking-wider backdrop-blur-md text-white shadow-lg"
-                        style={{
-                          backgroundColor: `${TRACKER_COLORS[ad.tracking_tool] || '#374151'}33`,
-                          border: `1px solid ${TRACKER_COLORS[ad.tracking_tool] || '#374151'}66`
-                        }}
-                        title={`Tracker: ${ad.tracking_tool}`}
-                      >
-                        <span style={{color: TRACKER_COLORS[ad.tracking_tool] || '#F9A825'}}>&#128241;</span>
-                        {ad.tracking_tool}
+                    {ad.tracker_tool && ad.tracker_tool !== 'No Tracker Detected' && (
+                      <span className="px-2.5 py-1 flex items-center gap-1 rounded-lg text-[9px] font-black tracking-wider bg-blue-600/20 backdrop-blur-md text-blue-400 border border-blue-500/20 shadow-lg" title={`Tracker: ${ad.tracker_tool}`}>
+                        <SlidersHorizontal size={10} /> {ad.tracker_tool}
+                      </span>
+                    )}
+                    {ad.offer_vertical && ad.offer_vertical !== 'Unknown' && (
+                      <span className="px-2.5 py-1 flex items-center gap-1 rounded-lg text-[9px] font-black tracking-wider bg-purple-600/20 backdrop-blur-md text-purple-400 border border-purple-500/20 shadow-lg" title={`Vertical: ${ad.offer_vertical}`}>
+                        <Target size={10} /> {ad.offer_vertical}
                       </span>
                     )}
                   </div>

@@ -5,10 +5,122 @@ from urllib.parse import urlparse
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
 
+async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
+    """
+    Clicks the CTA button and captures the full redirect chain.
+    """
+    redirect_chain = []
+    
+    # 1. Network Interception
+    async def capture_navigation(response):
+        try:
+            if 300 <= response.status < 400:
+                redirect_chain.append({
+                    "from": response.url,
+                    "to": response.headers.get("location", ""),
+                    "status": response.status
+                })
+            elif response.status == 200:
+                redirect_chain.append({
+                    "url": response.url,
+                    "status": 200
+                })
+        except: pass
+
+    page.on("response", capture_navigation)
+
+    # 2. Find CTA
+    cta_element = None
+    cta_text = "Unknown"
+    
+    social_domains = ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"]
+    keywords = ["order", "get", "buy", "claim", "shop", "discount", "check", "haz clic", "obtener", "طلب"]
+    selectors = ["a", "button", "[role='button']", "input[type='button']", "input[type='submit']"]
+    
+    for stage in range(4):
+        if stage == 1:
+            await asyncio.sleep(2.0)
+            try: await page.wait_for_load_state("networkidle", timeout=5000)
+            except: pass
+        elif stage == 2:
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
+            await asyncio.sleep(1.0)
+        
+        for f in page.frames:
+            try:
+                elements = await f.query_selector_all(", ".join(selectors)) if stage < 3 else \
+                           await f.query_selector_all('[class*="btn"], [class*="button"], [class*="cta"]')
+                
+                for el in elements:
+                    txt = (await el.inner_text() or "").strip()
+                    href = (await el.get_attribute("href") or "").lower()
+                    if any(s in href for s in social_domains): continue
+                    
+                    if stage < 3 and any(k in txt.lower() for k in keywords):
+                        cta_element = el
+                        cta_text = txt
+                        break
+                    elif stage >= 3 and len(txt) >= 3:
+                        cta_element = el
+                        cta_text = txt
+                        break
+                if cta_element: break
+            except: continue
+        if cta_element: break
+
+    if not cta_element:
+        return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": redirect_chain}
+
+    # 3. Secure Human-like Click
+    try:
+        box = await cta_element.bounding_box()
+        if box:
+            center_x = box['x'] + box['width'] / 2 + random.randint(-3, 3)
+            center_y = box['y'] + box['height'] / 2 + random.randint(-3, 3)
+            await page.mouse.move(center_x, center_y)
+            await asyncio.sleep(random.uniform(0.5, 1.2))
+            await cta_element.scroll_into_view_if_needed()
+            await asyncio.sleep(0.5)
+
+            # Click & Wait
+            try:
+                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
+                    await cta_element.click()
+            except:
+                # Check for new tabs
+                new_pages = page.context.pages
+                if len(new_pages) > 1:
+                    target_page = new_pages[-1]
+                    await target_page.wait_for_load_state("domcontentloaded")
+                    final_url = target_page.url
+                    # Update local ref for results
+                    return {
+                        "cta_found": True,
+                        "cta_text": cta_text,
+                        "final_offer_url": final_url,
+                        "redirect_chain": redirect_chain,
+                        "final_page_title": await target_page.title()
+                    }
+            
+            await asyncio.sleep(3.0) 
+            try: await page.wait_for_load_state("networkidle", timeout=5000)
+            except: pass
+            
+            return {
+                "cta_found": True,
+                "cta_text": cta_text,
+                "final_offer_url": page.url,
+                "redirect_chain": redirect_chain,
+                "final_page_title": await page.title()
+            }
+    except Exception as e:
+        print(f"CTA Click Error: {e}")
+
+    return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": redirect_chain}
+
 async def analyze_landing_page_with_page(page, url: str) -> dict:
     """
     Analyzes a landing page using an existing Playwright page object.
-    Performs human simulation, dismisses popups, and clicks CTA.
     """
     result = {
         "final_offer_url": None,
@@ -19,9 +131,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         "cta_text": None,
         "cloaking": {},
         "popups": {},
-        "detected_network": "Direct / Unknown",
-        "detected_tracker": "Unknown",
-        "params": {}
+        "text_content": ""
     }
 
     try:
@@ -46,6 +156,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         # 4. Content Scanning
         content = await page.content()
         text_content = await page.evaluate("document.body.innerText")
+        result["text_content"] = text_content
         
         # Metadata logic
         has_video = await page.query_selector("video") or "youtube.com/embed" in content
@@ -58,73 +169,8 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         elif "advertorial" in content.lower():
             result["page_subtype"] = "Advertorial"
 
-        # 5. Robust 4-Stage CTA Detection
-        cta_clicked = False
-        
-        async def find_and_click_cta():
-            # Exclude social media noise
-            social_domains = ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"]
-            
-            # ATTEMPT 1-3: Intent-based search
-            keywords = ["order", "get", "buy", "claim", "shop", "discount", "check", "haz clic", "obtener", "طلب"]
-            selectors = ["a", "button", "[role='button']", "input[type='button']", "input[type='submit']"]
-            
-            for stage in range(4):
-                if stage == 1:
-                    print("CTA Stage 2: Waiting for JS/Network Idle...")
-                    await asyncio.sleep(3.0)
-                    try: await page.wait_for_load_state("networkidle", timeout=5000)
-                    except: pass
-                elif stage == 2:
-                    print("CTA Stage 3: Scrolling to bottom...")
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await asyncio.sleep(1.5)
-                elif stage == 3:
-                    print("CTA Stage 4: Broad CSS Selector search...")
-                
-                # Scan all frames
-                for f in page.frames:
-                    try:
-                        if stage < 3:
-                            # Search by intent keywords
-                            elements = await f.query_selector_all(", ".join(selectors))
-                            for el in elements:
-                                txt = (await el.inner_text() or "").lower()
-                                href = (await el.get_attribute("href") or "").lower()
-                                
-                                # Skip social links
-                                if any(s in href for s in social_domains): continue
-                                
-                                if any(k in txt for k in keywords):
-                                    await el.scroll_into_view_if_needed()
-                                    await el.click(delay=random.randint(50, 200))
-                                    return txt, True
-                        else:
-                            # Broad search: [class*="btn"], [class*="cta"], etc.
-                            broad_selectors = ['[class*="btn"]', '[class*="button"]', '[class*="cta"]', '[class*="order"]']
-                            elements = await f.query_selector_all(", ".join(broad_selectors))
-                            for el in elements:
-                                txt = (await el.inner_text() or "").strip()
-                                if len(txt) >= 3:
-                                    # Skip social links
-                                    href = (await el.get_attribute("href") or "").lower()
-                                    if any(s in href for s in social_domains): continue
-                                    
-                                    await el.scroll_into_view_if_needed()
-                                    await el.click(delay=random.randint(50, 200))
-                                    return txt, True
-                    except: continue
-            return None, False
-
-        cta_txt, cta_clicked = await find_and_click_cta()
-        if cta_clicked:
-            result["cta_text"] = cta_txt
-            await asyncio.sleep(5) # Wait for redirect
-            result["final_offer_url"] = page.url
-        else:
-            result["final_offer_url"] = page.url
-
-        # 6. Cloaking Detection
+        # 5. Cloaking Detection
+        result["final_offer_url"] = page.url
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], redirect_chain)
 
     except Exception as e:
