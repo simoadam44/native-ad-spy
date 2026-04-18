@@ -7,7 +7,7 @@ import AdModal from "@/components/AdModal";
 import { 
   Flame, ExternalLink, BrainCircuit, Heart,
   TrendingUp, LayoutGrid, Globe, Search,
-  SlidersHorizontal, ChevronDown, X
+  SlidersHorizontal, ChevronDown, X, Target
 } from "lucide-react";
 
 const NETWORKS = ["Taboola", "MGID", "Outbrain", "Revcontent"];
