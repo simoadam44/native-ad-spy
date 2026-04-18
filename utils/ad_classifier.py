@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlparse
 
 def classify_ad(url: str, title: str) -> dict:
     """
@@ -26,6 +27,18 @@ def classify_ad(url: str, title: str) -> dict:
         signals.append("affiliate_domain_pattern")
 
     # --- B) URL-based Arbitrage Signals ---
+    # 1. Pagination Patterns (Mechanical Check)
+    pagination_pattern = r"(/(\d+)/?$|page/\d+|next-page|/p\d+/?$)"
+    if re.search(pagination_pattern, url):
+        signals.append("arbitrage_pagination_detected")
+
+    # 2. Domain-level Keywords
+    arbitrage_keywords = ["trending", "lifestyle", "news", "best-offer", "story", "viral", "article"]
+    domain = urlparse(url).netloc.lower()
+    if any(keyword in domain for keyword in arbitrage_keywords):
+        signals.append("arbitrage_domain_keyword_detected")
+
+    # 3. Parameter Patterns
     arbitrage_params = ["utm_medium=native", "page=2", "p=2", "article", "story"]
     if any(param in url for param in arbitrage_params):
         signals.append("arbitrage_params_in_url")

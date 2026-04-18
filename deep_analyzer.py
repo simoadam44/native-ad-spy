@@ -40,12 +40,14 @@ async def deep_analyze_ad(ad_id, landing_url, title):
         # Step 1: Quick Classification
         classification = classify_ad(landing_url, title)
         
-        # Step 2: Skip browser if high confidence Arbitrage (optimization)
+        # Step 2: Skip browser if high confidence Arbitrage (Mechanical Hardening)
+        # If it's a clear pagination (/2/) or trending domain, we save resources.
         if classification["ad_type"] == "Arbitrage" and classification["confidence"] == "high":
-            print(f"Ad {ad_id} classified as Arbitrage. Skipping browser.")
+            print(f"Mechanical Bypass: Ad {ad_id} confirmed as Arbitrage. Skipping browser.")
             await supabase.table("ads").update({
                 "ad_type": "Arbitrage",
-                "deep_analyzed_at": "now()"
+                "deep_analyzed_at": "now()",
+                "method": "mechanical_pattern"
             }).eq("id", ad_id).execute()
             return {"ad_type": "Arbitrage", "skipped": True}
 
@@ -130,6 +132,14 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "deep_analyzed_at": "now()"
                 }
                 
+                # Step 10: Logic Fallback (Hardening)
+                # If AI is unsure but we found ZERO CTA buttons, it's almost certainly Arbitrage.
+                if final_ad_type == "Unknown" and not lp_result.get("cta_text"):
+                    print(f"Fallback Hardening: No CTA found for Unknown ad {ad_id}. Promoting to Arbitrage.")
+                    final_ad_type = "Arbitrage"
+                    full_updates["ad_type"] = "Arbitrage"
+                    full_updates["reasoning"] = "System Fallback: Classified as Arbitrage due to total lack of sales triggers (CTAs)."
+
                 supabase.table("ads").update(full_updates).eq("id", ad_id).execute()
                 print(f"Ad {ad_id} Analysis Complete. Type: {final_ad_type}")
                 return full_updates

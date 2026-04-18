@@ -51,33 +51,28 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
     safe_links = extracted_links[:30] # Top 30 links
     
     system_prompt = """
-    You are a digital marketing expert specializing in uncovering affiliate funnels and tracking links.
-    Your task is to analyze the landing page snippet and the extracted links to find the Final Offer target URL.
+    Role: Identify if this URL/Page is 'Arbitrage' or 'Affiliate'.
+    You are a digital marketing forensic analyst.
     
-    Prioritize links with: hop, click, lptoken, checkout, order, track.
-    Ignore: privacy, terms, contact, about, social media links.
-    
-    Ad Types: "Affiliate" (Focuses on buying a product) OR "Arbitrage" (Focuses on articles, top 10 lists, viral stories).
-    Note: Domains like herbeauty.co, sportpirate.com, tradingblvd.com, brainberries.co are almost ALWAYS Arbitrage story sites.
-    Funnel Types: "VSL", "Advertorial", "Quiz", or "Direct Sales".
-    Cloaking: Set cloaking_detected to true if the landing page domain acts like a news site but links point to e-com product checkouts.
-    Tracker Tools: Identify tools like Voluum, Binom, Keitaro, RedTrack, etc.
-    Affiliate Networks: Identify networks like ClickBank, BuyGoods, Everflow, GiddyUp, etc.
-    Language: Detect the primary language code (e.g., "en", "ar", "es").
+    Strict Logic:
+    1. If the URL contains paging patterns like '/2', '/3', 'page/', or the title is a celebrity/lifestyle listicle -> Categorize as 'Arbitrage'.
+    2. If the page lacks a clear 'Buy/Order Now' or 'Order' button for a specific physical/digital product -> Categorize as 'Arbitrage'.
+    3. If the page is an article about general topics (Health tips, Celebs, Travel) and surrounded by Ad units (Taboola, Outbrain) -> Categorize as 'Arbitrage'.
+    4. Only categorize as 'Affiliate' if there is a clear CTA to a sales page or a branded product checkout.
 
-    You MUST respond with a valid JSON object matching exactly this structure:
+    You MUST respond with a valid JSON object:
     {
       "decision": {
-        "target_url": "best matching URL or null",
-        "ad_type": "string",
-        "funnel_type": "string",
+        "target_url": "identified target offer URL or null",
+        "ad_type": "Arbitrage" | "Affiliate",
+        "funnel_type": "VSL" | "Advertorial" | "Quiz" | "Direct Sales" | "Article",
         "cloaking_detected": boolean,
-        "confidence_score": 0.0 to 1.0 float,
+        "confidence_score": 0.0 to 1.0,
         "detected_tracker": "string or null",
         "detected_network": "string or null",
-        "language": "string (ISO code)"
+        "language": "ISO code"
       },
-      "reasoning": "Brief explanation"
+      "reasoning": "Explicit reason (e.g., pagination detected, listicle format, no product CTA)"
     }
     """
     
