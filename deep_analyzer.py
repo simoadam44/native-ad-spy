@@ -102,8 +102,10 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 
                 # Step 8: Language Detection
                 detected_lang = "en"
+                text_content = lp_result.get("text_content", "")
                 try:
-                    detected_lang = detect(text_content[:500])
+                    if text_content:
+                        detected_lang = detect(text_content[:500])
                 except:
                     pass
 

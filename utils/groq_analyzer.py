@@ -6,7 +6,7 @@ from supabase import create_client
 
 # Fallback Groq Setup
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
+client = Groq(api_key=GROQ_API_KEY, timeout=60.0)
 
 # Supabase Setup for Cache
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
@@ -57,7 +57,8 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
     Prioritize links with: hop, click, lptoken, checkout, order, track.
     Ignore: privacy, terms, contact, about, social media links.
     
-    Ad Types: "Affiliate" (Focuses on buying a product) OR "Arbitrage" (Focuses on articles, top 10 lists).
+    Ad Types: "Affiliate" (Focuses on buying a product) OR "Arbitrage" (Focuses on articles, top 10 lists, viral stories).
+    Note: Domains like herbeauty.co, sportpirate.com, tradingblvd.com, brainberries.co are almost ALWAYS Arbitrage story sites.
     Funnel Types: "VSL", "Advertorial", "Quiz", or "Direct Sales".
     Cloaking: Set cloaking_detected to true if the landing page domain acts like a news site but links point to e-com product checkouts.
     Tracker Tools: Identify tools like Voluum, Binom, Keitaro, RedTrack, etc.
@@ -93,6 +94,7 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
     """
     
     # 3. Groq Request with Retries
+    parsed_json = None
     for attempt in range(3):
         try:
             completion = client.chat.completions.create(
@@ -112,31 +114,19 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
             print(f"Groq Attempt {attempt+1} failed: {e}")
             if attempt < 2:
                 # Wait briefly before retry
-                import asyncio
-                # Use a small non-blocking sleep if possible, otherwise time.sleep
-                # Since we are in a sync function called in a thread or async loop
                 import time
                 time.sleep(2 * (attempt + 1))
-            else:
-                return None
-        
-        # 4. Save to Cache
-        if parsed_json and "decision" in parsed_json:
-            dec = parsed_json["decision"]
-            try:
-                supabase.table("ai_domain_cache").upsert({
-                    "domain": domain,
-                    "target_url": dec.get("target_url"),
-                    "ad_type": dec.get("ad_type"),
-                    "funnel_type": dec.get("funnel_type"),
-                    "cloaking_detected": dec.get("cloaking_detected"),
-                    "confidence_score": dec.get("confidence_score"),
-                    "detected_tracker": dec.get("detected_tracker"),
-                    "detected_network": dec.get("detected_network"),
-                    "language": dec.get("language"),
-                    "reasoning": parsed_json.get("reasoning", "")
-                }).execute()
-            except Exception as e:
-                print(f"⚠️ Cache write error: {e}")
-
-        return parsed_json
+    # Final fallback if Groq completely fails
+    return {
+        "decision": {
+            "target_url": None,
+            "ad_type": "Unknown",
+            "funnel_type": None,
+            "cloaking_detected": False,
+            "confidence_score": 0.0,
+            "detected_tracker": None,
+            "detected_network": None,
+            "language": "en"
+        },
+        "reasoning": "Groq AI failed after 3 attempts."
+    }
