@@ -140,7 +140,3 @@ def invoke_groq_intelligence(title: str, landing_url: str, text_snippet: str, ex
                 print(f"⚠️ Cache write error: {e}")
 
         return parsed_json
-        
-    except Exception as e:
-        print(f"[Groq AI Error] {e}")
-        return None

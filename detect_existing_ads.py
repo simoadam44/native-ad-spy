@@ -8,15 +8,13 @@ from deep_analyzer import deep_analyze_ad
 # Supabase Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 async def batch_process(limit=10, network=None, delay=0):
     """
     Fetches ads from Supabase that haven't been deep analyzed and processes them.
     """
     # Initialize Supabase inside the loop to avoid "Different Loop" error
     SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
-    SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_oY3GKsFRckyg7qye4Ez_GA_j8HDEDLX")
+    SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     print(f"Fetching up to {limit} un-analyzed ads...")
