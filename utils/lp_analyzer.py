@@ -1,9 +1,9 @@
 import asyncio
 import random
 import re
+from urllib.parse import urlparse
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
-from utils.groq_analyzer import invoke_groq_intelligence, find_cta_selector, dissect_tracking_link
 
 async def analyze_landing_page_with_page(page, url: str) -> dict:
     """
@@ -27,188 +27,107 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
     try:
         # 1. Navigation
         print(f"Navigating to: {url[:60]}...")
-        # Listen for redirects to capture chain
         redirect_chain = []
         def handle_response(response):
             if 300 <= response.status < 400:
                 redirect_chain.append(response.url)
         page.on("response", handle_response)
 
-        # Setup Network Traffic Monitor
-        active_trackers = 0
-        def on_request(r):
-            nonlocal active_trackers
-            if any(k in r.url.lower() for k in ['pixel', 'track', 'click', 'vsl']):
-                active_trackers += 1
-
-        def on_request_done(r):
-            nonlocal active_trackers
-            if any(k in r.url.lower() for k in ['pixel', 'track', 'click', 'vsl']):
-                active_trackers = max(0, active_trackers - 1)
-
-        page.on("request", on_request)
-        page.on("requestfinished", on_request_done)
-        page.on("requestfailed", on_request_done)
-
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
         
-        current_url_lower = page.url.lower()
-        if any(token in current_url_lower for token in ['lptoken=', 'cep=', 'hop=', 'affid=']):
-            result["final_offer_url"] = page.url
-            result["page_subtype"] = "Direct Affiliate Hybrid"
-            return result
-
-        # Active Network Wait (up to 8 seconds)
-        for _ in range(16):
-            if active_trackers <= 0:
-                await asyncio.sleep(2)
-                break
-            await asyncio.sleep(0.5)
-
-        # 2. Human Simulation with Extended Mouse Jitter
-        for _ in range(3):
-            await page.mouse.wheel(0, random.randint(200, 700))
-            await page.mouse.move(random.randint(100, 700), random.randint(100, 700))
-            await asyncio.sleep(0.5)
+        # 2. Human Simulation
+        for _ in range(2):
+            await page.mouse.wheel(0, random.randint(200, 500))
+            await asyncio.sleep(0.3)
 
         # 3. Dismiss Popups
         result["popups"] = await dismiss_popups(page)
 
-        # 4. Detect Subtype & Content
+        # 4. Content Scanning
         content = await page.content()
         text_content = await page.evaluate("document.body.innerText")
-        result["text_content"] = text_content # Added for AI context
         
-        # VSL check
-        has_video = await page.query_selector("video") or "youtube.com/embed" in content or "vimeo.com" in content
+        # Metadata logic
+        has_video = await page.query_selector("video") or "youtube.com/embed" in content
         result["has_video"] = bool(has_video)
-        
-        has_timer = await page.query_selector("[class*='timer'], [id*='timer'], [class*='countdown']") or "minutes" in content.lower() and ":" in content
-        result["has_countdown"] = bool(has_timer)
+        result["has_countdown"] = bool(await page.query_selector("[class*='timer'], [id*='timer']"))
 
-        if has_video and has_timer:
-            result["page_subtype"] = "VSL"
-        elif "by:" in text_content[:500].lower() or "advertorial" in content.lower():
-            result["page_subtype"] = "Advertorial"
-        elif any(k in text_content.lower() for k in ["add to cart", "buy now", "check out"]):
+        # Subtype logic
+        if any(k in text_content.lower() for k in ["add to cart", "buy now", "order now"]):
             result["page_subtype"] = "Direct Sales"
-        elif await page.query_selector("input[type='radio']") or "question" in text_content.lower():
-            result["page_subtype"] = "Quiz"
+        elif "advertorial" in content.lower():
+            result["page_subtype"] = "Advertorial"
 
-        # Price detection
-        price_match = re.search(r"\$\d+(\.\d{2})?", text_content)
-        if price_match:
-            result["price_found"] = price_match.group(0)
-
-        # 5. Universal CTA Detection (AI-Guided Discovery)
+        # 5. Robust 4-Stage CTA Detection
         cta_clicked = False
-        try:
-            # First, pull all possible interactable elements
-            links_list = await page.evaluate('''() => {
-                return Array.from(document.querySelectorAll('a[href], button, [role="button"]')).map(el => ({
-                    text: (el.innerText || el.value || "").trim(),
-                    href: el.href || '',
-                    tag: el.tagName
-                })).filter(e => e.text.length > 2 || e.href.length > 5);
-            }''')
+        
+        async def find_and_click_cta():
+            # Exclude social media noise
+            social_domains = ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"]
             
-            # AI Selects the "Bridge" button
-            cta_decision = find_cta_selector(links_list, text_content)
+            # ATTEMPT 1-3: Intent-based search
+            keywords = ["order", "get", "buy", "claim", "shop", "discount", "check", "haz clic", "obtener", "طلب"]
+            selectors = ["a", "button", "[role='button']", "input[type='button']", "input[type='submit']"]
             
-            if cta_decision and cta_decision.get("target_selector"):
-                sel = cta_decision["target_selector"]
-                stype = cta_decision.get("selector_type", "text")
-                print(f"AI Selected CTA: {sel} (Strategy: {stype})")
+            for stage in range(4):
+                if stage == 1:
+                    print("CTA Stage 2: Waiting for JS/Network Idle...")
+                    await asyncio.sleep(3.0)
+                    try: await page.wait_for_load_state("networkidle", timeout=5000)
+                    except: pass
+                elif stage == 2:
+                    print("CTA Stage 3: Scrolling to bottom...")
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await asyncio.sleep(1.5)
+                elif stage == 3:
+                    print("CTA Stage 4: Broad CSS Selector search...")
                 
-                try:
-                    target_el = None
-                    if stype == "text":
-                        target_el = page.get_by_text(sel).first
-                    elif stype in ["css", "xpath"]:
-                        target_el = page.locator(sel).first
-                    
-                    if target_el:
-                        if cta_decision.get("scroll_required"):
-                            await target_el.scroll_into_view_if_needed()
-                            await asyncio.sleep(1)
-                        
-                        # Human-like click with jitter
-                        await target_el.click(delay=random.randint(50, 200))
-                        cta_clicked = True
-                        result["cta_text"] = sel
-                        await asyncio.sleep(cta_decision.get("wait_after_click_ms", 5000) / 1000)
-                        result["final_offer_url"] = page.url
-                except Exception as click_err:
-                    print(f"AI Click Action Failed: {click_err}")
-
-            # Iframe Scanning Fallback
-            if not cta_clicked:
+                # Scan all frames
                 for f in page.frames:
-                    if cta_clicked: break
                     try:
-                        btns = await f.query_selector_all("a, button")
-                        for btn in btns:
-                            txt = await btn.inner_text()
-                            if any(k in txt.lower() for k in ['order', 'get', 'buy', 'claim']):
-                                await btn.scroll_into_view_if_needed()
-                                await btn.click()
-                                await asyncio.sleep(4)
-                                cta_clicked = True
-                                result["final_offer_url"] = page.url
-                                break
+                        if stage < 3:
+                            # Search by intent keywords
+                            elements = await f.query_selector_all(", ".join(selectors))
+                            for el in elements:
+                                txt = (await el.inner_text() or "").lower()
+                                href = (await el.get_attribute("href") or "").lower()
+                                
+                                # Skip social links
+                                if any(s in href for s in social_domains): continue
+                                
+                                if any(k in txt for k in keywords):
+                                    await el.scroll_into_view_if_needed()
+                                    await el.click(delay=random.randint(50, 200))
+                                    return txt, True
+                        else:
+                            # Broad search: [class*="btn"], [class*="cta"], etc.
+                            broad_selectors = ['[class*="btn"]', '[class*="button"]', '[class*="cta"]', '[class*="order"]']
+                            elements = await f.query_selector_all(", ".join(broad_selectors))
+                            for el in elements:
+                                txt = (await el.inner_text() or "").strip()
+                                if len(txt) >= 3:
+                                    # Skip social links
+                                    href = (await el.get_attribute("href") or "").lower()
+                                    if any(s in href for s in social_domains): continue
+                                    
+                                    await el.scroll_into_view_if_needed()
+                                    await el.click(delay=random.randint(50, 200))
+                                    return txt, True
                     except: continue
+            return None, False
 
-        except Exception as e:
-            print(f"CTA Hunting Error: {e}")
-
-        if not result["final_offer_url"] or result["final_offer_url"] == url:
+        cta_txt, cta_clicked = await find_and_click_cta()
+        if cta_clicked:
+            result["cta_text"] = cta_txt
+            await asyncio.sleep(5) # Wait for redirect
             result["final_offer_url"] = page.url
-            
+        else:
+            result["final_offer_url"] = page.url
+
         # 6. Cloaking Detection
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], redirect_chain)
 
-        # 7. Fallback to Groq AI if high confidence target not secured, or cloaked
-        if result["final_offer_url"] == url or result["cloaking"].get("cloaking_detected"):
-            print("Invoking Groq AI Intelligence Fallback...")
-            try:
-                extracted_links = await page.evaluate(
-                    "Array.from(document.querySelectorAll('a[href]')).map(a => a.href).filter(h => h.startsWith('http'))"
-                )
-                groq_data = invoke_groq_intelligence(
-                    title="Unknown Title (AI Probe)",
-                    landing_url=result["final_offer_url"],
-                    text_snippet=text_content,
-                    extracted_links=extracted_links
-                )
-                if groq_data and "decision" in groq_data:
-                    dec = groq_data["decision"]
-                    if dec.get("target_url") and dec.get("target_url") != "null":
-                        result["final_offer_url"] = dec["target_url"]
-                    if dec.get("funnel_type"):
-                        result["page_subtype"] = dec["funnel_type"]
-                    if dec.get("cloaking_detected"):
-                        result["cloaking"]["cloaking_detected"] = True
-                    if dec.get("detected_tracker"):
-                        result["detected_tracker"] = dec["detected_tracker"]
-                    if dec.get("detected_network"):
-                        result["detected_network"] = dec["detected_network"]
-                    if dec.get("language"):
-                        result["language"] = dec["language"]
-            except Exception as e:
-                print(f"Groq API skipped/failed: {e}")
-
-        # 8. POST-CLICK FORENSIC ANALYSIS (The Deep Linker Tracer)
-        if result["final_offer_url"] and result["final_offer_url"] != url:
-            print(f"Performing Forensic Analysis on Final URL: {result['final_offer_url'][:60]}...")
-            forensic = dissect_tracking_link(result["final_offer_url"])
-            if forensic and "intelligence" in forensic:
-                intel = forensic["intelligence"]
-                result["detected_network"] = intel.get("detected_network") or result.get("detected_network")
-                result["detected_tracker"] = intel.get("tracker_tool") or result.get("detected_tracker")
-                result["params"] = intel.get("parameters", {})
-                print(f"Forensic Result: Network={result['detected_network']}, Tracker={result['detected_tracker']}")
-
     except Exception as e:
-        print(f"Analysis Error: {e}")
+        print(f"LP Analysis Error: {e}")
 
     return result

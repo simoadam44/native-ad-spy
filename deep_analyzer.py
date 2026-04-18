@@ -6,10 +6,11 @@ from playwright_stealth import Stealth
 from supabase import create_client
 from langdetect import detect
 
-from utils.ad_classifier import classify_ad
+from utils.ad_classifier import calculate_ad_score
 from utils.lp_analyzer import analyze_landing_page_with_page
 from utils.screenshot_manager import take_and_store_screenshot
 from utils.param_extractor import extract_affiliate_params
+from utils.url_resolver import resolve_real_url
 
 # Supabase Setup
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
@@ -32,24 +33,15 @@ async def log_error(ad_id, step, message):
 async def deep_analyze_ad(ad_id, landing_url, title):
     """
     Ties together all utilities to perform a deep analysis of a single ad.
-    Uses a semaphore to limit concurrent browser instances.
+    Uses a neutral scoring system and tracker resolution.
     """
     async with semaphore:
         print(f"Starting Deep Analysis for Ad: {ad_id}...")
         
-        # Step 1: Quick Classification
-        classification = classify_ad(landing_url, title)
-        
-        # Step 2: Skip browser if high confidence Arbitrage (Mechanical Hardening)
-        # If it's a clear pagination (/2/) or trending domain, we save resources.
-        if classification["ad_type"] == "Arbitrage" and classification["confidence"] == "high":
-            print(f"Mechanical Bypass: Ad {ad_id} confirmed as Arbitrage. Skipping browser.")
-            await supabase.table("ads").update({
-                "ad_type": "Arbitrage",
-                "deep_analyzed_at": "now()",
-                "method": "mechanical_pattern"
-            }).eq("id", ad_id).execute()
-            return {"ad_type": "Arbitrage", "skipped": True}
+        # FIX 2: Follow Tracker Redirect URLs First
+        actual_url = resolve_real_url(landing_url)
+        if actual_url != landing_url:
+            print(f"Resolved Tracker: {landing_url[:40]} -> {actual_url[:60]}...")
 
         # Step 3: Launch Browser for Deep Analysis
         async with async_playwright() as p:
@@ -60,60 +52,48 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
                 
-                # Random UA
-                user_agents = [
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-                ]
-                
                 context = await browser.new_context(
-                    user_agent=random.choice(user_agents),
                     viewport={"width": 1280, "height": 800}
                 )
                 page = await context.new_page()
                 await Stealth().apply_stealth_async(page)
 
-                # Block heavy assets to save memory
-                async def block_assets(route):
-                    if route.request.resource_type in ["font", "media"]:
-                        await route.abort()
-                    elif "analytics" in route.request.url or "facebook" in route.request.url:
-                        await route.abort()
-                    else:
-                        await route.continue_()
-                await page.route("**/*", block_assets)
-
                 # Step 4: Perform LP Analysis
-                lp_result = await analyze_landing_page_with_page(page, landing_url)
+                lp_result = await analyze_landing_page_with_page(page, actual_url)
                 
-                # Step 5: Take LP Screenshot
+                # Step 5: Screenshots
                 lp_screenshot_url = await take_and_store_screenshot(page, ad_id, "landing_page")
-                
-                # Step 6: Offer Screenshot (if navigated)
                 offer_screenshot_url = None
-                if lp_result.get("final_offer_url") and lp_result["final_offer_url"] != landing_url:
+                if lp_result.get("final_offer_url") and lp_result["final_offer_url"] != actual_url:
                     offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
 
-                # Step 7: Final Parameter Extraction & Cloaking override
-                final_offer_url = lp_result.get("final_offer_url")
-                params = extract_affiliate_params(final_offer_url) if final_offer_url else {}
+                # Step 6: Parameter Extraction
+                final_offer_url = lp_result.get("final_offer_url") or actual_url
+                params = extract_affiliate_params(final_offer_url)
                 
-                final_ad_type = classification["ad_type"]
-                if lp_result.get("cloaking", {}).get("force_affiliate"):
-                    final_ad_type = "Affiliate"
+                # Step 7: Neutral Scoring System (Fix 4)
+                text_content = lp_result.get("text_content", "")
+                scoring = calculate_ad_score(
+                    url=landing_url, 
+                    title=title, 
+                    final_url=final_offer_url, 
+                    page_content=text_content
+                )
+                
+                final_ad_type = scoring["ad_type"]
                 
                 # Step 8: Language Detection
                 detected_lang = "en"
-                text_content = lp_result.get("text_content", "")
                 try:
                     if text_content:
                         detected_lang = detect(text_content[:500])
-                except:
-                    pass
+                except: pass
 
-                # Step 9: Persistence
+                # Step 9: Persistence (Fix 1)
                 full_updates = {
                     "ad_type": final_ad_type,
+                    "classification_score": scoring.get("score", 0),
+                    "classification_confidence": scoring.get("confidence"),
                     "page_subtype": lp_result.get("page_subtype"),
                     "affiliate_id": params.get("affiliate_id"),
                     "offer_id": params.get("offer_id"),
@@ -124,41 +104,31 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "cta_text": lp_result.get("cta_text"),
                     "has_countdown": lp_result.get("has_countdown"),
                     "has_video": lp_result.get("has_video"),
-                    "price_found": lp_result.get("price_found"),
                     "lp_screenshot_url": lp_screenshot_url,
                     "offer_screenshot_url": offer_screenshot_url,
                     "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
-                    "language": lp_result.get("language") or detected_lang,
-                    "analysis_params": lp_result.get("params"), # Forensic parameters
+                    "language": detected_lang,
+                    "analysis_params": scoring.get("signals"), # Storing tokens for transparency
                     "deep_analyzed_at": "now()"
                 }
                 
-                # Step 10: Logic Fallback (Hardening)
-                # If AI is unsure but we found ZERO CTA buttons, it's almost certainly Arbitrage.
-                if final_ad_type == "Unknown" and not lp_result.get("cta_text"):
-                    print(f"Fallback Hardening: No CTA found for Unknown ad {ad_id}. Promoting to Arbitrage.")
-                    final_ad_type = "Arbitrage"
-                    full_updates["ad_type"] = "Arbitrage"
-                    full_updates["reasoning"] = "System Fallback: Classified as Arbitrage due to total lack of sales triggers (CTAs)."
-
+                # IMPORTANT: No wrong fallback logic here. 
+                # Ad type remains what the scoring system decided.
+                
                 supabase.table("ads").update(full_updates).eq("id", ad_id).execute()
-                print(f"Ad {ad_id} Analysis Complete. Type: {final_ad_type}")
+                print(f"Ad {ad_id} Analysis Complete. Type: {final_ad_type} (Score: {scoring.get('score')})")
                 return full_updates
 
             except Exception as e:
                 print(f"Master Analyzer Error for {ad_id}: {e}")
                 await log_error(ad_id, "master_script", str(e))
-                # Fallback persistence so queue consumer doesn't freeze
                 supabase.table("ads").update({
                     "ad_type": "Manual Review Required",
                     "deep_analyzed_at": "now()"
                 }).eq("id", ad_id).execute()
-                
                 return {"error": str(e)}
             finally:
-                if browser:
-                    await browser.close()
+                if browser: await browser.close()
 
 if __name__ == "__main__":
-    # Test single
     asyncio.run(deep_analyze_ad("test-id", "https://example.com", "Buy Now 50% Off"))

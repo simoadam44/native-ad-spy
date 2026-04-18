@@ -18,6 +18,8 @@ ALTER TABLE ads ADD COLUMN IF NOT EXISTS analysis_params JSONB;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS method TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS language TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS reasoning TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS classification_score INTEGER DEFAULT 0;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS classification_confidence TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS deep_analyzed_at TIMESTAMP;
 
 -- 2. Logs table for debugging analysis steps

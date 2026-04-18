@@ -1,102 +1,184 @@
 import re
 from urllib.parse import urlparse
 
-def classify_ad(url: str, title: str) -> dict:
+# --- Whitelists ---
+ARBITRAGE_DOMAINS = [
+    "independent.co.uk", "dailymail.co.uk", "mirror.co.uk",
+    "thesun.co.uk", "buzzfeed.com", "huffpost.com",
+    "msn.com", "yahoo.com", "cnn.com", "foxnews.com",
+    "breitbart.com", "thegatewaypundit.com",
+    "ancestry.com", "goodrx.com", "rocketmortgage.com",
+    "smartasset.com", "aarp.org", "verizon.com",
+    "libertymutual.com", "ring.com", "wisebread.com",
+    "herbeauty.co", "buzzday.info", "newsphere.jp",
+    "health7x24.com", "travelcaribou.com",
+    "gameswaka.com", "buzzfond.com", "ezzin.com",
+]
+
+def calculate_ad_score(url: str, title: str, final_url: str = None, page_content: str = "") -> dict:
     """
-    Classifies an ad as 'Affiliate', 'Arbitrage', or 'Unknown' 
-    using pattern matching on URL and Title signals.
+    Calculates a neutral score for ad classification.
+    Positive = Affiliate Signal
+    Negative = Arbitrage Signal
     """
-    url = url.lower()
-    title = title.lower()
+    score = 0
     signals = []
     
-    # --- A) URL-based Affiliate Signals ---
-    affiliate_params = [
-        "affid", "affiliate_id", "offid", "offer_id", "clickid",
-        "aff_sub", "subid", "s1=", "s2=", "s3=", "cid=", "pid=", "click_id"
-    ]
-    if any(param in url for param in affiliate_params):
-        signals.append("affiliate_params_in_url")
-        
-    affiliate_domains = [
-        "hop.clickbank.net", "trk.", "clk.", "go.", "redir.", "track.",
-        "voluum.com", "binom.org", "rdtk.io", "bemob.com", "keitaro.io", 
-        "thrivetracker.com", "redtrack.io"
-    ]
-    if any(domain in url for domain in affiliate_domains):
-        signals.append("affiliate_domain_pattern")
-
-    # --- B) URL-based Arbitrage Signals ---
-    # 1. Pagination Patterns (Mechanical Check)
-    pagination_pattern = r"(/(\d+)/?$|page/\d+|next-page|/p\d+/?$)"
-    if re.search(pagination_pattern, url):
-        signals.append("arbitrage_pagination_detected")
-
-    # 2. Domain-level Keywords
-    arbitrage_keywords = ["trending", "lifestyle", "news", "best-offer", "story", "viral", "article"]
-    domain = urlparse(url).netloc.lower()
-    if any(keyword in domain for keyword in arbitrage_keywords):
-        signals.append("arbitrage_domain_keyword_detected")
-
-    # 3. Parameter Patterns
-    arbitrage_params = ["utm_medium=native", "page=2", "p=2", "article", "story"]
-    if any(param in url for param in arbitrage_params):
-        signals.append("arbitrage_params_in_url")
-        
-    # --- C) Title Affiliate Patterns (Regex) ---
-    aff_title_patterns = [
-        r"\d+%\s*off", r"buy now", r"order now", r"get .+ for \$",
-        r"limited offer", r"only \d+ left", r"claim your",
-        r"lose \d+ lbs?", r"skin tag", r"blood sugar", r"keto"
-    ]
-    for pattern in aff_title_patterns:
-        if re.search(pattern, title):
-            signals.append(f"aff_title_pattern: {pattern}")
-            
-    # --- D) Title Arbitrage Patterns ---
-    arb_title_patterns = [
-        r"\d+ things", r"doctors hate", r"before you",
-        r"the truth about", r"why .+ is", r"you won't believe"
-    ]
-    for pattern in arb_title_patterns:
-        if re.search(pattern, title):
-            signals.append(f"arb_title_pattern: {pattern}")
-
-    # --- Classification Logic ---
-    aff_signals = [s for s in signals if "aff" in s]
-    arb_signals = [s for s in signals if "arb" in s]
+    url = (url or "").lower()
+    title = (title or "").lower()
+    final_url = (final_url or url).lower()
+    content_lower = (page_content or "").lower()
     
+    final_domain = urlparse(final_url).netloc.lower()
+    orig_domain = urlparse(url).netloc.lower()
+
+    # --- 1. Strong Affiliate Signals (+3) ---
+    aff_params = ["affid", "affiliate_id", "offid", "offer_id", "subid", "aff_sub", "clickid", "transaction_id"]
+    if any(p in final_url for p in aff_params):
+        score += 3
+        signals.append("final_url_has_aff_params (+3)")
+        
+    aff_paths = ["/landers/", "/landing/", "/offer/", "/checkout/", "/order/", "/sales/", "/presell/", "/prelander/", "/p_prel/", "/bridge/", "/go/"]
+    if any(p in final_url for p in aff_paths):
+        score += 3
+        signals.append("final_url_has_aff_path (+3)")
+        
+    # UUID in path (e.g. /f8ab584f-...)
+    if re.search(r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", final_url):
+        score += 3
+        signals.append("final_url_has_uuid_path (+3)")
+        
+    # Domain changed to health/supplement words
+    health_keywords = ["supplement", "formula", "relief", "remedy", "natural", "health", "cure", "detox", "keto", "slim"]
+    if final_domain != orig_domain and any(k in final_domain for k in health_keywords):
+        score += 3
+        signals.append("domain_change_to_health (+3)")
+
+    # --- 2. Medium Affiliate Signals (+2) ---
+    tracker_domains = ["revcontent.com/cv/", "taboola.com/cr/", "mgid.com/ghits", "voluum.com", "bemob.com", "rdtk.io"]
+    if any(t in url for t in tracker_domains):
+        score += 2
+        signals.append("original_url_is_tracker (+2)")
+        
+    if any(k in content_lower for k in ["buy now", "order now"]):
+        score += 2
+        signals.append("content_has_buy_intent (+2)")
+        
+    if re.search(r"\$\d+(\.\d{2})?", content_lower):
+        score += 2
+        signals.append("content_has_price_pattern (+2)")
+        
+    if any(t in final_domain for t in [".icu", ".biz", ".pro"]) and final_domain not in ARBITRAGE_DOMAINS:
+        score += 2
+        signals.append("affiliate_tld_detected (+2)")
+
+    # --- 3. Light Affiliate Signals (+1) ---
+    if any(p in url for p in aff_params):
+        score += 1
+        signals.append("orig_url_has_aff_params (+1)")
+        
+    if any(k in title for k in health_keywords):
+        score += 1
+        signals.append("title_has_health_keywords (+1)")
+
+    # --- 4. Counter Signals (Arbitrage) ---
+    if any(d in final_domain for d in ARBITRAGE_DOMAINS):
+        score -= 3
+        signals.append("final_domain_in_arbitrage_whitelist (-3)")
+        
+    arb_paths = ["/trending/", "/article/", "/list/", "/news/", "/blog/", "/story/", "/post/"]
+    if any(p in final_url for p in arb_paths) and any(d in final_domain for d in ARBITRAGE_DOMAINS):
+        score -= 3
+        signals.append("arbitrage_path_on_content_site (-3)")
+        
+    if "utm_source=" in final_url and "utm_medium=" in final_url:
+        score -= 2
+        signals.append("utm_tracking_detected (-2)")
+        
+    if any(k in content_lower for k in ["sponsored content", "advertisement", "you may also like"]):
+        score -= 2
+        signals.append("arbitrage_content_keywords (-2)")
+
+    # --- 5. Final Decision ---
     ad_type = "Unknown"
     confidence = "low"
-    method = "none"
     
-    if aff_signals and not arb_signals:
+    if score >= 3:
         ad_type = "Affiliate"
-        confidence = "high" if len(aff_signals) > 1 else "medium"
-        method = "both" if any("url" in s for s in aff_signals) and any("title" in s for s in aff_signals) else "url" if any("url" in s for s in aff_signals) else "title"
-    elif arb_signals and not aff_signals:
-        ad_type = "Arbitrage"
-        confidence = "high" if len(arb_signals) > 1 else "medium"
-        method = "both" if any("url" in s for s in arb_signals) and any("title" in s for s in arb_signals) else "url" if any("url" in s for s in arb_signals) else "title"
-    elif aff_signals and arb_signals:
-        # Mixed signals - usually an affiliate using arbitrage-style headlines
+        confidence = "high"
+    elif score >= 1:
         ad_type = "Affiliate"
         confidence = "medium"
-        method = "both"
-        
+    elif score <= -3:
+        ad_type = "Arbitrage"
+        confidence = "high"
+    elif score <= -1:
+        ad_type = "Arbitrage"
+        confidence = "medium"
+    else:
+        # Fallback to local content scan if score is 0
+        ad_type = local_content_classify(page_content, final_url)
+        confidence = "medium" if ad_type != "Unknown" else "low"
+
     return {
         "ad_type": ad_type,
+        "score": score,
         "confidence": confidence,
-        "signals": signals,
-        "method": method
+        "signals": signals
+    }
+
+def local_content_classify(page_content: str, final_url: str) -> str:
+    """
+    Local keyword-based classifier as a fallback for 0-score cases.
+    """
+    if not page_content:
+        return "Unknown"
+        
+    content_lower = page_content.lower()
+    
+    affiliate_keywords = [
+        "order now", "buy now", "add to cart",
+        "limited time offer", "money back guarantee",
+        "60-day guarantee", "satisfaction guaranteed",
+        "click here to order", "secure checkout",
+        "free shipping", "exclusive offer",
+        "as seen on", "doctor approved",
+        "clinical study", "proven formula"
+    ]
+    
+    arbitrage_keywords = [
+        "sponsored content", "advertisement",
+        "you may also like", "recommended for you",
+        "read more", "continue reading",
+        "comments", "share this article",
+        "related articles", "trending now"
+    ]
+    
+    aff_score = sum(1 for kw in affiliate_keywords if kw in content_lower)
+    arb_score = sum(1 for kw in arbitrage_keywords if kw in content_lower)
+    
+    if aff_score > arb_score and aff_score >= 2:
+        return "Affiliate"
+    elif arb_score > aff_score and arb_score >= 2:
+        return "Arbitrage"
+    else:
+        return "Unknown"
+
+# Compatibility wrapper for old calls
+def classify_ad(url: str, title: str) -> dict:
+    res = calculate_ad_score(url, title)
+    return {
+        "ad_type": res["ad_type"],
+        "confidence": res["confidence"],
+        "signals": res["signals"],
+        "score": res["score"]
     }
 
 if __name__ == "__main__":
-    # Tests
+    # Test cases
     test_cases = [
-        ("https://hop.clickbank.net/123", "Order Keto Gummies Now"),
-        ("https://news.com/article?utm_medium=native", "10 Things Doctors Hate"),
-        ("https://product.com/get?affid=99", "Buy This Product Today")
+        ("https://product.com", "Buy Keto Now", "https://melodyeu.com/landers/p_prel/123", "Price $49.99 Buy Now"),
+        ("https://revcontent.com/cv/123", "10 Celebs Who...", "https://independent.co.uk/news/123", "Trending Now related articles"),
     ]
-    for u, t in test_cases:
-        print(f"URL: {u} | Title: {t}\nResult: {classify_ad(u, t)}\n")
+    for u, t, fu, c in test_cases:
+        print(f"URL: {u} | Final: {fu}\nResult: {calculate_ad_score(u, t, fu, c)}\n")
