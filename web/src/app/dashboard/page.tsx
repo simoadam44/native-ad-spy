@@ -96,7 +96,15 @@ const TRACKER_COLORS: Record<string, string> = {
   "TikTok Pixel": "#444444", "No Tracking": "#6B7280",
 };
 
-const AD_TYPES = ["Affiliate", "Arbitrage", "Unknown"];
+const AD_TYPES = ["Affiliate", "Arbitrage", "Unknown", "Manual Review Required"];
+
+const AD_TYPE_CONFIG: Record<string, { color: string, icon: any, label: string, bg: string }> = {
+  "Affiliate": { color: "text-emerald-400", bg: "bg-emerald-500/20", icon: Target, label: "Affiliate" },
+  "Arbitrage": { color: "text-amber-400", bg: "bg-amber-500/20", icon: Flame, label: "Arbitrage" },
+  "Unknown": { color: "text-neutral-400", bg: "bg-neutral-500/10", icon: Search, label: "Unknown" },
+  "Manual Review Required": { color: "text-red-400", bg: "bg-red-500/20", icon: X, label: "Review" },
+};
+
 const PAGE_SUBTYPES = ["VSL", "Advertorial", "Direct Sales", "Quiz", "General LP"];
 const CLOAKING_TYPES = ["news_to_sales", "tracker_to_offer", "domain_change"];
 
@@ -142,7 +150,7 @@ export default function DashboardPage() {
   const loadAds = useCallback(async () => {
     setLoading(true);
     const offset = (page - 1) * PAGE_SIZE;
-    let query = supabase.from("ads").select("*", { count: "exact" });
+    let query = supabase.from("ads").select("*, classification_score", { count: "exact" });
 
     if (search) query = query.ilike("title", `%${search}%`);
     if (selectedNetworks.length > 0) {
@@ -366,17 +374,20 @@ export default function DashboardPage() {
             ))}
           </select>
 
-          <select
-            onChange={toggleAdType}
-            className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none"
-            value=""
-          >
-            <option value="" disabled>+ Ad Type</option>
-            <option value="all">All Types</option>
-            {AD_TYPES.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <div className="relative group/select">
+             <select
+              onChange={toggleAdType}
+              className="bg-neutral-900 border border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none appearance-none pr-8"
+              value=""
+            >
+              <option value="" disabled>+ Ad Type</option>
+              <option value="all">All Types</option>
+              {AD_TYPES.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="absolute right-3 top-3 text-neutral-600 pointer-events-none" />
+          </div>
 
           <select
             onChange={togglePageSubtype}
@@ -442,12 +453,15 @@ export default function DashboardPage() {
               <button onClick={() => removeTracker(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
             </span>
           ))}
-          {selectedAdTypes.map(name => (
-            <span key={name} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
-              <Zap size={10} className="text-amber-500" /> {name}
-              <button onClick={() => removeAdType(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
-            </span>
-          ))}
+          {selectedAdTypes.map(name => {
+            const config = AD_TYPE_CONFIG[name] || AD_TYPE_CONFIG["Unknown"];
+            return (
+              <span key={name} className={`flex items-center gap-1.5 ${config.bg} ${config.color} px-2 py-1 rounded text-[10px] font-bold border border-white/5`}>
+                <config.icon size={10} /> {name}
+                <button onClick={() => removeAdType(name)} className="hover:text-red-400 ml-1"><X size={10}/></button>
+              </span>
+            );
+          })}
           {selectedPageSubtypes.map(name => (
             <span key={name} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
               <Layout size={10} className="text-blue-400" /> {name}
@@ -568,17 +582,51 @@ export default function DashboardPage() {
                     {ad.title}
                   </h3>
                   <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/[0.03]">
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Flame size={10} className="text-primary" />
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Flame size={10} className="text-primary" />
+                        </div>
+                        <span className="text-[10px] font-black text-neutral-400 tracking-tight">
+                          {(ad.impressions || 0).toLocaleString()}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black text-neutral-400 tracking-tight">
-                        {(ad.impressions || 0).toLocaleString()}
-                      </span>
+                      
+                      {/* Evidence Score Meter */}
+                      {ad.classification_score !== undefined && Math.abs(ad.classification_score) > 0 && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex gap-0.5">
+                            {[...Array(5)].map((_, i) => (
+                              <div 
+                                key={i} 
+                                className={`w-1.5 h-1 rounded-full ${
+                                  i < Math.abs(ad.classification_score) ? (ad.classification_score > 0 ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-white/10'
+                                }`} 
+                              />
+                            ))}
+                          </div>
+                          <span className={`text-[8px] font-bold ${ad.classification_score > 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                            {ad.classification_score > 0 ? `+${ad.classification_score}` : ad.classification_score}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    <span className="text-[9px] font-bold text-neutral-600 uppercase tracking-tighter">
-                      {new Date(ad.created_at).toLocaleDateString("en", { month: "short", day: "numeric" })}
-                    </span>
+
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-[9px] font-bold text-neutral-600 uppercase tracking-tighter">
+                        {new Date(ad.created_at).toLocaleDateString("en", { month: "short", day: "numeric" })}
+                      </span>
+                      
+                      {/* Ad Type Mini Badge */}
+                      {ad.ad_type && (
+                         <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                           ad.ad_type === 'Affiliate' ? 'text-emerald-500 bg-emerald-500/10' : 
+                           ad.ad_type === 'Arbitrage' ? 'text-amber-500 bg-amber-500/10' : 'text-neutral-500 bg-white/5'
+                         }`}>
+                           {ad.ad_type}
+                         </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </motion.div>

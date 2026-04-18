@@ -273,14 +273,21 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                   </div>
                   <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
                     <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
-                      <Zap size={10} className="text-amber-500" /> Ad Type
+                      <Target size={10} className="text-amber-500" /> Ad Type
                     </p>
-                    <p className="text-xs font-bold text-white flex items-center gap-2">
-                      {ad.ad_type || "Unknown"}
-                      {ad.cloaking_type && ad.cloaking_type !== 'none' && (
-                        <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded border border-red-500/20">CLOAKED</span>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-white flex items-center gap-2">
+                        {ad.ad_type || "Unknown"}
+                        {ad.cloaking_type && ad.cloaking_type !== 'none' && (
+                          <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded border border-red-500/20">CLOAKED</span>
+                        )}
+                      </p>
+                      {ad.classification_score !== undefined && (
+                        <span className={`text-[10px] font-black ${ad.classification_score > 0 ? 'text-emerald-400' : ad.classification_score < 0 ? 'text-amber-400' : 'text-neutral-500'}`}>
+                          {ad.classification_score > 0 ? `+${ad.classification_score}` : ad.classification_score}
+                        </span>
                       )}
-                    </p>
+                    </div>
                   </div>
                   <div className="bg-neutral-900/60 border border-white/5 rounded-xl p-3 flex flex-col justify-center">
                     <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
@@ -332,6 +339,26 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                        )}
                     </div>
                   </div>
+
+                {/* Forensic Signals */}
+                {ad.analysis_params && ad.analysis_params.length > 0 && (
+                  <div className="bg-neutral-900/60 border border-white/5 rounded-2xl p-4">
+                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <Search size={12} className="text-primary" /> Forensic Evidence
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {ad.analysis_params.map((signal: string, i: number) => (
+                        <span key={i} className={`px-2 py-1 rounded-md text-[9px] font-bold border ${
+                          signal.includes('+') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                          signal.includes('-') ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                          'bg-white/5 text-neutral-400 border-white/5'
+                        }`}>
+                          {signal}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 </div>
 
 
