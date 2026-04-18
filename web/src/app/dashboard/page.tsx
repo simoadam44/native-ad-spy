@@ -7,7 +7,7 @@ import AdModal from "@/components/AdModal";
 import { 
   Flame, ExternalLink, BrainCircuit, Heart,
   TrendingUp, LayoutGrid, Globe, Search,
-  SlidersHorizontal, ChevronDown, X, Target
+  SlidersHorizontal, ChevronDown, X, Target, Layout
 } from "lucide-react";
 
 const NETWORKS = ["Taboola", "MGID", "Outbrain", "Revcontent"];
@@ -427,7 +427,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Filter Tags */}
-      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0) && (
+      {(selectedCountries.length > 0 || selectedLanguages.length > 0 || selectedAffiliates.length > 0 || selectedTrackers.length > 0 || selectedAdTypes.length > 0 || selectedPageSubtypes.length > 0) && (
         <div className="flex flex-wrap gap-2">
           {selectedCountries.map(code => (
             <span key={code} className="flex items-center gap-1.5 bg-neutral-800 text-white px-2 py-1 rounded text-[10px] font-bold border border-white/5">
