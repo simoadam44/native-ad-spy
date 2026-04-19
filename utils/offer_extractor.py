@@ -56,6 +56,24 @@ TRACKER_SIGNATURES = {
         "url_patterns": ["digistore24", "aff=", "ds24"],
         "priority": "high"
     },
+    "Everflow": {
+        "domains": ["everflowclient.io", "serving-sys.com"],
+        "params": ["ef_id"],
+        "url_patterns": ["ef_id="],
+        "priority": "high" # Strong affiliate link signature
+    },
+    "RedTrack": {
+        "domains": ["rdtk.io", "redtrack.io"],
+        "params": ["cmpid", "sub1"],
+        "url_patterns": ["rdtk.io"],
+        "priority": "high"
+    },
+    "CAKE": {
+        "domains": ["voluum.com"], # CAKE often uses custom domains, relies on params
+        "params": ["a", "c", "s1", "s2", "ck"],
+        "url_patterns": ["/p.ashx?", "/c.ashx?", "ck="],
+        "priority": "high"
+    },
     "Custom/In-house Tracker": {
         "domains": [],
         "params": ["lptoken", "lp_token", "lpt", "tracking_id", "trk_id", "trkid", "pixel_id", "px_id"],

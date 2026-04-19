@@ -4,8 +4,18 @@ import re
 from urllib.parse import urlparse
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
-from utils.url_blacklist import is_meaningful_url
+from utils.url_blacklist import is_meaningful_url, is_intermediary_domain
 import tldextract
+
+async def wait_for_actual_landing(page, max_wait=10000):
+    """Waits for network to settle, especially if currently on a tracking domain."""
+    try:
+        await page.wait_for_load_state("networkidle", timeout=max_wait)
+        waited = 0
+        while is_intermediary_domain(page.url) and waited < 15000:
+            await asyncio.sleep(1.0)
+            waited += 1000
+    except: pass
 
 async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
@@ -69,7 +79,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                         cta_element = el
                         cta_text = txt
                         break
-                    elif stage >= 2 and len(txt) >= 3:
+                    elif stage >= 2:
                         cta_element = el
                         cta_text = txt
                         break
@@ -77,77 +87,65 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             except: continue
         if cta_element: break
 
-    if not cta_element:
-        # Cleanup
-        await page.unroute("**/*")
-        page.remove_listener("request", on_request)
-        page.remove_listener("response", on_response)
-        return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": []}
+    # 3. Perform the click
+    final_offer_url = page.url
+    redirect_chain = []
+    cta_found = False
 
-    # 3. Perform Click with Interception
-    try:
-        # Hardened scroll check
+    if cta_element:
         try:
-            await cta_element.scroll_into_view_if_needed(timeout=5000)
-        except Exception as se:
-            print(f"Non-fatal scroll error: {se}")
+            cta_found = True
+            # Scroll into view with timeout
+            try:
+                await cta_element.scroll_into_view_if_needed(timeout=5000)
+            except Exception as se:
+                print(f"Non-fatal scroll error: {se}")
             
-        await asyncio.sleep(random.uniform(0.5, 1.0))
-        
-        # Click
-        await cta_element.click()
-        
-        # Wait logic
-        try:
-            await page.wait_for_load_state("networkidle", timeout=10000)
-        except: pass
-        
-        # 4. Filter and Build Redirect Chain
-        SKIP_PATTERNS = [
-            "google-analytics", "googletagmanager", "facebook.net",
-            "clarity.ms", "bing.com/bat", "doubleclick",
-            "cdn.", "fonts.", "static.", "assets.",
-            ".css", ".js", ".png", ".jpg", ".gif", ".woff", ".svg"
-        ]
-        
-        meaningful_urls = []
-        for r in all_responses:
-            url = r["url"]
-            if (300 <= r["status"] < 400 or (r["status"] == 200 and "?" in url)):
-                if not any(skip in url.lower() for skip in SKIP_PATTERNS):
-                    if url not in meaningful_urls:
-                        meaningful_urls.append(url)
-        
-        return {
-            "cta_found": True,
-            "cta_text": cta_text,
-            "final_offer_url": page.url,
-            "redirect_chain": meaningful_urls,
-            "final_page_title": await page.title()
-        }
+            # Click and wait for navigation or network
+            try:
+                await cta_element.click(timeout=5000, force=True)
+            except Exception as click_err:
+                # Fallback to JavaScript click directly if Playwright's click fails (e.g., hidden by overlay)
+                await cta_element.evaluate("el => el.click()")
+            
+            try:
+                await wait_for_actual_landing(page, 10000)
+            except: pass
+            
+            final_offer_url = page.url
+            # Filter clean redirect chain from all_requests
+            redirect_chain = [r["url"] for r in all_requests if r["url"] != final_offer_url]
+            
+        except Exception as e:
+            print(f"CTA Interception Error for {page.url}: {e}")
 
-    except Exception as e:
-        print(f"CTA Interception Error for {page.url}: {e}")
-    finally:
-        try:
-            await page.unroute("**/*")
-            page.remove_listener("request", on_request)
-            page.remove_listener("response", on_response)
-        except: pass
-
-    return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": []}
+    return {
+        "cta_found": cta_found,
+        "cta_text": cta_text,
+        "final_offer_url": final_offer_url,
+        "redirect_chain": redirect_chain
+    }
 
 async def analyze_page_structure(page) -> dict:
-    """Detects Arbitrage page elements: pagination, ad density, content format."""
+    """Detects pagination, galleries, and high ad density."""
     try:
         content = await page.content()
         url = page.url.lower()
         
-        is_paginated = bool(re.search(r'/\d+/?$', url))
-        
+        # Pagination indicators
+        pagination_selectors = [".pagination", ".next-page", ".slideshow-nav", "[class*='pagination']", "[class*='next']"]
+        is_paginated = False
+        for sel in pagination_selectors:
+            try:
+                if await page.query_selector(sel):
+                    is_paginated = True
+                    break
+            except: pass
+            
+        # Ad container signatures
         ad_selectors = [
-            "[class*='taboola']", "[id*='taboola']",
-            "[class*='outbrain']", "[class*='revcontent']",
+            "[id*='google_ads']", ".adsbygoogle", "[id*='taboola']", "[id*='outbrain']",
+            "[class*='taboola']", "[class*='outbrain']", "[class*='revcontent']",
             ".adsbygoogle", "[class*='dfp']"
         ]
         ad_count = 0
@@ -186,7 +184,8 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         "cta_text": None,
         "cloaking": {},
         "popups": {},
-        "text_content": ""
+        "text_content": "",
+        "full_html": ""
     }
 
     try:
@@ -206,6 +205,9 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             
         page.on("response", handle_response)
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        
+        await wait_for_actual_landing(page, 15000)
+        
         await page.mouse.wheel(0, 500)
         await asyncio.sleep(1.0)
 
@@ -214,6 +216,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         try: text_content = await page.evaluate("document.body.innerText")
         except: text_content = ""
         result["text_content"] = text_content
+        result["full_html"] = content
         
         result["has_video"] = bool(await page.query_selector("video") or "youtube.com/embed" in content)
         result["has_countdown"] = bool(await page.query_selector("[class*='timer'], [id*='timer']"))

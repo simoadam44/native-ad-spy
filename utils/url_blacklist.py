@@ -48,6 +48,18 @@ AD_TECH_DOMAINS = [
 ]
 
 # ══════════════════════════════════════
+# BLACKLIST: Intermediary Ad Network Click Trackers
+# ══════════════════════════════════════
+INTERMEDIARY_DOMAINS = [
+    "revcontent.com", "smeagol.revcontent.com",
+    "idealmedia.io", "clck.idealmedia.io",
+    "mgid.com", "clck.mgid.com", "adskeeper.co.uk", "clck.adskeeper.com",
+    "taboola.com", "trc.taboola.com",
+    "outbrain.com", "traffic.outbrain.com", "paid.outbrain.com",
+    "yahoo.com/p?prd=",
+]
+
+# ══════════════════════════════════════
 # BLACKLIST B: URL Patterns to ignore
 # Match against full URL string
 # ══════════════════════════════════════
@@ -118,10 +130,21 @@ def is_meaningful_url(url: str) -> bool:
     for blocked_domain in AD_TECH_DOMAINS:
         if blocked_domain in domain:
             return False
-    
+            
     # Rule 2: Check URL pattern blacklist
     for pattern in AD_TECH_URL_PATTERNS:
         if pattern in url_lower:
             return False
     
     return True
+
+def is_intermediary_domain(url: str) -> bool:
+    """Returns True if the URL is an ad network click tracker (e.g. revcontent.com, clck.mgid.com)."""
+    if not url: return False
+    from urllib.parse import urlparse
+    domain = urlparse(url.lower()).netloc
+    for intermediary in INTERMEDIARY_DOMAINS:
+        if intermediary in domain:
+            return True
+    return False
+    

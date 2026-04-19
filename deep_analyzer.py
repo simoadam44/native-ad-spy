@@ -31,6 +31,9 @@ async def save_classification(ad_id: int, classification: dict):
             "detected_ad_networks": classification.get("detected_ad_networks", []),
             "needs_review": classification.get("needs_review", False)
         }
+        if "landing" in classification:
+            updates["landing"] = classification["landing"]
+
         
         try:
             supabase.table("ads").update(updates).eq("id", aid).execute()
@@ -84,7 +87,8 @@ async def classify_with_full_context(
     # 1. Instant Affiliate Scan (Heuristic but strong)
     STRONG_AFFILIATE_PARAMS = [
         "hop=", "hopId=", "affid=", "aff_id=", "affiliate_id=", 
-        "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id="
+        "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
+        "rc_uuid=", "utm_source=", "utm_medium=", "boost_id=", "widget_id="
     ]
     is_aff_param_found = any(p in url_lower for p in STRONG_AFFILIATE_PARAMS)
     
@@ -92,7 +96,7 @@ async def classify_with_full_context(
     fingerprint = get_ad_network_fingerprints(page_content)
     
     if fingerprint["found"]:
-        # INSTANT ARBITRAGE (User Requirement: Explicit container presence = Instant Classification)
+        # INSTANT ARBITRAGE
         return {
             "ad_type": "Arbitrage",
             "confidence": "high",
@@ -102,10 +106,7 @@ async def classify_with_full_context(
             "skip_deep_analysis": True
         }
 
-    # If we reached here, NO major ad network was found.
-    # Per User requirement: NO fingerprint = NO Arbitrage.
-    
-    # Check for Affiliate signals
+    # Search in Affiliate params
     if is_aff_param_found:
         return {
             "ad_type": "Affiliate",
@@ -115,7 +116,7 @@ async def classify_with_full_context(
             "skip_deep_analysis": False
         }
 
-    # Page Structure signals (Slideshow, density) but NO fingerprint
+    # Page Structure signals
     is_paginated = page_structure.get("is_paginated", False)
     page_number = page_structure.get("page_number", 1)
     high_ad_density = page_structure.get("high_ad_density", False)
@@ -130,7 +131,7 @@ async def classify_with_full_context(
             "skip_deep_analysis": False
         }
 
-    # 4. Clean Redirect Chain Analysis (Deep Intel)
+    # 4. Clean Redirect Chain Analysis
     if len(clean_redirect_chain) > 0:
         intelligence = extract_offer_intelligence(
             final_url=clean_redirect_chain[-1],
@@ -147,7 +148,7 @@ async def classify_with_full_context(
                 "skip_deep_analysis": False
             }
 
-    # 5. Content Scoring (Final check)
+    # 5. Content Scoring
     score_check = calculate_ad_score(landing_url, title, final_url, page_content)
     if score_check["ad_type"] == "Affiliate":
         return {
@@ -189,11 +190,12 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 final_url=final_url,
                 clean_redirect_chain=clean_redirect_chain,
                 page_structure=page_structure,
-                page_content=page_content,
+                page_content=lp_result.get("full_html", page_content),
                 ad_id=ad_id
             )
             
             final_ad_type = classification["ad_type"]
+            classification["landing"] = final_url
             
             # 3. Final Persistence & Intel Gathering
             if classification.get("skip_deep_analysis"):
@@ -225,6 +227,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 "ad_type": final_ad_type,
                 "classification_confidence": classification.get("confidence"),
                 "classification_reason": classification.get("reason"),
+                "landing": final_url,  # The actual resolved landing page
                 "final_offer_url": intelligence.get("final_offer_url") or click_result.get("final_offer_url") or page.url,
                 "offer_domain": intelligence.get("offer_domain"),
                 "affiliate_network": intelligence.get("affiliate_network"),

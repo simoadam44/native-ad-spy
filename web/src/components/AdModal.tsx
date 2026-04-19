@@ -227,61 +227,63 @@ export default function AdModal({ ad, isOpen, onClose }: AdModalProps) {
                     </div>
                   </div>
 
-                  <div className="p-4">
-                    <div className="space-y-3">
-                      <div className="group hover:bg-white/[0.02] transition-colors p-3 rounded-xl border border-white/5 bg-black/20">
-                        <div className="flex items-center gap-3 mb-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
-                            <Layout size={14} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                             <div className="flex items-center justify-between gap-2">
-                               <p className="text-[11px] font-bold text-white truncate" title={ad.landing}>{ad.landing}</p>
-                               <span className={`px-1.5 py-0.5 rounded-[4px] text-[8px] font-black uppercase ${ad.network === 'Taboola' || ad.network === 'TABOOLA' ? 'bg-blue-600/80' : ad.network === 'MGID' ? 'bg-purple-600/80' : 'bg-orange-600/80'} text-white`}>
-                                {ad.ad_type || "Ad"}
-                              </span>
-                             </div>
-                             {ad.final_offer_url && (
-                               <p className="text-[9px] text-emerald-400 mt-1 truncate font-bold" title={ad.final_offer_url}>
-                                 🎯 Offer: {ad.final_offer_url}
-                               </p>
-                             )}
-                             <p className="text-[9px] text-neutral-500 mt-0.5">
-                               {ad.first_seen ? `${new Date(ad.first_seen).toLocaleDateString()} .. ` : "Discovery .. "}
-                               {new Date().toLocaleDateString()}
-                             </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2.5 border-t border-white/5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex flex-col">
-                              <span className="text-[8px] font-black text-neutral-600 uppercase">Shows</span>
-                              <span className="text-xs font-bold text-neutral-300">{ad.impressions || 1}</span>
-                            </div>
-                            <div className="w-px h-6 bg-white/5 mx-1" />
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => window.open(ad.landing, '_blank')} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
-                                <Search size={12} />
-                              </button>
-                              <button onClick={() => copyToClipboard(ad.landing)} className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md">
-                                <Copy size={12} />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <button className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase rounded-lg transition-all flex items-center gap-1 group/btn border border-emerald-400/20 shadow-lg shadow-emerald-900/40">
-                              <Download size={11} className="group-hover/btn:scale-110 transition-transform" />
-                              Zip
-                            </button>
-                            <button onClick={() => resolveAndVisit(ad.landing, ad.source)} className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-all border border-emerald-500/20" title="Show Preview">
-                              <Eye size={13} />
-                            </button>
-                          </div>
+                  <div className="p-4 space-y-4">
+                    {/* Landing Page Link */}
+                    <div className="group hover:bg-white/[0.02] transition-colors p-3 rounded-xl border border-white/5 bg-black/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[9px] font-black text-neutral-500 uppercase tracking-widest">Landing Page</span>
+                        <div className="flex items-center gap-1.5">
+                          <button 
+                            onClick={() => copyToClipboard(ad.landing)} 
+                            className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md"
+                            title="Copy Landing URL"
+                          >
+                            {copied === ad.landing ? <CheckCircle2 size={12} className="text-green-500" /> : <Copy size={12} />}
+                          </button>
+                          <button 
+                            onClick={() => window.open(ad.landing, '_blank')} 
+                            className="p-1.5 text-neutral-500 hover:text-emerald-400 transition-colors bg-white/5 rounded-md"
+                            title="Open Link"
+                          >
+                            <ExternalLink size={12} />
+                          </button>
                         </div>
                       </div>
+                      <p className="text-[11px] font-medium text-neutral-400 truncate font-mono select-all pr-2" title={ad.landing}>
+                        {ad.landing}
+                      </p>
                     </div>
+
+                    {/* Offer Page Link (Affiliate ONLY) */}
+                    {ad.ad_type === 'Affiliate' && ad.final_offer_url && (
+                      <div className="group hover:bg-emerald-400/[0.02] transition-colors p-3 rounded-xl border border-emerald-500/10 bg-emerald-500/5">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <Zap size={10} className="text-emerald-500" />
+                            <span className="text-[9px] font-black text-emerald-500/70 uppercase tracking-widest">Final Offer Destination</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button 
+                              onClick={() => copyToClipboard(ad.final_offer_url)} 
+                              className="p-1.5 text-emerald-500/40 hover:text-emerald-400 transition-colors bg-emerald-500/5 rounded-md"
+                              title="Copy Offer URL"
+                            >
+                              {copied === ad.final_offer_url ? <CheckCircle2 size={12} className="text-green-500" /> : <Copy size={12} />}
+                            </button>
+                            <button 
+                              onClick={() => window.open(ad.final_offer_url, '_blank')} 
+                              className="p-1.5 text-emerald-500/40 hover:text-emerald-400 transition-colors bg-emerald-500/5 rounded-md"
+                              title="Open Offer Link"
+                            >
+                              <ExternalLink size={12} />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-[11px] font-bold text-emerald-400 truncate pr-2" title={ad.final_offer_url}>
+                          {ad.final_offer_url}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </section>
 

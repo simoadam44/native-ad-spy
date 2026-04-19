@@ -74,7 +74,6 @@ def calculate_ad_score(url: str, title: str, final_url: str = None, page_content
         ad_type = "Affiliate"
         confidence = "medium"
     elif score <= -3:
-        # Note: Even if score is negative, deep_analyzer enforces STRICT rule.
         ad_type = "Arbitrage"
         confidence = "medium"
     else:
@@ -117,14 +116,15 @@ def get_ad_network_fingerprints(page_content: str) -> dict:
         "Taboola": {
             "patterns": [
                 "cdn.taboola.com/libtrc", "_taboola.push", "trc.taboola.com",
-                "taboola-below-article", "taboola-right-rail", "data-taboola-placeholder"
+                "taboola-below-article", "taboola-right-rail", "data-taboola-placeholder",
+                "aria-label=\"image for taboola advertising unit\"", "trc_", "am-wf.taboola.com"
             ], 
             "confidence": "high"
         },
         "Outbrain": {
             "patterns": [
                 "widgets.outbrain.com", "ob-widget", "data-ob-mark=",
-                "outbrain-widget", "OUTBRAIN"
+                "outbrain-widget", "OUTBRAIN", "aria-label=\"outbrain\""
             ], 
             "confidence": "high"
         },
