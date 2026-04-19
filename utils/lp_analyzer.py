@@ -51,41 +51,75 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
         await route.continue_()
     await page.route("**/*", handle_route)
 
-    # 2. Find CTA
+    # 2. Find CTA with Heuristic Scoring and Bottom Scrolling
     cta_element = None
     cta_text = "Unknown"
     
-    social_domains = ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"]
-    keywords = ["order", "get", "buy", "claim", "shop", "discount", "check", "haz clic", "obtener", "طلب"]
-    selectors = ["a", "button", "[role='button']", "input[type='button']", "input[type='submit']"]
+    # Pre-emptively scroll the page to ensure lazy-loaded CTAs (like bottom article buttons) are loaded
+    try:
+        for _ in range(5):
+            await page.mouse.wheel(0, 1000)
+            await asyncio.sleep(0.3)
+    except: pass
     
-    for stage in range(4):
-        if stage == 1:
-            await asyncio.sleep(1.0)
-            try: await page.wait_for_load_state("networkidle", timeout=5000)
-            except: pass
-        
-        for f in page.frames:
-            try:
-                elements = await f.query_selector_all(", ".join(selectors)) if stage < 2 else \
-                           await f.query_selector_all('[class*="btn"], [class*="button"], [class*="cta"]')
-                
-                for el in elements:
+    social_domains = ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"]
+    keywords = ["click here", "watch", "video", "buy", "order", "get", "claim", "shop", "discount", "check", "haz clic", "obtener", "طلب", "klicken", "voir", "guardar", "sehen"]
+    selectors = "a, button, [role='button'], input[type='button'], input[type='submit'], [class*='btn'], [class*='button'], [class*='cta']"
+    
+    best_el = None
+    best_score = -1
+    best_text = ""
+
+    for f in page.frames:
+        try:
+            elements = await f.query_selector_all(selectors)
+            for el in elements:
+                try:
                     txt = (await el.inner_text() or "").strip()
                     href = (await el.get_attribute("href") or "").lower()
-                    if any(s in href for s in social_domains): continue
+                    class_attr = (await el.get_attribute("class") or "").lower()
                     
-                    if stage < 2 and any(k in txt.lower() for k in keywords):
-                        cta_element = el
-                        cta_text = txt
-                        break
-                    elif stage >= 2:
-                        cta_element = el
-                        cta_text = txt
-                        break
-                if cta_element: break
-            except: continue
-        if cta_element: break
+                    if not txt and not href and not class_attr:
+                        continue
+                        
+                    txt_lower = txt.lower()
+                    score = 0
+                    
+                    # Penalize social media or internal anchors
+                    if any(s in href for s in social_domains):
+                        score -= 50
+                    if href.startswith("#") or href == "/" or "void(0)" in href:
+                        score -= 5
+                        
+                    # Reward high-intent keywords
+                    for k in keywords:
+                        if k in txt_lower:
+                            score += 15
+                            
+                    # Reward typical CTA class names 
+                    if "btn" in class_attr or "button" in class_attr or "cta" in class_attr:
+                        score += 5
+                        
+                    # Reward external or tracking-like hrefs
+                    if href and not href.startswith("#") and "facebook" not in href:
+                        score += 5
+                        
+                    # Reward descriptive but concise text
+                    if 5 < len(txt) < 50:
+                        score += 2
+                        
+                    if score > best_score and score > 0:
+                        best_score = score
+                        best_el = el
+                        best_text = txt
+                except:
+                    continue
+        except:
+            continue
+            
+    if best_el:
+        cta_element = best_el
+        cta_text = best_text
 
     # 3. Perform the click
     final_offer_url = page.url
