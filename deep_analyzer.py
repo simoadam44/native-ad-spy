@@ -7,6 +7,7 @@ from playwright_stealth import Stealth
 from supabase import create_client
 from langdetect import detect
 
+from urllib.parse import urlparse
 from utils.ad_classifier import calculate_ad_score, is_arbitrage_site
 from utils.url_resolver import resolve_real_url
 from utils.offer_extractor import extract_offer_intelligence
@@ -22,6 +23,25 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 MAX_CONCURRENT = 3
 semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
+async def check_knowledge_base(landing_url: str) -> dict:
+    """
+    Checks if we have a manual override for this domain.
+    """
+    try:
+        domain = urlparse(landing_url).netloc.lower()
+        res = supabase.table("forensic_feedback").select("*").eq("domain", domain).execute()
+        if res.data and len(res.data) > 0:
+            kb = res.data[0]
+            print(f"🧠 Knowledge Base Match: {domain} is {kb['forced_type']}")
+            return {
+                "ad_type": kb["forced_type"],
+                "confidence": "high",
+                "reason": "knowledge_base_override"
+            }
+    except Exception as e:
+        print(f"KB Check Error: {e}")
+    return None
+
 async def log_error(ad_id, step, message):
     try:
         supabase.table("analysis_logs").insert({
@@ -31,7 +51,6 @@ async def log_error(ad_id, step, message):
         }).execute()
     except:
         pass
-
 async def classify_with_full_context(
     landing_url: str,
     title: str,
@@ -44,6 +63,12 @@ async def classify_with_full_context(
     """
     Final decision tree to distinguish Arbitrage from Affiliate.
     """
+    # [NEW] Knowledge Base Override Check
+    # If the domain is manually verified, use that classification
+    kb_match = await check_knowledge_base(landing_url)
+    if kb_match:
+        return kb_match
+
     url_lower = landing_url.lower()
     final_url_lower = final_url.lower()
 

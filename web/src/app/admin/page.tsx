@@ -34,7 +34,7 @@ export default function AdminPage() {
   useEffect(() => {
     async function loadData() {
       const { data: u } = await supabase.from("users").select("*").order("created_at", { ascending: false });
-      const { data: a } = await supabase.from("ads").select("*").limit(10);
+      const { data: a } = await supabase.from("ads").select("*").limit(20).order("created_at", { ascending: false });
       setUsers(u || []);
       setAds(a || []);
       setLoading(false);
@@ -46,6 +46,7 @@ export default function AdminPage() {
     { id: "overview", label: "Overview", icon: Activity },
     { id: "users", label: "Users", icon: Users },
     { id: "review", label: "Review Queue", icon: ShieldCheck },
+    { id: "lab", label: "Teaching Lab", icon: Zap },
     { id: "subs", label: "Subscriptions", icon: CreditCard },
     { id: "ads", label: "Ads Health", icon: Database },
     { id: "crawler", label: "Crawler Hub", icon: Terminal },
@@ -314,7 +315,7 @@ export default function AdminPage() {
                   ))}
                 </tbody>
               </table>
-              {ads.length === 0 && (
+              {ads.filter(a => a.needs_review || (a.ad_type === 'Affiliate' && !a.affiliate_network)).length === 0 && (
                 <div className="p-20 text-center text-neutral-600">
                    <CheckCircle2 size={48} className="mx-auto mb-4 opacity-10" />
                    <p className="text-sm font-bold uppercase tracking-widest">Queue is clear</p>
@@ -323,28 +324,111 @@ export default function AdminPage() {
             </div>
           )}
 
+          {activeTab === "lab" && (
+             <div className="space-y-8">
+               <div className="bg-card border border-border p-8 rounded-3xl relative overflow-hidden">
+                 <div className="flex items-center gap-3 mb-6 relative z-10">
+                    <Zap className="text-amber-400" size={24} />
+                    <div>
+                      <h2 className="text-xl font-bold font-syne uppercase text-white/90">Forensic Knowledge Base</h2>
+                      <p className="text-neutral-500 text-xs font-medium">Correction results here "teach" the tool to recognize domains correctly in the future.</p>
+                    </div>
+                 </div>
+                 <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/5 blur-[100px] -mr-32 -mt-32" />
+
+                 <div className="bg-neutral-900/50 border border-border rounded-2xl overflow-hidden shadow-inner">
+                   <table className="w-full text-left">
+                     <thead>
+                       <tr className="text-[10px] font-black text-neutral-500 uppercase tracking-widest border-b border-border bg-neutral-900">
+                         <th className="px-6 py-4">Creative / Domain</th>
+                         <th className="px-6 py-4">AI Prediction</th>
+                         <th className="px-6 py-4 text-right pr-6">Human Correction</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-border text-sm">
+                        {ads.slice(0, 15).map((ad) => (
+                         <tr key={ad.id} className="hover:bg-white/5 transition-colors group">
+                           <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-white/5 shadow-sm">
+                                   <img src={ad.image_url} className="w-full h-full object-cover" />
+                                </div>
+                                <div className="min-w-0">
+                                   <p className="font-bold text-xs truncate max-w-[200px] text-neutral-200">{ad.title}</p>
+                                   <p className="text-[10px] text-neutral-600 font-mono italic truncate">{ad.offer_domain || 'Unknown Domain'}</p>
+                                </div>
+                              </div>
+                           </td>
+                           <td className="px-6 py-4">
+                              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${ad.ad_type === 'Affiliate' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-blue-500/10 text-blue-500 border-blue-500/20'}`}>
+                                {ad.ad_type}
+                              </span>
+                           </td>
+                           <td className="px-6 py-4 text-right pr-6">
+                              <div className="flex justify-end gap-2">
+                                <button 
+                                  className="px-4 py-1.5 bg-emerald-500/10 border border-emerald-500/50 text-emerald-500 text-[10px] font-black uppercase rounded-lg hover:bg-emerald-500 hover:text-white transition-all transform active:scale-95 shadow-sm"
+                                  onClick={async () => {
+                                      const domain = ad.offer_domain || (ad.landing ? new URL(ad.landing).hostname : null);
+                                      if (!domain) {
+                                          alert("No domain detected for this ad.");
+                                          return;
+                                      }
+                                      await supabase.from("forensic_feedback").upsert({ domain, forced_type: 'Affiliate', notes: 'Manual correction' });
+                                      await supabase.from("ads").update({ ad_type: 'Affiliate', classification_confidence: 'high', classification_reason: 'knowledge_base_override (manual_correction)', needs_review: false }).eq("id", ad.id);
+                                      alert(`Learned: ${domain} is Affiliate`);
+                                  }}
+                                >
+                                  Affiliate
+                                </button>
+                                <button 
+                                  className="px-4 py-1.5 bg-blue-500/10 border border-blue-500/50 text-blue-500 text-[10px] font-black uppercase rounded-lg hover:bg-blue-500 hover:text-white transition-all transform active:scale-95 shadow-sm"
+                                  onClick={async () => {
+                                      const domain = ad.offer_domain || (ad.landing ? new URL(ad.landing).hostname : null);
+                                      if (!domain) {
+                                          alert("No domain detected for this ad.");
+                                          return;
+                                      }
+                                      await supabase.from("forensic_feedback").upsert({ domain, forced_type: 'Arbitrage', notes: 'Manual correction' });
+                                      await supabase.from("ads").update({ ad_type: 'Arbitrage', classification_confidence: 'high', classification_reason: 'knowledge_base_override (manual_correction)', needs_review: false }).eq("id", ad.id);
+                                      alert(`Learned: ${domain} is Arbitrage`);
+                                  }}
+                                >
+                                  Arbitrage
+                                </button>
+                              </div>
+                           </td>
+                         </tr>
+                        ))}
+                     </tbody>
+                   </table>
+                 </div>
+                 {ads.length === 0 && <div className="py-20 text-center text-neutral-600 font-bold uppercase tracking-widest text-xs">No ads analyzed recently</div>}
+               </div>
+             </div>
+          )}
+
           {activeTab === "settings" && (
             <div className="max-w-2xl bg-card border border-border rounded-3xl p-8 space-y-8">
                <div className="space-y-4">
                  <label className="text-xs font-black uppercase tracking-widest text-neutral-500">Site Configuration</label>
                  <div className="space-y-2">
-                    <p className="text-xs font-bold px-1">Platform Name</p>
-                    <input type="text" defaultValue="Native Spy" className="w-full bg-neutral-900 border border-border rounded-xl px-4 py-3 outline-none focus:border-primary transition-all" />
+                    <p className="text-xs font-bold px-1 text-neutral-400">Platform Name</p>
+                    <input type="text" defaultValue="Native Spy" className="w-full bg-neutral-900 border border-border rounded-xl px-4 py-3 outline-none focus:border-primary transition-all text-sm font-bold text-white shadow-inner" />
                  </div>
                  <div className="flex items-center justify-between p-4 bg-neutral-900 border border-border rounded-2xl">
                     <div>
-                       <p className="text-sm font-bold">Maintenance Mode</p>
+                       <p className="text-sm font-bold text-neutral-200">Maintenance Mode</p>
                        <p className="text-[10px] text-neutral-500">Locks the platform for user access during updates.</p>
                     </div>
-                    <div className="w-12 h-6 bg-neutral-800 rounded-full cursor-pointer p-1 relative border border-border">
+                    <div className="w-12 h-6 bg-neutral-800 rounded-full cursor-pointer p-1 relative border border-border shadow-inner">
                        <div className="w-4 h-4 bg-neutral-600 rounded-full" />
                     </div>
                  </div>
                </div>
-
                <div className="pt-8 border-t border-border flex justify-end">
-                  <button className="bg-primary hover:bg-primary/90 text-white font-bold py-3 px-10 rounded-xl transition-all">
-                    SAVE CHANGES
+                  <button className="bg-primary hover:bg-primary/90 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl shadow-primary/30 uppercase tracking-[0.2em] text-[10px]">
+                    Save Changes
                   </button>
                </div>
             </div>
