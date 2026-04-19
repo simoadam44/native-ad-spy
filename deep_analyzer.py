@@ -44,10 +44,22 @@ async def classify_with_full_context(
     """
     Final decision tree to distinguish Arbitrage from Affiliate.
     """
-    # 1. Quick Affiliate Parameter Check (Strong Signal)
-    aff_params = ["affid", "affiliate_id", "offid", "offer_id", "hop", "cbid"]
-    if any(p in final_url.lower() for p in aff_params):
-        return {"ad_type": "Affiliate", "confidence": "high", "reason": "aff_params_in_final_url"}
+    url_lower = landing_url.lower()
+    final_url_lower = final_url.lower()
+
+    # 0. Professional Affiliate Footprint (Highest Priority)
+    # If the URL contains both an lptoken and a campaign ID, it's almost certainly professional affiliate tracking
+    if "lptoken=" in url_lower or ("utm_campaign=" in url_lower and "content_id=" in url_lower):
+        return {
+            "ad_type": "Affiliate",
+            "confidence": "high",
+            "reason": "professional_affiliate_tracking_detected"
+        }
+
+    # 1. Traditional Affiliate Parameter Check
+    aff_params = ["affid=", "affiliate_id=", "offid=", "offer_id=", "hop=", "cbid=", "clickbank"]
+    if any(p in final_url_lower for p in aff_params) or any(p in url_lower for p in aff_params):
+        return {"ad_type": "Affiliate", "confidence": "high", "reason": "aff_params_detected"}
 
     # 2. Structural Arbitrage Checks
     if page_structure.get("is_paginated"):
@@ -211,7 +223,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "has_video": lp_result.get("has_video"),
                     "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
                     "language": detected_lang,
-                    "analysis_params": scoring.get("signals"),
+                    "analysis_params": orig_scoring.get("signals"),
                     "deep_analyzed_at": "now()"
                 }
                 

@@ -52,8 +52,7 @@ def resolve_real_url(url: str) -> str:
             url, 
             headers=headers, 
             allow_redirects=True, 
-            timeout=10,
-            max_redirects=5
+            timeout=10
         )
         return response.url
     except Exception as e:

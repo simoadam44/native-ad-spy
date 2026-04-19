@@ -78,8 +78,16 @@ AD_TECH_URL_PATTERNS = [
 ]
 
 # ══════════════════════════════════════
-# FUNCTION: Is this URL meaningful?
+# WHITELIST: Patterns that are ALWAYS meaningful
+# (Priority override for long URLs)
 # ══════════════════════════════════════
+
+AFFILIATE_SIGNATURES = [
+    "lptoken=", "clickid=", "subid=", "affid=", "hop=", 
+    "utm_campaign=", "utm_content=", "cep=", "widget_id=", 
+    "content_id=", "boost_id=", "click_id=", "affiliate_id=",
+    "offer_id=", "cbid=", "tblci=", "ob_click_id="
+]
 
 def is_meaningful_url(url: str) -> bool:
     """
@@ -91,6 +99,13 @@ def is_meaningful_url(url: str) -> bool:
     if not url or not url.startswith("http"):
         return False
         
+    url_lower = url.lower()
+
+    # RULE 0: PRIORITY OVERRIDE
+    # If it has affiliate patterns, it's meaningful regardless of length or domain
+    if any(sig in url_lower for sig in AFFILIATE_SIGNATURES):
+        return True
+
     # Rule 3: Skip very long URLs (ad tech tends to be huge)
     if len(url) > 800:
         return False
