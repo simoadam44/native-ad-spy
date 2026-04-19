@@ -5,11 +5,12 @@ from tqdm import tqdm
 from supabase import create_client
 from deep_analyzer import deep_analyze_ad
 
-async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=False):
+async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=False, reanalyze_affiliates=False):
     """
     Fetches ads from Supabase and processes them.
     By default, fetches un-analyzed ads.
     If reanalyze_arbitrage is True, fetches ads already marked as Arbitrage.
+    If reanalyze_affiliates is True, fetches ads already marked as Affiliate (to fix false positives).
     """
     SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -18,7 +19,7 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
     if reanalyze_arbitrage:
         print(f"🔄 Re-analyzing up to {limit} Arbitrage ads to fix potential bias...")
         query = supabase.table("ads").select("id, landing, title, network").eq("ad_type", "Arbitrage")
-    elif kwargs.get("reanalyze_affiliates"):
+    elif reanalyze_affiliates:
         print(f"🔄 Re-analyzing up to {limit} Affiliate ads to fix false positives...")
         # Target ads where redirect chain contains suspicious ad-tech strings
         query = supabase.table("ads").select("id, landing, title, network")\
