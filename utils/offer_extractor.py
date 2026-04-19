@@ -57,6 +57,42 @@ TRACKER_SIGNATURES = {
         "params": ["hop", "hopId", "cbid", "cbu", "tid", "vtid"],
         "url_patterns": ["hop=", "hopId=", "clickbank", "cbid=", "hop.clickbank"],
         "priority": "high"
+    },
+    "Google Analytics": {
+        "domains": ["google-analytics.com", "googletagmanager.com"],
+        "params": ["tid", "ga_id", "_ga"],
+        "url_patterns": ["/collect?", "/gtag/js", "analytics.js"],
+        "priority": "low"
+    },
+    "Facebook Pixel": {
+        "domains": ["facebook.com", "facebook.net"],
+        "params": ["fb_pixel_id", "pixel_id"],
+        "url_patterns": ["facebook.com/tr", "fbevents.js"],
+        "priority": "low"
+    },
+    "TikTok Pixel": {
+        "domains": ["tiktok.com"],
+        "params": ["pixel_id"],
+        "url_patterns": ["analytics.tiktok.com/i18n/pixel", "tiktok.com/i18n/pixel"],
+        "priority": "low"
+    },
+    "ClickMagick": {
+        "domains": ["clickmagick.com"],
+        "params": ["cm_id", "cmid"],
+        "url_patterns": ["clickmagick"],
+        "priority": "high"
+    },
+    "RedTrack": {
+        "domains": ["rdtk.io", "redtrack.io"],
+        "params": ["clickid", "sub1"],
+        "url_patterns": ["rdtk.io"],
+        "priority": "high"
+    },
+    "Thrive": {
+        "domains": ["thrive.io", "thrivetracker.com"],
+        "params": ["thr_id"],
+        "url_patterns": ["thrivetracker"],
+        "priority": "high"
     }
 }
 
@@ -87,7 +123,15 @@ NETWORK_SIGNATURES = {
         "affiliate_id_params": ["affid", "aff"],
         "offer_id_params": ["prod", "product", "item"],
         "is_fallback": True
-    }
+    },
+    "Admitad": {"domains": ["admitad.com", "ad.admitad.com"], "url_patterns": ["admitad"]},
+    "Everad": {"domains": ["everad.com"], "url_patterns": ["everad"]},
+    "AdCombo": {"domains": ["adcombo.com"], "url_patterns": ["adcombo"]},
+    "CPA.house": {"domains": ["cpa.house"], "url_patterns": ["cpa.house"]},
+    "Awin": {"domains": ["awin1.com"], "url_patterns": ["awin1", "awinaffid"]},
+    "Impact": {"domains": ["impact.com", "impactradius.com"], "url_patterns": ["impact"]},
+    "ShareASale": {"domains": ["shareasale.com"], "url_patterns": ["shareasale"]},
+    "Commission Junction": {"domains": ["cj.com"], "url_patterns": ["cj.com", "active_network=cj"]}
 }
 
 TRAFFIC_SOURCE_SIGNALS = {
@@ -264,18 +308,24 @@ def extract_offer_intelligence(final_url: str, redirect_chain: list, landing_url
     return extracted
 
 if __name__ == "__main__":
-    # Case 1: Energy Revolution (Custom Tracker)
-    test1_landing = "https://healthierlivingtips.org/int_pp_spl_ee/?c=w9htmg9omb4afuphjsnskcpi&r=289323_joehoft.com_2452300_MA_DESKTOP_Windows&t=66729985-64f1-4eee-a6f7-e69ac6bb45f7&lptoken=17fa761455d13979058f&widget_id=289323&content_id=13840265&boost_id=2452300&sn=joehoft.com&rc_uuid=a350284b-4273-4c4e-b256-39845b301f2d"
-    test1_offer   = "https://theenergyrevolution.net/index-ers-auto-lead-39-promise-epp-lead-6-ph.html"
+    # Case 1: Custom Tracker & GA
+    test1_landing = "https://example.com/?utm_source=google&gclid=123"
+    test1_offer   = "https://theenergyrevolution.net/index.html?tid=UA-12345-1"
 
-    print("--- Testing Case 1: Custom Tracker ---")
+    print("--- Testing Case 1: Google Analytics ---")
     res1 = extract_offer_intelligence(test1_offer, [], test1_landing)
     print(json.dumps(res1, indent=2))
 
-    # Case 2: Complete Joint Care (ClickBank)
-    test2_landing = "https://healthierlivingtips.org/int_jp_spl_jjt/?c=wqbo81mtl08t9uphj6om336r&lptoken=1786763155ca428435a6&widget_id=289323&sn=joehoft.com&rc_uuid=7c86c1b5-d441-4721-b42a-bb5bdde8b352"
-    test2_offer   = "https://completejointcare.net/vsl/?hop=b1744&hopId=5553ed8c-113c-49af-9e17-31595b23daa8&v=bvsl"
+    # Case 2: ClickBank
+    test2_landing = "https://healthierlivingtips.org/int_jp_spl_jjt/?tblci=123"
+    test2_offer   = "https://completejointcare.net/vsl/?hop=b1744"
     
-    print("\n--- Testing Case 2: ClickBank & Path Analysis ---")
+    print("\n--- Testing Case 2: ClickBank ---")
     res2 = extract_offer_intelligence(test2_offer, [], test2_landing)
     print(json.dumps(res2, indent=2))
+
+    # Case 3: Admitad
+    test3_offer = "https://ad.admitad.com/g/12345678/?admitad_uid=abcdef"
+    print("\n--- Testing Case 3: Admitad ---")
+    res3 = extract_offer_intelligence(test3_offer, [])
+    print(json.dumps(res3, indent=2))

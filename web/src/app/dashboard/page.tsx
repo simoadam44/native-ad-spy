@@ -41,7 +41,7 @@ const LANGUAGES = [
 ];
 
 const AFFILIATE_NETWORKS = [
-  "AdmitAd", "CPA.house", "CpaExchange", "AdCombo", "MaxBounty", "ClickBank",
+  "Admitad", "CPA.house", "CpaExchange", "AdCombo", "MaxBounty", "ClickBank",
   "ClickDealer", "Mobidea", "CPAGrip", "Everad", "MyLead", "Encyl",
   "Advertise", "KMA.BIZ", "3snet", "DrCash", "Adtrafico", "Terra Leads",
   "Affstar", "ArabyAds", "Avazu", "Mobvista", "MarketHealth", "PeerFly",
@@ -55,7 +55,7 @@ const AFFILIATE_NETWORKS = [
 ];
 
 const AFFILIATE_COLORS: Record<string, string> = {
-  "AdmitAd": "#F59E0B", "CPA.house": "#F59E0B", "MaxBounty": "#F59E0B",
+  "Admitad": "#F59E0B", "CPA.house": "#F59E0B", "MaxBounty": "#F59E0B",
   "ClickBank": "#F59E0B", "ClickDealer": "#F59E0B", "Everad": "#F59E0B",
   "MyLead": "#F59E0B", "Encyl": "#F59E0B", "CPAGrip": "#F59E0B",
   "CpaExchange": "#F59E0B", "AdCombo": "#F59E0B", "Adtrafico": "#F59E0B",
@@ -80,7 +80,7 @@ const TRACKER_TOOLS = [
   "Hyros", "Trackier", "Keitaro", "FunnelFlux", "CPVLab", "iMobiTrax",
   "AdsBridge", "BeMob", "OctoTracker", "Scaleo", "AffiliaXe",
   "Bevo", "Funnelish", "PixelMe", "AnyTrack", "LinkTrackr", "ThriveTracker", "ClickMeter",
-  "Google Analytics", "Facebook Pixel", "TikTok Pixel", "No Tracking"
+  "Google Analytics", "Facebook Pixel", "TikTok Pixel", "RedTrack", "ClickMagick"
 ];
 
 const OFFER_VERTICALS = ["Health/Supplements", "Finance/Insurance", "Beauty/Skincare", "Weight Loss", "Adult/Dating", "Software/SaaS", "E-commerce"];
@@ -97,6 +97,7 @@ const TRACKER_COLORS: Record<string, string> = {
   "LinkTrackr": "#00BCD4", "ThriveTracker": "#00BCD4", "ClickMeter": "#00BCD4",
   "Google Analytics": "#F9A825", "Facebook Pixel": "#1877F2",
   "TikTok Pixel": "#444444", "No Tracking": "#6B7280",
+  "RedTrack": "#E53935", "ClickMagick": "#7B1FA2"
 };
 
 const AD_TYPES = ["Affiliate", "Arbitrage", "Unknown", "Manual Review Required"];
