@@ -80,7 +80,7 @@ const TRACKER_TOOLS = [
   "Hyros", "Trackier", "Keitaro", "FunnelFlux", "CPVLab", "iMobiTrax",
   "AdsBridge", "BeMob", "OctoTracker", "Scaleo", "AffiliaXe",
   "Bevo", "Funnelish", "PixelMe", "AnyTrack", "LinkTrackr", "ThriveTracker", "ClickMeter",
-  "Google Analytics", "Facebook Pixel", "TikTok Pixel", "RedTrack", "ClickMagick"
+  "Google Analytics", "Facebook Pixel", "TikTok Pixel"
 ];
 
 const OFFER_VERTICALS = ["Health/Supplements", "Finance/Insurance", "Beauty/Skincare", "Weight Loss", "Adult/Dating", "Software/SaaS", "E-commerce"];
@@ -96,8 +96,7 @@ const TRACKER_COLORS: Record<string, string> = {
   "Bevo": "#00BCD4", "Funnelish": "#00BCD4", "PixelMe": "#00BCD4", "AnyTrack": "#00BCD4", 
   "LinkTrackr": "#00BCD4", "ThriveTracker": "#00BCD4", "ClickMeter": "#00BCD4",
   "Google Analytics": "#F9A825", "Facebook Pixel": "#1877F2",
-  "TikTok Pixel": "#444444", "No Tracking": "#6B7280",
-  "RedTrack": "#E53935", "ClickMagick": "#7B1FA2"
+  "TikTok Pixel": "#444444", "No Tracking": "#6B7280"
 };
 
 const AD_TYPES = ["Affiliate", "Arbitrage", "Unknown", "Manual Review Required"];

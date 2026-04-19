@@ -9,24 +9,21 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
     """
     Fetches ads from Supabase and processes them.
     By default, fetches un-analyzed ads.
-    If reanalyze_arbitrage is True, fetches ads already marked as Arbitrage.
-    If reanalyze_affiliates is True, fetches ads already marked as Affiliate (to fix false positives).
     """
     SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avxoumymzbioeabxfcca.supabase.co")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     if reanalyze_arbitrage:
-        print(f"🔄 Re-analyzing up to {limit} Arbitrage ads to fix potential bias...")
+        print(f"Re-analyzing up to {limit} Arbitrage ads to fix potential bias...")
         query = supabase.table("ads").select("id, landing, title, network").eq("ad_type", "Arbitrage")
     elif reanalyze_affiliates:
-        print(f"🔄 Re-analyzing up to {limit} Affiliate ads to fix false positives...")
-        # Target ads where redirect chain contains suspicious ad-tech strings
+        print(f"Re-analyzing up to {limit} Affiliate ads to fix false positives...")
         query = supabase.table("ads").select("id, landing, title, network")\
             .eq("ad_type", "Affiliate")\
             .or_("redirect_chain_json.ilike.%taboola_hm%,redirect_chain_json.ilike.%rubiconproject%,redirect_chain_json.ilike.%gdpr_consent%,redirect_chain_json.ilike.%deepintent%")
     else:
-        print(f"🔍 Fetching up to {limit} un-analyzed ads...")
+        print(f"Fetching up to {limit} un-analyzed ads...")
         query = supabase.table("ads").select("id, landing, title, network").is_("deep_analyzed_at", "null")
     
     if network:
@@ -58,7 +55,6 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
             pbar.update(1)
             pbar.set_postfix(stats)
 
-    # Process in small chunks to ensure stability
     for i in range(0, len(ads), 3):
         chunk = ads[i:i+3]
         tasks = [wrapped_analyze(ad) for ad in chunk]
