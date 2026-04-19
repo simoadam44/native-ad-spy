@@ -43,12 +43,11 @@ def calculate_ad_score(url: str, title: str, final_url: str = None, page_content
         score += 3
         signals.append("final_url_has_aff_path (+3)")
         
-    # UUID in path (e.g. /f8ab584f-...)
+    # UUID in path
     if re.search(r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", final_url):
         score += 3
         signals.append("final_url_has_uuid_path (+3)")
         
-    # Domain changed to health/supplement words
     health_keywords = ["supplement", "formula", "relief", "remedy", "natural", "health", "cure", "detox", "keto", "slim"]
     if final_domain != orig_domain and any(k in final_domain for k in health_keywords):
         score += 3
@@ -116,7 +115,6 @@ def calculate_ad_score(url: str, title: str, final_url: str = None, page_content
         ad_type = "Arbitrage"
         confidence = "medium"
     else:
-        # Fallback to local content scan if score is 0
         ad_type = local_content_classify(page_content, final_url)
         confidence = "medium" if ad_type != "Unknown" else "low"
 
@@ -128,121 +126,53 @@ def calculate_ad_score(url: str, title: str, final_url: str = None, page_content
     }
 
 def local_content_classify(page_content: str, final_url: str) -> str:
-    """
-    Local keyword-based classifier as a fallback for 0-score cases.
-    """
     if not page_content:
         return "Unknown"
-        
     content_lower = page_content.lower()
-    
-    affiliate_keywords = [
-        "order now", "buy now", "add to cart",
-        "limited time offer", "money back guarantee",
-        "60-day guarantee", "satisfaction guaranteed",
-        "click here to order", "secure checkout",
-        "free shipping", "exclusive offer",
-        "as seen on", "doctor approved",
-        "clinical study", "proven formula"
-    ]
-    
-    arbitrage_keywords = [
-        "sponsored content", "advertisement",
-        "you may also like", "recommended for you",
-        "read more", "continue reading",
-        "comments", "share this article",
-        "related articles", "trending now"
-    ]
-    
+    affiliate_keywords = ["order now", "buy now", "add to cart", "exclusive offer", "as seen on"]
+    arbitrage_keywords = ["sponsored content", "advertisement", "you may also like", "trending now"]
     aff_score = sum(1 for kw in affiliate_keywords if kw in content_lower)
     arb_score = sum(1 for kw in arbitrage_keywords if kw in content_lower)
-    
-    if aff_score > arb_score and aff_score >= 2:
-        return "Affiliate"
-    elif arb_score > aff_score and arb_score >= 2:
-        return "Arbitrage"
-    else:
-        return "Unknown"
+    if aff_score > arb_score and aff_score >= 2: return "Affiliate"
+    elif arb_score > aff_score and arb_score >= 2: return "Arbitrage"
+    else: return "Unknown"
 
-def is_arbitrage_site(url: str, page_content: str) -> dict:
-    """
-    STRONG ARBITRAGE SIGNALS (returns Arbitrage immediately if 2+ match).
-    """
+def get_ad_network_fingerprints(page_content: str) -> dict:
+    content = page_content.lower()
+    FINGERPRINTS = {
+        "Google AdSense": {"patterns": ["adsbygoogle", "googlesyndication.com/pagead", "google_ad_client"], "confidence": "high"},
+        "Taboola": {"patterns": ["cdn.taboola.com/libtrc", "_taboola.push", "trc.taboola.com"], "confidence": "high"},
+        "Outbrain": {"patterns": ["widgets.outbrain.com", "ob-widget", "data-ob-mark="], "confidence": "high"},
+        "MGID": {"patterns": ["servicer.mgid.com", "mgid.com/widgets", "jsc.mgid.com"], "confidence": "high"},
+        "Revcontent": {"patterns": ["trends.revcontent.com", "revcontent.com/gp/", "rc_widget"], "confidence": "high"},
+        "Prebid": {"patterns": ["prebid.org", "pbjs."], "confidence": "medium"},
+    }
+    found_networks = []
+    for name, config in FINGERPRINTS.items():
+        matches = [p for p in config["patterns"] if p in content]
+        if matches: found_networks.append({"network": name, "confidence": config["confidence"], "matches": matches[:3], "count": len(matches)})
+    if not found_networks: return {"found": False, "network": None, "confidence": None}
+    found_networks.sort(key=lambda x: (0 if x["confidence"] == "high" else 1, -x["count"]))
+    primary = found_networks[0]
+    return {"found": True, "network": primary["network"], "confidence": primary["confidence"], "matched_patterns": primary["matches"], "all_networks": [n["network"] for n in found_networks]}
+
+def is_arbitrage_site(url: str, page_content: str, clean_chain: list = None) -> dict:
     score = 0
-    signals = []
-    
+    signals_found = []
     url_lower = url.lower()
     content_lower = (page_content or "").lower()
-    
-    # A) URL path patterns
-    arb_path_rules = {
-        "/trending/": 3, "/article/": 2, "/list/": 2, "/gallery/": 2,
-        "/celebrities/": 2, "you-wont-believe": 3, "/page/2": 2
-    }
-    for path, points in arb_path_rules.items():
-        if path in url_lower:
-            score += points
-            signals.append(f"arb_path_{path.strip('/')} (+{points})")
-            
-    # Pagination via regex (e.g. /2 or /3 at end)
-    if re.search(r'/\d+/?$', url_lower):
-        score += 2
-        signals.append("url_ends_in_pagination (+2)")
+    clean_chain = clean_chain or []
+    arb_rules = {"/trending/": 3, "/article/": 2, "/list/": 2, "/gallery/": 2, "/celebrities/": 3, "you-wont-believe": 3}
+    for p, pts in arb_rules.items():
+        if p in url_lower: score += pts; signals_found.append(f"url:{p}(+{pts})")
+    if re.search(r'/\d+$', url.rstrip('/')):
+        score += 3; signals_found.append("pagination(+3)")
+    content_signals = {"you might also like": 2, "related articles": 2, "recommended for you": 2, "share this": 1, "disqus_config": 2, "next page": 3}
+    for p, pts in content_signals.items():
+        if p in content_lower: score += pts; signals_found.append(f"content:{p}(+{pts})")
+    if len(clean_chain) == 0: score += 3; signals_found.append("no_clean_redirects(+3)")
+    return {"is_arbitrage": score >= 3, "score": score, "confidence": "high" if score >= 6 else "medium", "signals": signals_found}
 
-    # B) Domain name patterns
-    arb_domain_keywords = ["news", "daily", "times", "update", "report", "health", "care", "wellness", "rehab", "tips", "trending", "viral", "buzz", "today", "instant"]
-    domain = urlparse(url_lower).netloc
-    found_domain_kws = 0
-    for kw in arb_domain_keywords:
-        if kw in domain:
-            score += 2
-            found_domain_kws += 1
-            if found_domain_kws <= 2: # Max +4 from domain keywords
-                signals.append(f"domain_has_{kw} (+2)")
-            if found_domain_kws >= 2: break
-
-    # C) Page content signals
-    if "disqus" in content_lower or "fb-comment" in content_lower:
-        score += 3
-        signals.append("has_comment_section (+3)")
-    if any(k in content_lower for k in ["you might also like", "you may also like", "recommended for you"]):
-        score += 2
-        signals.append("has_recirculation_widget (+2)")
-    if any(k in content_lower for k in ["taboola", "outbrain", "revcontent"]):
-        score += 3
-        signals.append("has_native_ad_widgets (+3)")
-    if "share this article" in content_lower:
-        score += 1
-        signals.append("has_social_share (+1)")
-        
-    ad_type = "Unknown"
-    if score >= 6:
-        ad_type = "Arbitrage"
-    elif score >= 3:
-        ad_type = "Arbitrage" # Medium confidence
-
-    return {
-        "is_arbitrage": ad_type == "Arbitrage",
-        "score": score,
-        "signals": signals,
-        "ad_type": ad_type
-    }
-
-# Compatibility wrapper for old calls
 def classify_ad(url: str, title: str) -> dict:
     res = calculate_ad_score(url, title)
-    return {
-        "ad_type": res["ad_type"],
-        "confidence": res["confidence"],
-        "signals": res["signals"],
-        "score": res["score"]
-    }
-
-if __name__ == "__main__":
-    # Test cases
-    test_cases = [
-        ("https://product.com", "Buy Keto Now", "https://melodyeu.com/landers/p_prel/123", "Price $49.99 Buy Now"),
-        ("https://revcontent.com/cv/123", "10 Celebs Who...", "https://independent.co.uk/news/123", "Trending Now related articles"),
-    ]
-    for u, t, fu, c in test_cases:
-        print(f"URL: {u} | Final: {fu}\nResult: {calculate_ad_score(u, t, fu, c)}\n")
+    return {"ad_type": res["ad_type"], "confidence": res["confidence"], "signals": res["signals"], "score": res["score"]}
