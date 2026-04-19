@@ -17,7 +17,11 @@ import {
   Search,
   MoreVertical,
   Terminal,
-  Database
+  Database,
+  ShieldCheck,
+  Zap,
+  Target,
+  Globe
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -41,6 +45,7 @@ export default function AdminPage() {
   const tabs = [
     { id: "overview", label: "Overview", icon: Activity },
     { id: "users", label: "Users", icon: Users },
+    { id: "review", label: "Review Queue", icon: ShieldCheck },
     { id: "subs", label: "Subscriptions", icon: CreditCard },
     { id: "ads", label: "Ads Health", icon: Database },
     { id: "crawler", label: "Crawler Hub", icon: Terminal },
@@ -231,6 +236,91 @@ export default function AdminPage() {
                   </div>
                </div>
              </div>
+          )}
+
+          {activeTab === "review" && (
+            <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-2xl">
+              <div className="p-6 border-b border-border bg-white/5 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-emerald-400" />
+                  <h2 className="font-bold font-syne uppercase">Manual Review Queue</h2>
+                </div>
+                <div className="text-[10px] font-black text-neutral-500 bg-neutral-900 px-3 py-1 rounded-full uppercase tracking-widest border border-border">
+                  Confidence Threshold: <span className="text-emerald-400">Low</span>
+                </div>
+              </div>
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] font-black text-neutral-500 uppercase tracking-widest bg-neutral-900/50">
+                    <th className="px-6 py-4">Ad Portfolio</th>
+                    <th className="px-6 py-4">Forensic Detection</th>
+                    <th className="px-6 py-4">Detected Params</th>
+                    <th className="px-6 py-4 text-right">Verification</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-sm">
+                   {ads.filter(a => a.needs_review || (a.ad_type === 'Affiliate' && !a.affiliate_network)).map((ad) => (
+                    <tr key={ad.id} className="hover:bg-white/5 transition-colors group">
+                      <td className="px-6 py-4 max-w-[300px]">
+                        <div className="flex items-center gap-3">
+                           <div className="w-12 h-12 rounded-lg bg-neutral-800 overflow-hidden shrink-0 border border-white/5">
+                              <img src={ad.image_url} className="w-full h-full object-cover" />
+                           </div>
+                           <div className="min-w-0">
+                              <p className="font-bold text-xs truncate mb-1">{ad.title}</p>
+                              <div className="flex items-center gap-1.5">
+                                 <span className="text-[8px] font-black uppercase px-1.5 py-0.5 bg-blue-600/20 text-blue-400 rounded border border-blue-500/20">{ad.network}</span>
+                                 <span className="text-[8px] font-black uppercase px-1.5 py-0.5 bg-neutral-800 text-neutral-400 rounded">{ad.country_code || 'US'}</span>
+                              </div>
+                           </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                         <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                               <Globe size={10} className="text-neutral-500" />
+                               <span className="text-[10px] font-bold text-neutral-300 truncate max-w-[150px]">{ad.offer_domain || 'Unknown Domain'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                               <Zap size={10} className="text-amber-400" />
+                               <span className="text-[10px] font-bold text-neutral-400">{ad.tracker_tool || 'No Tracker'}</span>
+                            </div>
+                         </div>
+                      </td>
+                      <td className="px-6 py-4">
+                         <div className="flex flex-wrap gap-1">
+                            {ad.affiliate_id && <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-500 rounded text-[9px] font-black">AFF: {ad.affiliate_id}</span>}
+                            {ad.offer_id && <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-500 rounded text-[9px] font-black">OFF: {ad.offer_id}</span>}
+                            {!ad.affiliate_id && !ad.offer_id && <span className="text-[10px] italic text-neutral-600">None detected</span>}
+                         </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                         <div className="flex justify-end gap-2">
+                            <button 
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase rounded-lg transition-all shadow-lg shadow-emerald-500/20"
+                              onClick={async () => {
+                                  await supabase.table("ads").update({ needs_review: false, network_confidence: 'high' }).eq("id", ad.id);
+                                  // Refresh logic
+                              }}
+                            >
+                               Approve
+                            </button>
+                            <button className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-500">
+                               <Settings size={14} />
+                            </button>
+                         </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {ads.length === 0 && (
+                <div className="p-20 text-center text-neutral-600">
+                   <CheckCircle2 size={48} className="mx-auto mb-4 opacity-10" />
+                   <p className="text-sm font-bold uppercase tracking-widest">Queue is clear</p>
+                </div>
+              )}
+            </div>
           )}
 
           {activeTab === "settings" && (

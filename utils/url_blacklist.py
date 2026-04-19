@@ -1,0 +1,112 @@
+# ══════════════════════════════════════
+# BLACKLIST A: Domains to ALWAYS ignore
+# These are Ad Tech infrastructure only (Cookie matching, Header bidding)
+# ══════════════════════════════════════
+
+AD_TECH_DOMAINS = [
+    # Cookie Syncing / DMPs
+    "deepintent.com", "match.deepintent.com",
+    "srv.stackadapt.com", "sync.srv.stackadapt.com",
+    "smartadserver.com", "ssbsync.smartadserver.com",
+    "rtb-csync.smartadserver.com",
+    "sync.taboola.com", "trc.taboola.com",
+    "us-vid-events.taboola.com", "us-wf.taboola.com",
+    "adform.net", "c1.adform.net",
+    "id5-sync.com",
+    "adsrvr.org", "match.adsrvr.org",
+    "adnxs.com", "secure.adnxs.com",
+    "b1sync.outbrain.com",
+    "ssp.disqus.com",
+    "bfmio.com", "sync.bfmio.com",
+    "360yield.com", "ad.360yield.com",
+    "sonobi.com", "sync.go.sonobi.com",
+    "3lift.com", "tlx.3lift.com", "eb2.3lift.com",
+    "onetag-sys.com",
+    "ce.lijit.com",
+    "admanmedia.com", "cs.admanmedia.com",
+    
+    # Header Bidding / SSPs
+    "rubiconproject.com", "fastlane.rubiconproject.com",
+    "criteo.com", "gum.criteo.com",
+    "brainlyads.com", "report2.hb.brainlyads.com",
+    "doubleclick.net", "securepubads.g.doubleclick.net",
+    "googletagmanager.com", "google-analytics.com",
+    "googlesyndication.com",
+    
+    # Analytics / Tracking pixels (not affiliate)
+    "profitorapi.com", "trk.profitorapi.com",
+    "clarity.ms", "c.clarity.ms",
+    "bing.com",
+    "facebook.com/tr",
+    "connect.facebook.net",
+    
+    # CDN / Static Assets
+    "cdn.taboola.com",
+    "images.taboola.com",
+    "cloudfront.net",
+    "fastly.net",
+]
+
+# ══════════════════════════════════════
+# BLACKLIST B: URL Patterns to ignore
+# Match against full URL string
+# ══════════════════════════════════════
+
+AD_TECH_URL_PATTERNS = [
+    # Cookie sync patterns
+    "/usersync/", "/sync?", "/cookie_sync",
+    "/user_sync", "/usermatch", "/getuid",
+    "/redirectuser", "taboola_hm=",
+    "gdpr_consent=", "/rtb-h/",
+    
+    # Header bidding patterns
+    "/header/auction", "/OpenRTB/",
+    "/fastlane.json", "/prebid-request",
+    "/gampad/ads", "/pcs/view",
+    "pbjs", "prebid", "hb_bidder",
+    
+    # Analytics patterns
+    "event=bidRequested", "event=pv",
+    "event=no_fill", "site/events",
+    
+    # Static assets
+    ".jpg", ".jpeg", ".png", ".gif", ".svg",
+    ".css", ".js", ".woff", ".woff2",
+    "/wp-content/uploads/",
+    "/libtrc/static/thumbnails/",
+    "image/fetch/",
+]
+
+# ══════════════════════════════════════
+# FUNCTION: Is this URL meaningful?
+# ══════════════════════════════════════
+
+def is_meaningful_url(url: str) -> bool:
+    """
+    Returns True ONLY if URL could be an affiliate link.
+    Returns False for all ad tech infrastructure / static assets.
+    """
+    from urllib.parse import urlparse
+    
+    if not url or not url.startswith("http"):
+        return False
+        
+    # Rule 3: Skip very long URLs (ad tech tends to be huge)
+    if len(url) > 800:
+        return False
+        
+    url_lower = url.lower()
+    parsed = urlparse(url_lower)
+    domain = parsed.netloc
+    
+    # Rule 1: Check domain blacklist
+    for blocked_domain in AD_TECH_DOMAINS:
+        if blocked_domain in domain:
+            return False
+    
+    # Rule 2: Check URL pattern blacklist
+    for pattern in AD_TECH_URL_PATTERNS:
+        if pattern in url_lower:
+            return False
+    
+    return True

@@ -18,6 +18,12 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
     if reanalyze_arbitrage:
         print(f"🔄 Re-analyzing up to {limit} Arbitrage ads to fix potential bias...")
         query = supabase.table("ads").select("id, landing, title, network").eq("ad_type", "Arbitrage")
+    elif kwargs.get("reanalyze_affiliates"):
+        print(f"🔄 Re-analyzing up to {limit} Affiliate ads to fix false positives...")
+        # Target ads where redirect chain contains suspicious ad-tech strings
+        query = supabase.table("ads").select("id, landing, title, network")\
+            .eq("ad_type", "Affiliate")\
+            .or_("redirect_chain_json.ilike.%taboola_hm%,redirect_chain_json.ilike.%rubiconproject%,redirect_chain_json.ilike.%gdpr_consent%,redirect_chain_json.ilike.%deepintent%")
     else:
         print(f"🔍 Fetching up to {limit} un-analyzed ads...")
         query = supabase.table("ads").select("id, landing, title, network").is_("deep_analyzed_at", "null")
@@ -73,6 +79,7 @@ if __name__ == "__main__":
     parser.add_argument("--network", type=str, help="Filter by network (Taboola, MGID, etc.)")
     parser.add_argument("--delay", type=float, default=0, help="Optional delay between ads")
     parser.add_argument("--reanalyze-arbitrage", action="store_true", help="Re-run analysis on Arbitrage ads")
+    parser.add_argument("--reanalyze-affiliates", action="store_true", help="Re-run analysis on Affiliate ads to fix false positives")
     
     args = parser.parse_args()
     
@@ -80,5 +87,6 @@ if __name__ == "__main__":
         limit=args.limit, 
         network=args.network, 
         delay=args.delay, 
-        reanalyze_arbitrage=args.reanalyze_arbitrage
+        reanalyze_arbitrage=args.reanalyze_arbitrage,
+        reanalyze_affiliates=args.reanalyze_affiliates
     ))

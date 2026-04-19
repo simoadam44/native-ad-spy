@@ -164,6 +164,70 @@ def local_content_classify(page_content: str, final_url: str) -> str:
     else:
         return "Unknown"
 
+def is_arbitrage_site(url: str, page_content: str) -> dict:
+    """
+    STRONG ARBITRAGE SIGNALS (returns Arbitrage immediately if 2+ match).
+    """
+    score = 0
+    signals = []
+    
+    url_lower = url.lower()
+    content_lower = (page_content or "").lower()
+    
+    # A) URL path patterns
+    arb_path_rules = {
+        "/trending/": 3, "/article/": 2, "/list/": 2, "/gallery/": 2,
+        "/celebrities/": 2, "you-wont-believe": 3, "/page/2": 2
+    }
+    for path, points in arb_path_rules.items():
+        if path in url_lower:
+            score += points
+            signals.append(f"arb_path_{path.strip('/')} (+{points})")
+            
+    # Pagination via regex (e.g. /2 or /3 at end)
+    if re.search(r'/\d+/?$', url_lower):
+        score += 2
+        signals.append("url_ends_in_pagination (+2)")
+
+    # B) Domain name patterns
+    arb_domain_keywords = ["news", "daily", "times", "update", "report", "health", "care", "wellness", "rehab", "tips", "trending", "viral", "buzz", "today", "instant"]
+    domain = urlparse(url_lower).netloc
+    found_domain_kws = 0
+    for kw in arb_domain_keywords:
+        if kw in domain:
+            score += 2
+            found_domain_kws += 1
+            if found_domain_kws <= 2: # Max +4 from domain keywords
+                signals.append(f"domain_has_{kw} (+2)")
+            if found_domain_kws >= 2: break
+
+    # C) Page content signals
+    if "disqus" in content_lower or "fb-comment" in content_lower:
+        score += 3
+        signals.append("has_comment_section (+3)")
+    if any(k in content_lower for k in ["you might also like", "you may also like", "recommended for you"]):
+        score += 2
+        signals.append("has_recirculation_widget (+2)")
+    if any(k in content_lower for k in ["taboola", "outbrain", "revcontent"]):
+        score += 3
+        signals.append("has_native_ad_widgets (+3)")
+    if "share this article" in content_lower:
+        score += 1
+        signals.append("has_social_share (+1)")
+        
+    ad_type = "Unknown"
+    if score >= 6:
+        ad_type = "Arbitrage"
+    elif score >= 3:
+        ad_type = "Arbitrage" # Medium confidence
+
+    return {
+        "is_arbitrage": ad_type == "Arbitrage",
+        "score": score,
+        "signals": signals,
+        "ad_type": ad_type
+    }
+
 # Compatibility wrapper for old calls
 def classify_ad(url: str, title: str) -> dict:
     res = calculate_ad_score(url, title)

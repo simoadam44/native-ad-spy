@@ -83,6 +83,9 @@ const TRACKER_TOOLS = [
   "Google Analytics", "Facebook Pixel", "TikTok Pixel", "No Tracking"
 ];
 
+const OFFER_VERTICALS = ["Health/Supplements", "Finance/Insurance", "Beauty/Skincare", "Weight Loss", "Adult/Dating", "Software/SaaS", "E-commerce"];
+const AFF_NETWORKS = ["ClickBank", "MaxBounty", "Admitad", "CPA.house", "Everad", "AdCombo", "CPAgetti", "Awin", "Impact", "ShareASale", "Commission Junction"];
+
 const TRACKER_COLORS: Record<string, string> = {
   "Voluum": "#E84D1C", "Binom": "#FF6B00", "Prosper202": "#4A90D9",
   "Thrive": "#00BCD4", "RedTrack": "#E53935", "ClickMagick": "#7B1FA2",
@@ -109,10 +112,6 @@ const PAGE_SUBTYPES = ["VSL", "Advertorial", "Direct Sales", "Quiz", "General LP
 const CLOAKING_TYPES = ["news_to_sales", "tracker_to_offer", "domain_change"];
 
 const PAGE_SIZE = 30;
-
-const OFFER_VERTICALS = ["Health/Supplements", "Finance/Insurance", "Beauty/Skincare", "Weight Loss", "Adult/Dating", "Software/SaaS", "E-commerce"];
-const AFF_NETWORKS = ["ClickBank", "MaxBounty", "Admitad", "CPA.house", "Everad", "AdCombo", "CPAgetti", "Awin", "Impact", "ShareASale", "Commission Junction"];
-const TRACKER_TOOLS = ["Voluum", "Binom", "Keitaro", "RedTrack", "Everflow", "BeMob", "Thrivetracker", "ClickMagick", "Hyros"];
 
 // Cross-platform Flag Component using FlagCDN (Windows doesn't support Emoji flags natively)
 const Flag = ({ code, className = "" }: { code: string, className?: string }) => {
@@ -148,6 +147,8 @@ export default function DashboardPage() {
   const [selectedTrackerTools, setSelectedTrackerTools] = useState<string[]>([]);
   const [selectedCloaking, setSelectedCloaking] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("newest");
+  const [selectedAdTypes, setSelectedAdTypes] = useState<string[]>([]);
+  const [selectedPageSubtypes, setSelectedPageSubtypes] = useState<string[]>([]);
   const [minImpressions, setMinImpressions] = useState(0);
 
   const loadAds = useCallback(async () => {

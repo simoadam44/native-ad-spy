@@ -26,7 +26,9 @@ import {
   RefreshCw,
   Download,
   Eye,
-  Calendar
+  Calendar,
+  MessageSquare,
+  Star
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";

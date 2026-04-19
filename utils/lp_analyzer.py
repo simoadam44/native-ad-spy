@@ -4,6 +4,8 @@ import re
 from urllib.parse import urlparse
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
+from utils.url_blacklist import is_meaningful_url
+import tldextract
 
 async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
@@ -11,23 +13,43 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
     redirect_chain = []
     
-    # 1. Network Interception
+    # --- Registration of Interceptors BEFORE Click ---
+    all_responses = []
+    
     async def capture_navigation(response):
         try:
+            # Capture all relevant landing and offer URLs
+            # Filter out noise (images, css, analytics)
+            skip_patterns = [
+                "google-analytics", "googletagmanager", "facebook.net", "clarity.ms",
+                ".css", ".js", ".png", ".jpg", ".gif", ".woff", ".svg", "doubleclick"
+            ]
+            
+            url = response.url
+            if any(p in url.lower() for p in skip_patterns):
+                return
+
             if 300 <= response.status < 400:
                 redirect_chain.append({
-                    "from": response.url,
+                    "from": url,
                     "to": response.headers.get("location", ""),
-                    "status": response.status
+                    "status": response.status,
+                    "type": "redirect"
                 })
-            elif response.status == 200:
+            elif response.status == 200 and "?" in url: # Likely a landing/tracking URL
                 redirect_chain.append({
-                    "url": response.url,
-                    "status": 200
+                    "url": url,
+                    "status": 200,
+                    "type": "destination"
                 })
         except: pass
 
     page.on("response", capture_navigation)
+
+    # Use route for deep interception
+    async def handle_route(route):
+        await route.continue_()
+    await page.route("**/*", handle_route)
 
     # 2. Find CTA
     cta_element = None
@@ -102,9 +124,14 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                         "final_page_title": await target_page.title()
                     }
             
-            await asyncio.sleep(3.0) 
-            try: await page.wait_for_load_state("networkidle", timeout=5000)
+            # Complete Interaction Wait
+            await asyncio.sleep(4.0) 
+            try: await page.wait_for_load_state("networkidle", timeout=8000)
             except: pass
+
+            # Clean up listeners
+            await page.unroute("**/*")
+            page.remove_listener("response", capture_navigation)
             
             return {
                 "cta_found": True,
@@ -115,8 +142,58 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             }
     except Exception as e:
         print(f"CTA Click Error: {e}")
+    finally:
+        try:
+            await page.unroute("**/*")
+            page.remove_listener("response", capture_navigation)
+        except: pass
 
     return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": redirect_chain}
+
+async def analyze_page_structure(page) -> dict:
+    """
+    Detects Arbitrage page elements: pagination, ad density, content format.
+    """
+    content = await page.content()
+    url = page.url.lower()
+    
+    # 1. Pagination detector
+    is_paginated = bool(re.search(r'/\d+/?$', url))
+    
+    # 2. Ad density
+    ad_selectors = [
+        "[class*='taboola']", "[id*='taboola']",
+        "[class*='outbrain']", "[class*='revcontent']",
+        ".adsbygoogle", "[class*='dfp']",
+        "[class*='ad-slot']", "[class*='ad-unit']"
+    ]
+    ad_count = 0
+    for sel in ad_selectors:
+        try:
+            nodes = await page.query_selector_all(sel)
+            ad_count += len(nodes)
+        except: pass
+        
+    # 3. Content type signals
+    is_wordpress = "/wp-content/" in content or "wp-json" in content
+    has_comments = "disqus" in content or "fb-comments" in content
+    
+    # Calculate guess
+    page_type_guess = "unknown"
+    if is_paginated:
+        page_type_guess = "slideshow_arbitrage"
+    elif ad_count >= 3:
+        page_type_guess = "article_arbitrage"
+    
+    return {
+        "is_paginated": is_paginated,
+        "high_ad_density": ad_count >= 3,
+        "ad_count": ad_count,
+        "is_wordpress": is_wordpress,
+        "is_clickbait": any(k in url for k in ["trending", "believe", "defying", "celebrities"]),
+        "has_comments": has_comments,
+        "page_type_guess": page_type_guess
+    }
 
 async def analyze_landing_page_with_page(page, url: str) -> dict:
     """
@@ -135,12 +212,31 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
     }
 
     try:
-        # 1. Navigation
+        # 1. Navigation & Redirect Tracking
         print(f"Navigating to: {url[:60]}...")
-        redirect_chain = []
+        
+        # Build clean redirect chain
+        clean_redirect_chain = []
+        original_reg_domain = tldextract.extract(url).registered_domain
+        
         def handle_response(response):
-            if 300 <= response.status < 400:
-                redirect_chain.append(response.url)
+            try:
+                r_url = response.url
+                status = response.status
+                if not is_meaningful_url(r_url):
+                    return
+                if status < 200 or status >= 400:
+                    return
+                
+                # Skip same domain
+                url_domain = tldextract.extract(r_url).registered_domain
+                if url_domain == original_reg_domain:
+                    return
+                    
+                if r_url not in clean_redirect_chain:
+                    clean_redirect_chain.append(r_url)
+            except: pass
+            
         page.on("response", handle_response)
 
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
@@ -169,9 +265,11 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         elif "advertorial" in content.lower():
             result["page_subtype"] = "Advertorial"
 
-        # 5. Cloaking Detection
+        # 5. Cloaking & Structure Detection
         result["final_offer_url"] = page.url
-        result["cloaking"] = detect_cloaking(url, result["final_offer_url"], redirect_chain)
+        result["cloaking"] = detect_cloaking(url, result["final_offer_url"], clean_redirect_chain)
+        result["page_structure"] = await analyze_page_structure(page)
+        result["clean_redirect_chain"] = clean_redirect_chain
 
     except Exception as e:
         print(f"LP Analysis Error: {e}")
