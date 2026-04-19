@@ -295,22 +295,6 @@ export default function AdminPage() {
                             {!ad.affiliate_id && !ad.offer_id && <span className="text-[10px] italic text-neutral-600">None detected</span>}
                          </div>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                         <div className="flex justify-end gap-2">
-                            <button 
-                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black uppercase rounded-lg transition-all shadow-lg shadow-emerald-500/20"
-                              onClick={async () => {
-                                  await supabase.table("ads").update({ needs_review: false, network_confidence: 'high' }).eq("id", ad.id);
-                                  // Refresh logic
-                              }}
-                            >
-                               Approve
-                            </button>
-                            <button className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-500">
-                               <Settings size={14} />
-                            </button>
-                         </div>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

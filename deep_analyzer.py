@@ -204,57 +204,6 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                         detected_lang = detect(text_content[:500])
                 except: pass
 
-                # 8. Persistence
-                full_updates = {
-                    "ad_type": final_ad_type,
-                    "classification_score": orig_scoring.get("score", 0),
-                    "classification_confidence": classification.get("confidence"),
-                    "page_subtype": lp_result.get("page_subtype"),
-                    
-                    # Intelligence Fields
-                    "final_offer_url": intelligence.get("final_offer_url") or page.url,
-                    "offer_domain": intelligence.get("offer_domain"),
-                    "offer_vertical": intelligence.get("offer_vertical"),
-                    "affiliate_network": intelligence.get("affiliate_network"),
-                    "tracker_tool": intelligence.get("tracker_tool"),
-                    "offer_id": intelligence.get("offer_id"),
-                    "affiliate_id": intelligence.get("affiliate_id"),
-                    "sub_id": intelligence.get("sub_id1"),
-                    
-                    # CTA interaction
-                    "cta_found": click_result.get("cta_found", False),
-                    "cta_text": click_result.get("cta_text"),
-                    
-                    # Evidence data
-                    "redirect_chain_json": json.dumps(clean_chain), # Store the clean chain now
-                    "all_params_json": json.dumps(intelligence.get("all_params", {})),
-                    
-                    # V2 Forensic Data
-                    "traffic_source": intelligence.get("traffic_source"),
-                    "widget_id": intelligence.get("widget_id"),
-                    "publisher_site": intelligence.get("publisher_site"),
-                    "content_id": intelligence.get("content_id"),
-                    "tracker_id": intelligence.get("tracker_id"),
-                    "needs_review": intelligence.get("needs_review", False) or final_ad_type == "Manual Review Required",
-                    "network_confidence": intelligence.get("network_confidence"),
-                    "tracker_confidence": intelligence.get("tracker_confidence"),
-                    "path_segments": json.dumps(intelligence.get("path_segments", [])),
-                    "classification_reason": classification.get("reason"),
-                    
-                    # Assets & Metadata
-                    "lp_screenshot_url": lp_screenshot_url,
-                    "offer_screenshot_url": offer_screenshot_url,
-                    "has_countdown": lp_result.get("has_countdown"),
-                    "has_video": lp_result.get("has_video"),
-                    "cloaking_type": lp_result.get("cloaking", {}).get("cloaking_type"),
-                    "language": detected_lang,
-                    "analysis_params": orig_scoring.get("signals"),
-                    "deep_analyzed_at": "now()"
-                }
-                
-                supabase.table("ads").update(full_updates).eq("id", ad_id).execute()
-                print(f"Ad {ad_id} Analysis Complete. Vertical: {intelligence.get('offer_vertical', 'N/A')}")
-                return full_updates
 
             except Exception as e:
                 print(f"Master Analyzer Error for {ad_id}: {e}")

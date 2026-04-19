@@ -10,43 +10,33 @@ import tldextract
 async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
     Clicks the CTA button and captures the full redirect chain.
+    Enhanced with pre-emptive interception and route monitoring.
     """
-    redirect_chain = []
-    
-    # --- Registration of Interceptors BEFORE Click ---
+    all_requests = []
     all_responses = []
     
-    async def capture_navigation(response):
+    def on_request(request):
+        all_requests.append({
+            "url": request.url,
+            "method": request.method
+        })
+    
+    def on_response(response):
         try:
-            # Capture all relevant landing and offer URLs
-            # Filter out noise (images, css, analytics)
-            skip_patterns = [
-                "google-analytics", "googletagmanager", "facebook.net", "clarity.ms",
-                ".css", ".js", ".png", ".jpg", ".gif", ".woff", ".svg", "doubleclick"
-            ]
-            
             url = response.url
-            if any(p in url.lower() for p in skip_patterns):
-                return
-
-            if 300 <= response.status < 400:
-                redirect_chain.append({
-                    "from": url,
-                    "to": response.headers.get("location", ""),
-                    "status": response.status,
-                    "type": "redirect"
-                })
-            elif response.status == 200 and "?" in url: # Likely a landing/tracking URL
-                redirect_chain.append({
-                    "url": url,
-                    "status": 200,
-                    "type": "destination"
-                })
+            status = response.status
+            all_responses.append({
+                "url": url,
+                "status": status,
+                "headers": dict(response.headers)
+            })
         except: pass
 
-    page.on("response", capture_navigation)
-
-    # Use route for deep interception
+    # 1. Register ALL listeners BEFORE any action (Fix for Case 2)
+    page.on("request", on_request)
+    page.on("response", on_response)
+    
+    # Set up route interception for deep visibility
     async def handle_route(route):
         await route.continue_()
     await page.route("**/*", handle_route)
@@ -61,16 +51,13 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     
     for stage in range(4):
         if stage == 1:
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.0)
             try: await page.wait_for_load_state("networkidle", timeout=5000)
             except: pass
-        elif stage == 2:
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
-            await asyncio.sleep(1.0)
         
         for f in page.frames:
             try:
-                elements = await f.query_selector_all(", ".join(selectors)) if stage < 3 else \
+                elements = await f.query_selector_all(", ".join(selectors)) if stage < 2 else \
                            await f.query_selector_all('[class*="btn"], [class*="button"], [class*="cta"]')
                 
                 for el in elements:
@@ -78,11 +65,11 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     href = (await el.get_attribute("href") or "").lower()
                     if any(s in href for s in social_domains): continue
                     
-                    if stage < 3 and any(k in txt.lower() for k in keywords):
+                    if stage < 2 and any(k in txt.lower() for k in keywords):
                         cta_element = el
                         cta_text = txt
                         break
-                    elif stage >= 3 and len(txt) >= 3:
+                    elif stage >= 2 and len(txt) >= 3:
                         cta_element = el
                         cta_text = txt
                         break
@@ -91,64 +78,63 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
         if cta_element: break
 
     if not cta_element:
-        return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": redirect_chain}
+        # Cleanup
+        await page.unroute("**/*")
+        page.remove_listener("request", on_request)
+        page.remove_listener("response", on_response)
+        return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": []}
 
-    # 3. Secure Human-like Click
+    # 3. Perform Click with Interception
     try:
-        box = await cta_element.bounding_box()
-        if box:
-            center_x = box['x'] + box['width'] / 2 + random.randint(-3, 3)
-            center_y = box['y'] + box['height'] / 2 + random.randint(-3, 3)
-            await page.mouse.move(center_x, center_y)
-            await asyncio.sleep(random.uniform(0.5, 1.2))
-            await cta_element.scroll_into_view_if_needed()
-            await asyncio.sleep(0.5)
+        await cta_element.scroll_into_view_if_needed()
+        await asyncio.sleep(random.uniform(0.5, 1.0))
+        
+        # Click
+        await cta_element.click()
+        
+        # Wait logic: prioritize navigation but also wait for network quiet
+        try:
+            await page.wait_for_load_state("networkidle", timeout=8000)
+        except: pass
+        
+        # 4. Filter and Build Redirect Chain
+        SKIP_PATTERNS = [
+            "google-analytics", "googletagmanager", "facebook.net",
+            "clarity.ms", "bing.com/bat", "doubleclick",
+            "cdn.", "fonts.", "static.", "assets.",
+            ".css", ".js", ".png", ".jpg", ".gif", ".woff", ".svg"
+        ]
+        
+        meaningful_urls = []
+        for r in all_responses:
+            url = r["url"]
+            # Keep redirects (3xx) OR destination pages with parameters (200)
+            if (300 <= r["status"] < 400 or (r["status"] == 200 and "?" in url)):
+                if not any(skip in url.lower() for skip in SKIP_PATTERNS):
+                    if url not in meaningful_urls:
+                        meaningful_urls.append(url)
+        
+        # Build the final chain
+        redirect_chain = meaningful_urls
+        
+        return {
+            "cta_found": True,
+            "cta_text": cta_text,
+            "final_offer_url": page.url,
+            "redirect_chain": redirect_chain,
+            "final_page_title": await page.title()
+        }
 
-            # Click & Wait
-            try:
-                async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
-                    await cta_element.click()
-            except:
-                # Check for new tabs
-                new_pages = page.context.pages
-                if len(new_pages) > 1:
-                    target_page = new_pages[-1]
-                    await target_page.wait_for_load_state("domcontentloaded")
-                    final_url = target_page.url
-                    # Update local ref for results
-                    return {
-                        "cta_found": True,
-                        "cta_text": cta_text,
-                        "final_offer_url": final_url,
-                        "redirect_chain": redirect_chain,
-                        "final_page_title": await target_page.title()
-                    }
-            
-            # Complete Interaction Wait
-            await asyncio.sleep(4.0) 
-            try: await page.wait_for_load_state("networkidle", timeout=8000)
-            except: pass
-
-            # Clean up listeners
-            await page.unroute("**/*")
-            page.remove_listener("response", capture_navigation)
-            
-            return {
-                "cta_found": True,
-                "cta_text": cta_text,
-                "final_offer_url": page.url,
-                "redirect_chain": redirect_chain,
-                "final_page_title": await page.title()
-            }
     except Exception as e:
-        print(f"CTA Click Error: {e}")
+        print(f"CTA Interception Error: {e}")
     finally:
         try:
             await page.unroute("**/*")
-            page.remove_listener("response", capture_navigation)
+            page.remove_listener("request", on_request)
+            page.remove_listener("response", on_response)
         except: pass
 
-    return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": redirect_chain}
+    return {"cta_found": False, "final_offer_url": page.url, "redirect_chain": []}
 
 async def analyze_page_structure(page) -> dict:
     """
