@@ -7,14 +7,16 @@ from utils.cloak_detector import detect_cloaking
 from utils.url_blacklist import is_meaningful_url, is_intermediary_domain
 import tldextract
 
-async def wait_for_actual_landing(page, max_wait=10000):
-    """Waits for network to settle, especially if currently on a tracking domain."""
+async def wait_for_actual_landing(page, max_wait=15000):
+    """Waits for network to settle, excluding tracker redirects."""
     try:
         await page.wait_for_load_state("networkidle", timeout=max_wait)
+        # Extra wait if we are still on a known tracker/intermediary
         waited = 0
-        while is_intermediary_domain(page.url) and waited < 15000:
-            await asyncio.sleep(1.0)
-            waited += 1000
+        while is_intermediary_domain(page.url) and waited < 10000:
+            print(f"Waiting for redirect from intermediary: {page.url}")
+            await asyncio.sleep(2.0)
+            waited += 2000
     except: pass
 
 async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
@@ -36,7 +38,9 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             url = response.url
             status = response.status
             # Only track meaningful navigations or main documents in the chain
-            if not any(ext in url.lower() for ext in [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico"]):
+            # EXCLUDE media segments (.ts, .m3u8, etc.)
+            media_exts = [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico", ".ts", ".m3u8", ".mp4", ".mp3", ".webm"]
+            if not any(ext in url.lower() for ext in media_exts):
                 all_responses.append({
                     "url": url,
                     "status": status,
@@ -166,12 +170,16 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 # If a popup opened, it's the most likely intended destination
                 popup_page = await popup_info.value
                 print(f"Popup detected: {popup_page.url}")
+                
+                # Wait for the popup to resolve trackers to the final merchant page
                 try:
-                    await popup_page.wait_for_load_state("networkidle", timeout=12000)
+                    await wait_for_actual_landing(popup_page, 15000)
                 except: 
-                    print(f"Popup networkidle timeout (non-fatal) for {popup_page.url}")
+                    print(f"Popup resolution timeout (non-fatal) for {popup_page.url}")
                 
                 final_offer_url = popup_page.url
+                # CAPTURE REDIRECT CHAIN FROM POPUP TOO
+                # We can't easily merge but we can at least get the final result
                 await popup_page.close() 
             except Exception:
                 # If no popup happened, handle same-tab navigation
@@ -195,7 +203,8 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 r_url = r["url"]
                 if clean_url(r_url) == cleaned_landing:
                     continue
-                if not any(ext in r_url.lower() for ext in [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico", ".svg"]):
+                media_exts = [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico", ".svg", ".ts", ".m3u8", ".mp4", ".mp3", ".webm"]
+                if not any(ext in r_url.lower() for ext in media_exts):
                     if r_url not in redirect_chain:
                         redirect_chain.append(r_url)
             
@@ -208,21 +217,35 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 for r_url in reversed(redirect_chain):
                     r_domain = tldextract.extract(r_url).registered_domain
                     if r_domain != original_domain:
-                        from utils.url_blacklist import AFFILIATE_SIGNATURES
-                        if any(sig in r_url.lower() for sig in AFFILIATE_SIGNATURES):
+                        from utils.url_blacklist import AFFILIATE_SIGNATURES, is_meaningful_url
+                        # STRICT: Must be meaningful (NOT media/static) AND have an affiliate signature
+                        if is_meaningful_url(r_url) and any(sig in r_url.lower() for sig in AFFILIATE_SIGNATURES):
                             print(f"Heuristic Fallback (Affiliate Match): Using {r_url}")
                             final_offer_url = r_url
                             found_affiliate_fallback = True
                             break
                 
                 # Second pass: If no affiliate signature found, use the last meaningful domain that is NOT the original
+                # AND NOT a tracker if possible
                 if not found_affiliate_fallback:
+                    checkout_domains = ["clickbank.net", "digistore24.com", "buy.complete", "secure.", "checkout.", "pay.", "order."]
+                    
+                    # Try to find a checkout page first
                     for r_url in reversed(redirect_chain):
-                        r_domain = tldextract.extract(r_url).registered_domain
-                        if r_domain != original_domain and is_meaningful_url(r_url):
-                            print(f"Heuristic Fallback (Simple Domain Change): Using {r_url}")
+                        if any(cd in r_url.lower() for cd in checkout_domains):
+                            print(f"Heuristic Fallback (Checkout Detected): Using {r_url}")
                             final_offer_url = r_url
+                            found_affiliate_fallback = True
                             break
+                    
+                    if not found_affiliate_fallback:
+                        for r_url in reversed(redirect_chain):
+                            r_domain = tldextract.extract(r_url).registered_domain
+                            # Check if it's meaningful AND not a known intermediary/tracker
+                            if r_domain != original_domain and is_meaningful_url(r_url) and not is_intermediary_domain(r_url):
+                                print(f"Heuristic Fallback (Merchant Domain): Using {r_url}")
+                                final_offer_url = r_url
+                                break
             
             # Clean up listeners
             context.remove_listener("request", on_request)

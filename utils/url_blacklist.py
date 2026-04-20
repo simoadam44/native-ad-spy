@@ -52,7 +52,10 @@ AD_TECH_DOMAINS = [
     "fastly.net",
     "googleapis.com",
     "fonts.gstatic.com",
-    "g.doubleclick.net"
+    "g.doubleclick.net",
+    "converteai.net",
+    "customer-f8ksu.cloudflarestream.com",
+    "videodelivery.net"
 ]
 
 # ══════════════════════════════════════
@@ -65,6 +68,8 @@ INTERMEDIARY_DOMAINS = [
     "taboola.com", "trc.taboola.com",
     "outbrain.com", "traffic.outbrain.com", "paid.outbrain.com",
     "yahoo.com/p?prd=",
+    "trkerupper.com", "clktrservices.com", "clktrack.com",
+    "be-mob.com", "bemob.com", "trk.healthyinsightjournal.com"
 ]
 
 # ══════════════════════════════════════
@@ -89,9 +94,10 @@ AD_TECH_URL_PATTERNS = [
     "event=bidRequested", "event=pv",
     "event=no_fill", "site/events",
     
-    # Static assets
+    # Static assets / Media streams
     ".jpg", ".jpeg", ".png", ".gif", ".svg",
     ".css", ".js", ".woff", ".woff2",
+    ".ts", ".m3u8", ".mp4", ".mp3", ".webm",
     "/wp-content/uploads/",
     "/libtrc/static/thumbnails/",
     "image/fetch/",
@@ -122,9 +128,17 @@ def is_meaningful_url(url: str) -> bool:
         
     url_lower = url.lower()
 
-    # RULE 0: PRIORITY OVERRIDE
-    # If it has affiliate patterns, it's meaningful regardless of length or domain
+    # RULE 0: ABSOLUTE MEDIA/STATIC BLOCK
+    # Media segments and static assets are NEVER meaningful offer destinations
+    media_exts = [".ts", ".m3u8", ".mp4", ".mp3", ".webm", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".css", ".js", ".woff", ".woff2", ".ico"]
+    if any(ext in url_lower for ext in media_exts):
+        return False
+
+    # RULE 1: PRIORITY OVERRIDE (Affiliate detection)
+    # If it has affiliate patterns, it's highly likely to be meaningful
     if any(sig in url_lower for sig in AFFILIATE_SIGNATURES):
+        # Even with signatures, if it's in AD_TECH_DOMAINS (like coverteai), it might be a pixel/segment
+        # But we check domain block later. Let's allow it for now IF it's not a known media segment.
         return True
 
     # Rule 3: Skip very long URLs (ad tech tends to be huge)
