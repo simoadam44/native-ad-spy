@@ -39,12 +39,20 @@ AD_TECH_DOMAINS = [
     "bing.com",
     "facebook.com/tr",
     "connect.facebook.net",
+    "trc-events.taboola.com",
+    "id-msp.newsbreak.com",
+    "business.newsbreak.com",
+    "ads.rmbl.ws",
+    "cdn-cgi/rum",
     
     # CDN / Static Assets
     "cdn.taboola.com",
     "images.taboola.com",
     "cloudfront.net",
     "fastly.net",
+    "googleapis.com",
+    "fonts.gstatic.com",
+    "g.doubleclick.net"
 ]
 
 # ══════════════════════════════════════
@@ -98,7 +106,8 @@ AFFILIATE_SIGNATURES = [
     "lptoken=", "clickid=", "subid=", "affid=", "hop=", 
     "utm_campaign=", "utm_content=", "cep=", "widget_id=", 
     "content_id=", "boost_id=", "click_id=", "affiliate_id=",
-    "offer_id=", "cbid=", "tblci=", "ob_click_id="
+    "offer_id=", "cbid=", "tblci=", "ob_click_id=",
+    "aff_id", "aff_click_id", "req_id", "sub1", "sub2", "transaction_id"
 ]
 
 def is_meaningful_url(url: str) -> bool:

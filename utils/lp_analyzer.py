@@ -35,16 +35,19 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
         try:
             url = response.url
             status = response.status
-            all_responses.append({
-                "url": url,
-                "status": status,
-                "headers": dict(response.headers)
-            })
+            # Only track meaningful navigations or main documents in the chain
+            if not any(ext in url.lower() for ext in [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico"]):
+                all_responses.append({
+                    "url": url,
+                    "status": status,
+                    "headers": dict(response.headers)
+                })
         except: pass
 
-    # 1. Register ALL listeners BEFORE any action
-    page.on("request", on_request)
-    page.on("response", on_response)
+    # 1. Register ALL listeners BEFORE any action (at Context level to catch popups)
+    context = page.context
+    context.on("request", on_request)
+    context.on("response", on_response)
     
     # Set up route interception
     async def handle_route(route):
@@ -63,7 +66,13 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     except: pass
     
     social_domains = ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"]
-    keywords = ["click here", "watch", "video", "buy", "order", "get", "claim", "shop", "discount", "check", "haz clic", "obtener", "طلب", "klicken", "voir", "guardar", "sehen"]
+    keywords = [
+        "click here", "watch", "video", "buy", "order", "get", "claim", "shop", "discount", 
+        "check", "haz clic", "obtener", "طلب", "klicken", "voir", "guardar", "sehen",
+        "see how it works", "watch presentation", "click here to see", "watch the video", 
+        "get started", "learn more", "discovery", "hidden video", "shocking video", "presentation",
+        "commandez", "acheter", "profitez", "descubre", "ver video", "clicca qui"
+    ]
     selectors = "a, button, [role='button'], input[type='button'], input[type='submit'], [class*='btn'], [class*='button'], [class*='cta']"
     
     best_el = None
@@ -89,12 +98,20 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     if any(s in href for s in social_domains):
                         score -= 50
                     if href.startswith("#") or href == "/" or "void(0)" in href:
-                        score -= 5
+                        # Many affiliate buttons use href="#" with JS handlers, so don't penalize if keywords are strong
+                        if any(k in txt_lower for k in ["watch", "click", "get", "video"]):
+                            score += 5
+                        else:
+                            score -= 5
                         
                     # Reward high-intent keywords
                     for k in keywords:
                         if k in txt_lower:
                             score += 15
+                    
+                    # Extra reward for VSL specific phrases
+                    if any(v in txt_lower for v in ["watch", "video", "presentation"]):
+                        score += 5
                             
                     # Reward typical CTA class names 
                     if "btn" in class_attr or "button" in class_attr or "cta" in class_attr:
@@ -135,20 +152,81 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             except Exception as se:
                 print(f"Non-fatal scroll error: {se}")
             
-            # Click and wait for navigation or network
+            # Click and wait for navigation or a new tab (popup)
             try:
-                await cta_element.click(timeout=5000, force=True)
-            except Exception as click_err:
-                # Fallback to JavaScript click directly if Playwright's click fails (e.g., hidden by overlay)
-                await cta_element.evaluate("el => el.click()")
+                # Set up the expectation for a popup with longer timeout
+                async with page.context.expect_event("popup", timeout=12000) as popup_info:
+                    try:
+                        # Attempt a "human-like" click if regular click might be intercepted
+                        await cta_element.click(timeout=5000, force=True, delay=random.randint(50, 150))
+                    except Exception as click_err:
+                        print(f"Playwright click failed, using JS fallback for {page.url}")
+                        await cta_element.evaluate("el => el.click()")
+                
+                # If a popup opened, it's the most likely intended destination
+                popup_page = await popup_info.value
+                print(f"Popup detected: {popup_page.url}")
+                try:
+                    await popup_page.wait_for_load_state("networkidle", timeout=12000)
+                except: 
+                    print(f"Popup networkidle timeout (non-fatal) for {popup_page.url}")
+                
+                final_offer_url = popup_page.url
+                await popup_page.close() 
+            except Exception:
+                # If no popup happened, handle same-tab navigation
+                print(f"No popup detected for {page.url}, checking same-tab navigation...")
+                try:
+                    await wait_for_actual_landing(page, 15000)
+                except: pass
+                final_offer_url = page.url
+
+            # Normalize URLs for comparison (remove fragments, trailing slashes)
+            def clean_url(u):
+                if not u: return ""
+                return u.split("#")[0].rstrip("/")
+
+            cleaned_final = clean_url(final_offer_url)
+            cleaned_landing = clean_url(page.url)
+
+            # Filter clean redirect chain: Only include meaningful redirects
+            redirect_chain = []
+            for r in all_requests:
+                r_url = r["url"]
+                if clean_url(r_url) == cleaned_landing:
+                    continue
+                if not any(ext in r_url.lower() for ext in [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico", ".svg"]):
+                    if r_url not in redirect_chain:
+                        redirect_chain.append(r_url)
             
-            try:
-                await wait_for_actual_landing(page, 10000)
-            except: pass
+            # CRITICAL FALLBACK: If final_offer_url is still essentially the landing page but we have a redirect chain
+            if cleaned_final == cleaned_landing and len(redirect_chain) > 0:
+                original_domain = tldextract.extract(cleaned_landing).registered_domain
+                
+                # First pass: Look for known affiliate signatures
+                found_affiliate_fallback = False
+                for r_url in reversed(redirect_chain):
+                    r_domain = tldextract.extract(r_url).registered_domain
+                    if r_domain != original_domain:
+                        from utils.url_blacklist import AFFILIATE_SIGNATURES
+                        if any(sig in r_url.lower() for sig in AFFILIATE_SIGNATURES):
+                            print(f"Heuristic Fallback (Affiliate Match): Using {r_url}")
+                            final_offer_url = r_url
+                            found_affiliate_fallback = True
+                            break
+                
+                # Second pass: If no affiliate signature found, use the last meaningful domain that is NOT the original
+                if not found_affiliate_fallback:
+                    for r_url in reversed(redirect_chain):
+                        r_domain = tldextract.extract(r_url).registered_domain
+                        if r_domain != original_domain and is_meaningful_url(r_url):
+                            print(f"Heuristic Fallback (Simple Domain Change): Using {r_url}")
+                            final_offer_url = r_url
+                            break
             
-            final_offer_url = page.url
-            # Filter clean redirect chain from all_requests
-            redirect_chain = [r["url"] for r in all_requests if r["url"] != final_offer_url]
+            # Clean up listeners
+            context.remove_listener("request", on_request)
+            context.remove_listener("response", on_response)
             
         except Exception as e:
             print(f"CTA Interception Error for {page.url}: {e}")

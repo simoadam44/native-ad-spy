@@ -173,8 +173,13 @@ async def deep_analyze_ad(ad_id, landing_url, title):
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context()
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
             page = await context.new_page()
+            
+            # Apply stealth to bypass bot detection
+            await Stealth().apply_stealth_async(page)
             
             # 1. Detailed Landing Page Analysis
             lp_result = await analyze_landing_page_with_page(page, landing_url)
