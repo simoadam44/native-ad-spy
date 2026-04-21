@@ -84,15 +84,31 @@ async def classify_with_full_context(
 
     url_lower = landing_url.lower()
     
-    # 1. Instant Affiliate Scan (Heuristic but strong)
+    # 1. FORCED AFFILIATE DETECTION (Highest priority)
+    # If these params exist, the URL is an affiliate tracker - cannot be Arbitrage
     STRONG_AFFILIATE_PARAMS = [
         "hop=", "hopId=", "affid=", "aff_id=", "affiliate_id=", 
         "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
-        "rc_uuid=", "utm_source=", "utm_medium=", "boost_id=", "widget_id="
+        "rc_uuid=", "utm_source=", "utm_medium=", "boost_id=", "widget_id=",
+        "voluumdata=", "voluum",  # Voluum affiliate tracker
+        "bsl=", "t=aff",          # Other common affiliate bridges
+        "sub1=", "sub2=", "sub3="  # Generic sub-tracking params
     ]
     is_aff_param_found = any(p in url_lower for p in STRONG_AFFILIATE_PARAMS)
     
+    # If a strong affiliate parameter is found = this is an affiliate, PERIOD.
+    # Retargeting/GA pixels on VSL pages must NOT override this.
+    if is_aff_param_found:
+        return {
+            "ad_type": "Affiliate",
+            "confidence": "high",
+            "stage": 1,
+            "reason": "affiliate_param_found_no_ad_code",
+            "skip_deep_analysis": False
+        }
+
     # 2. STRICT MASTER RULE - INSTANT ARBITRAGE SCAN
+    # Only runs if NO affiliate params were found above
     fingerprint = get_ad_network_fingerprints(page_content)
     
     if fingerprint["found"]:
@@ -104,16 +120,6 @@ async def classify_with_full_context(
             "reason": f"EXPLICIT_NETWORK_CODE_DETECTED: {fingerprint['network']}",
             "detected_ad_networks": fingerprint["all_networks"],
             "skip_deep_analysis": True
-        }
-
-    # Search in Affiliate params
-    if is_aff_param_found:
-        return {
-            "ad_type": "Affiliate",
-            "confidence": "high",
-            "stage": 1,
-            "reason": "affiliate_param_found_no_ad_code",
-            "skip_deep_analysis": False
         }
 
     # Page Structure signals
