@@ -55,8 +55,34 @@ AD_TECH_DOMAINS = [
     "g.doubleclick.net",
     "converteai.net",
     "customer-f8ksu.cloudflarestream.com",
-    "videodelivery.net"
+    "videodelivery.net",
+    "google.co.ma", "adservice.google.com", "bidswitch.net", "x.bidswitch.net",
+    "analytics.twitter.com", "analytics.google.com", "pixel.facebook.com"
 ]
+
+# ══════════════════════════════════════
+# BLACKLIST: HARD BLOCKS (Never meaningful as final offers)
+# If a URL originates from these domains, it is DISQUALIFIED.
+# ══════════════════════════════════════
+
+STRICT_BLOCK_DOMAINS = [
+    "google-analytics.com", "analytics.google.com", "googletagmanager.com",
+    "google.com", "facebook.com", "twitter.com", "linkedin.com", "bing.com",
+    "clarity.ms", "doubleclick.net", "adservice.google", "bidswitch",
+    "posthog.com", "hotjar.com", "newrelic.com", "nr-data.net",
+    "sellerhop", "trusted-badge",
+    # ClickBank infrastructure (NOT checkout pages)
+    "cbtb.clickbank.net", "hop.clickbank.net",
+    # Support / SaaS widgets (never final offers)
+    "zendesk.com", "intercom.io", "tawk.to", "crisp.chat",
+    # CDN / media delivery
+    "b-cdn.net", "bunnycdn.com",
+    # Nonprofit / donation tracking
+    "everyaction.com", "actionnetwork.org",
+    # Checkout platform APIs (backend, not landing pages)
+    "checkoutchamp.com",
+]
+
 
 # ══════════════════════════════════════
 # BLACKLIST: Intermediary Ad Network Click Trackers
@@ -101,6 +127,11 @@ AD_TECH_URL_PATTERNS = [
     "/wp-content/uploads/",
     "/libtrc/static/thumbnails/",
     "image/fetch/",
+    "/sellerhop?", "/trusted-badge/", "/pixel/register/trigger/",
+    "analytics.google.com/g/collect", "events.devcycle.com",
+    "us.i.posthog.com", "bam.nr-data.net",
+    "/tr/", "/collect?", "/pixel?", "/track?", "/log?", "/events?",
+    "/Track/", "/providersApi/", "/embeddable/config"
 ]
 
 # ══════════════════════════════════════
@@ -134,30 +165,34 @@ def is_meaningful_url(url: str) -> bool:
     if any(ext in url_lower for ext in media_exts):
         return False
 
-    # RULE 1: PRIORITY OVERRIDE (Affiliate detection)
-    # If it has affiliate patterns, it's highly likely to be meaningful
+    url_lower = url.lower()
+    parsed = urlparse(url_lower)
+    domain = parsed.netloc
+    
+    # RULE 0: ATOMIC BLACKLIST (STRICT DOMAIN BLOCK)
+    # These domains never represent a final affiliate offer.
+    for blocked in STRICT_BLOCK_DOMAINS:
+        if blocked in domain or blocked in url_lower:
+            return False
+
+    # RULE 1: AD TECH BLOCK (Pattern & Domain)
+    # This MUST come before signatures because pixels often echo page parameters
+    for blocked_domain in AD_TECH_DOMAINS:
+        if blocked_domain in domain:
+            return False
+            
+    for pattern in AD_TECH_URL_PATTERNS:
+        if pattern in url_lower:
+            return False
+
+    # RULE 2: PRIORITY OVERRIDE (Affiliate detection)
+    # If it survived the blacklist, then signatures make it meaningful
     if any(sig in url_lower for sig in AFFILIATE_SIGNATURES):
-        # Even with signatures, if it's in AD_TECH_DOMAINS (like coverteai), it might be a pixel/segment
-        # But we check domain block later. Let's allow it for now IF it's not a known media segment.
         return True
 
     # Rule 3: Skip very long URLs (ad tech tends to be huge)
     if len(url) > 800:
         return False
-        
-    url_lower = url.lower()
-    parsed = urlparse(url_lower)
-    domain = parsed.netloc
-    
-    # Rule 1: Check domain blacklist
-    for blocked_domain in AD_TECH_DOMAINS:
-        if blocked_domain in domain:
-            return False
-            
-    # Rule 2: Check URL pattern blacklist
-    for pattern in AD_TECH_URL_PATTERNS:
-        if pattern in url_lower:
-            return False
     
     return True
 

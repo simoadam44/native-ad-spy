@@ -6,6 +6,28 @@ from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
 from utils.url_blacklist import is_meaningful_url, is_intermediary_domain
 import tldextract
+from urllib.parse import urlparse, parse_qs, unquote
+
+def extract_target_from_params(url: str) -> str:
+    """Attempts to recursively find a destination URL hidden in query parameters."""
+    if not url: return ""
+    try:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        # Common 'destination' parameter names for trackers
+        dest_params = ["requestUrl", "dest", "url", "u", "target", "redirect", "destination"]
+        for p in dest_params:
+            if p in params and params[p]:
+                target = unquote(params[p][0])
+                if target.startswith("http"):
+                    # RECURSIVE: Check if the extracted URL also has a target
+                    # But avoid infinite loops - just one level deeper usually suffices
+                    deeper = extract_target_from_params(target)
+                    if deeper != target:
+                        return deeper
+                    return target
+    except: pass
+    return url
 
 async def wait_for_actual_landing(page, max_wait=15000):
     """Waits for network to settle, excluding tracker redirects."""
@@ -187,7 +209,12 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 try:
                     await wait_for_actual_landing(page, 15000)
                 except: pass
-                final_offer_url = page.url
+            # If the current page is a tracker/pixel, don't use it as the final result
+            if not is_meaningful_url(final_offer_url) or is_intermediary_domain(final_offer_url):
+                print(f"Landed on tracker/pixel: {final_offer_url}. Seeking fallback.")
+                final_offer_url = page.url # Default back to lander so comparison logic triggers
+            
+            final_offer_url = extract_target_from_params(final_offer_url)
 
             # Normalize URLs for comparison (remove fragments, trailing slashes)
             def clean_url(u):
@@ -201,6 +228,12 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             redirect_chain = []
             for r in all_requests:
                 r_url = r["url"]
+                
+                # AGGRESSIVE CLEANING: Extract target from every URL in the chain
+                cleaned_r = extract_target_from_params(r_url)
+                if cleaned_r != r_url:
+                    r_url = cleaned_r
+                
                 if clean_url(r_url) == cleaned_landing:
                     continue
                 media_exts = [".jpg", ".png", ".gif", ".webp", ".css", ".js", ".woff", ".ico", ".svg", ".ts", ".m3u8", ".mp4", ".mp3", ".webm"]
@@ -215,37 +248,56 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 # First pass: Look for known affiliate signatures
                 found_affiliate_fallback = False
                 for r_url in reversed(redirect_chain):
-                    r_domain = tldextract.extract(r_url).registered_domain
+                    # DOUBLE-PASS: Always extract the real target first
+                    cleaned_r = extract_target_from_params(r_url)
+                    r_domain = tldextract.extract(cleaned_r).registered_domain
                     if r_domain != original_domain:
                         from utils.url_blacklist import AFFILIATE_SIGNATURES, is_meaningful_url
                         # STRICT: Must be meaningful (NOT media/static) AND have an affiliate signature
-                        if is_meaningful_url(r_url) and any(sig in r_url.lower() for sig in AFFILIATE_SIGNATURES):
-                            print(f"Heuristic Fallback (Affiliate Match): Using {r_url}")
-                            final_offer_url = r_url
+                        if is_meaningful_url(cleaned_r) and any(sig in cleaned_r.lower() for sig in AFFILIATE_SIGNATURES):
+                            print(f"Heuristic Fallback (Affiliate Match): Using {cleaned_r}")
+                            final_offer_url = cleaned_r
                             found_affiliate_fallback = True
                             break
                 
                 # Second pass: If no affiliate signature found, use the last meaningful domain that is NOT the original
                 # AND NOT a tracker if possible
                 if not found_affiliate_fallback:
-                    checkout_domains = ["clickbank.net", "digistore24.com", "buy.complete", "secure.", "checkout.", "pay.", "order."]
+                    # Valid checkout subdomains for ClickBank/Digistore
+                    valid_checkout_prefixes = ["pay.", "checkout.", "secure.", "order.", "buy."]
                     
                     # Try to find a checkout page first
                     for r_url in reversed(redirect_chain):
-                        if any(cd in r_url.lower() for cd in checkout_domains):
-                            print(f"Heuristic Fallback (Checkout Detected): Using {r_url}")
-                            final_offer_url = r_url
-                            found_affiliate_fallback = True
-                            break
+                        # AGGRESSIVE: Clean it again before checking
+                        cleaned_r = extract_target_from_params(r_url)
+                        
+                        is_checkout = any(p in cleaned_r.lower() for p in valid_checkout_prefixes)
+                        is_clickbank = "clickbank.net" in cleaned_r.lower()
+                        is_digistore = "digistore24.com" in cleaned_r.lower()
+                        
+                        if (is_clickbank or is_digistore) and is_checkout:
+                            # DOUBLE CHECK: Must not be a tracker path
+                            if "/sellerhop" not in cleaned_r.lower() and is_meaningful_url(cleaned_r):
+                                print(f"Heuristic Fallback (Checkout Detected): Using {cleaned_r}")
+                                final_offer_url = cleaned_r
+                                found_affiliate_fallback = True
+                                break
                     
                     if not found_affiliate_fallback:
                         for r_url in reversed(redirect_chain):
-                            r_domain = tldextract.extract(r_url).registered_domain
+                            # AGGRESSIVE: Clean it again
+                            cleaned_r = extract_target_from_params(r_url)
+                            r_domain = tldextract.extract(cleaned_r).registered_domain
+                            
                             # Check if it's meaningful AND not a known intermediary/tracker
-                            if r_domain != original_domain and is_meaningful_url(r_url) and not is_intermediary_domain(r_url):
-                                print(f"Heuristic Fallback (Merchant Domain): Using {r_url}")
-                                final_offer_url = r_url
+                            if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_intermediary_domain(cleaned_r):
+                                print(f"Heuristic Fallback (Merchant Domain): Using {cleaned_r}")
+                                final_offer_url = cleaned_r
                                 break
+                
+                # FINAL ATTEMPT: If we are STILL on a problematic URL (like sellerhop), use param extraction again on fallbacks
+                final_offer_url = extract_target_from_params(final_offer_url)
+                print(f"Finalized Offer Resolution: {final_offer_url}")
             
             # Clean up listeners
             context.remove_listener("request", on_request)
