@@ -40,14 +40,22 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
     stats = {"Affiliate": 0, "Arbitrage": 0, "Unknown": 0, "Failed": 0, "Manual Review Required": 0}
     pbar = tqdm(total=len(ads), desc="Processing")
     
+    PER_AD_TIMEOUT = 120  # seconds - hard limit per ad
+
     async def wrapped_analyze(ad):
         try:
-            result = await deep_analyze_ad(ad['id'], ad['landing'], ad['title'])
+            result = await asyncio.wait_for(
+                deep_analyze_ad(ad['id'], ad['landing'], ad['title']),
+                timeout=PER_AD_TIMEOUT
+            )
             if "error" in result:
                 stats["Failed"] += 1
             else:
                 rtype = result.get("ad_type", "Unknown")
                 stats[rtype] = stats.get(rtype, 0) + 1
+        except asyncio.TimeoutError:
+            print(f"TIMEOUT: Ad {ad['id']} exceeded {PER_AD_TIMEOUT}s limit - skipping")
+            stats["Failed"] += 1
         except Exception as e:
             print(f"Error for ad {ad['id']}: {e}")
             stats["Failed"] += 1

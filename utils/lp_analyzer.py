@@ -33,12 +33,12 @@ async def wait_for_actual_landing(page, max_wait=15000):
     """Waits for network to settle, excluding tracker redirects."""
     try:
         await page.wait_for_load_state("networkidle", timeout=max_wait)
-        # Extra wait if we are still on a known tracker/intermediary
+        # Extra wait if we are still on a known tracker/intermediary - max 5s
         waited = 0
-        while is_intermediary_domain(page.url) and waited < 10000:
+        while is_intermediary_domain(page.url) and waited < 5000:
             print(f"Waiting for redirect from intermediary: {page.url}")
-            await asyncio.sleep(2.0)
-            waited += 2000
+            await asyncio.sleep(1.0)
+            waited += 1000
     except: pass
 
 async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
@@ -391,9 +391,9 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             except: pass
             
         page.on("response", handle_response)
-        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         
-        await wait_for_actual_landing(page, 15000)
+        await wait_for_actual_landing(page, 10000)
         
         await page.mouse.wheel(0, 500)
         await asyncio.sleep(1.0)
