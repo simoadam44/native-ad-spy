@@ -81,6 +81,10 @@ STRICT_BLOCK_DOMAINS = [
     "everyaction.com", "actionnetwork.org",
     # Checkout platform APIs (backend, not landing pages)
     "checkoutchamp.com",
+    # Affiliate click trackers (intermediate, not merchant pages)
+    "tracking.buygoods.com", "track.buygoods.com",
+    "go2cloud.org", "go2jump.org",  # Commission Junction trackers
+    "pntra.com", "pntat.com",       # Other CJ tracker domains
 ]
 
 
@@ -131,8 +135,10 @@ AD_TECH_URL_PATTERNS = [
     "analytics.google.com/g/collect", "events.devcycle.com",
     "us.i.posthog.com", "bam.nr-data.net",
     "/tr/", "/collect?", "/pixel?", "/track?", "/log?", "/events?",
-    "/Track/", "/providersApi/", "/embeddable/config"
+    "/Track/", "/providersApi/", "/embeddable/config",
+    "/cdn-cgi/",  # Cloudflare RUM / monitoring endpoints
 ]
+
 
 # ══════════════════════════════════════
 # WHITELIST: Patterns that are ALWAYS meaningful

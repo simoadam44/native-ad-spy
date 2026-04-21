@@ -15,7 +15,10 @@ def extract_target_from_params(url: str) -> str:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         # Common 'destination' parameter names for trackers
-        dest_params = ["requestUrl", "dest", "url", "u", "target", "redirect", "destination"]
+        dest_params = [
+            "requestUrl", "dest", "url", "u", "target", "redirect", "destination",
+            "caller_url", "return_url", "final_url", "goto", "next", "landing"
+        ]
         for p in dest_params:
             if p in params and params[p]:
                 target = unquote(params[p][0])
