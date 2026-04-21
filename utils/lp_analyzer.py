@@ -4,7 +4,7 @@ import re
 from urllib.parse import urlparse
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
-from utils.url_blacklist import is_meaningful_url, is_intermediary_domain
+from utils.url_blacklist import is_meaningful_url, is_intermediary_domain, AFFILIATE_SIGNATURES
 import tldextract
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -252,13 +252,13 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     cleaned_r = extract_target_from_params(r_url)
                     r_domain = tldextract.extract(cleaned_r).registered_domain
                     if r_domain != original_domain:
-                        from utils.url_blacklist import AFFILIATE_SIGNATURES, is_meaningful_url
                         # STRICT: Must be meaningful (NOT media/static) AND have an affiliate signature
                         if is_meaningful_url(cleaned_r) and any(sig in cleaned_r.lower() for sig in AFFILIATE_SIGNATURES):
                             print(f"Heuristic Fallback (Affiliate Match): Using {cleaned_r}")
                             final_offer_url = cleaned_r
                             found_affiliate_fallback = True
                             break
+
                 
                 # Second pass: If no affiliate signature found, use the last meaningful domain that is NOT the original
                 # AND NOT a tracker if possible
