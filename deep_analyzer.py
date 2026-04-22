@@ -177,21 +177,24 @@ async def deep_analyze_ad(ad_id, landing_url, title):
     """Full analysis flow."""
     browser = None
     try:
+        print(f"  [Ad {ad_id}] Launching browser...", flush=True)
         async with async_playwright() as p:
             # Add GHA-compatible flags
             browser = await p.chromium.launch(
                 headless=True,
                 args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
             )
+            print(f"  [Ad {ad_id}] Creating context...", flush=True)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
             page = await context.new_page()
             
-            # Apply stealth to bypass bot detection
+            # Apply stealth
             await Stealth().apply_stealth_async(page)
             
             # 1. Detailed Landing Page Analysis
+            print(f"  [Ad {ad_id}] Navigating to landing page...", flush=True)
             lp_result = await analyze_landing_page_with_page(page, landing_url)
             page_content = lp_result.get("text_content", "")
             final_url = lp_result.get("final_offer_url", landing_url)
@@ -199,6 +202,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             page_structure = lp_result.get("page_structure", {})
 
             # 2. Master Classification
+            print(f"  [Ad {ad_id}] Classifying content...", flush=True)
             classification = await classify_with_full_context(
                 landing_url=landing_url,
                 title=title,
@@ -214,20 +218,23 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             
             # 3. Final Persistence & Intel Gathering
             if classification.get("skip_deep_analysis"):
+                print(f"  [Ad {ad_id}] Fast-classified as {final_ad_type}", flush=True)
                 await save_classification(ad_id, classification)
-                print(f"Fast-classified [{classification['stage']}]: {ad_id} -> {final_ad_type}")
                 return classification
 
             # Deep Intel for Affiliate/Review
             intelligence = classification.get("intelligence", {})
             click_result = {}
             offer_screenshot_url = None
+            
+            print(f"  [Ad {ad_id}] Taking screenshot...", flush=True)
             lp_screenshot_url = await take_and_store_screenshot(page, ad_id, "landing_page")
 
             if final_ad_type in ["Affiliate", "Manual Review Required"]:
-                print(f"Ad {ad_id}: Deep analysis (Stage {classification['stage']})...")
+                print(f"  [Ad {ad_id}] Attempting CTA click...", flush=True)
                 click_result = await click_cta_and_capture(page, "Affiliate")
                 if click_result.get("cta_found"):
+                    print(f"  [Ad {ad_id}] CTA found! Analyzing offer destination...", flush=True)
                     offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
                     deep_intel = extract_offer_intelligence(final_url=click_result["final_offer_url"], redirect_chain=click_result["redirect_chain"])
                     intelligence.update(deep_intel)
@@ -307,4 +314,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
         print(f"Error for {ad_id}: {e}")
         return {"error": str(e)}
     finally:
-        if browser: await browser.close()
+        if browser:
+            try:
+                # Give browser.close() a hard 10s limit
+                await asyncio.wait_for(browser.close(), timeout=10.0)
+            except:
+                print(f"  [Ad {ad_id}] Warning: Browser close timed out.", flush=True)

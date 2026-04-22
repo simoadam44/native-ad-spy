@@ -66,14 +66,10 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
             pbar.update(1)
             pbar.set_postfix(stats)
 
-    for i in range(0, len(ads), 2):
-        chunk = ads[i:i+2]
-        tasks = [wrapped_analyze(ad) for ad in chunk]
-        await asyncio.gather(*tasks)
-        if delay > 0:
-            await asyncio.sleep(delay)
-        else:
-            await asyncio.sleep(0.5) # Yield to event loop
+    for i in range(len(ads)):
+        ad = ads[i]
+        await wrapped_analyze(ad)
+        await asyncio.sleep(1.0) # Yield and settle
     
     pbar.close()
     print("\n" + "="*30)
