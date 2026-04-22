@@ -539,11 +539,17 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
     except Exception as e:
         print(f"LP Analysis Error for {url}: {e}")
 
+    # Capture final HTML for classification
+    try:
+        final_html = await page.content()
+    except:
+        final_html = ""
+
     # Add background discoveries to intelligence
     result.update({
         "background_offers": background_offers,
         "network_intel": network_intel,
-        "full_html": full_html
+        "full_html": final_html
     })
 
     return result
