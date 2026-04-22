@@ -416,7 +416,7 @@ async def wait_for_actual_landing(page, timeout=10000):
         pass
     
     waited = 0
-    while is_intermediary_domain(page.url) and waited < 5s:
+    while is_intermediary_domain(page.url) and waited < 5000:
         await asyncio.sleep(1.0)
         waited += 1000
     return page.url
