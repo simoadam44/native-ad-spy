@@ -8,9 +8,9 @@ from utils.url_blacklist import is_meaningful_url, is_intermediary_domain, AFFIL
 import tldextract
 from urllib.parse import urlparse, parse_qs, unquote
 
-def extract_target_from_params(url: str) -> str:
-    """Attempts to recursively find a destination URL hidden in query parameters."""
-    if not url: return ""
+def extract_target_from_params(url: str, depth: int = 0) -> str:
+    """Attempts to recursively find a destination URL hidden in query parameters (max depth 3)."""
+    if not url or depth > 3: return url
     try:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
@@ -22,10 +22,9 @@ def extract_target_from_params(url: str) -> str:
         for p in dest_params:
             if p in params and params[p]:
                 target = unquote(params[p][0])
-                if target.startswith("http"):
+                if target.startswith("http") and target != url:
                     # RECURSIVE: Check if the extracted URL also has a target
-                    # But avoid infinite loops - just one level deeper usually suffices
-                    deeper = extract_target_from_params(target)
+                    deeper = extract_target_from_params(target, depth + 1)
                     if deeper != target:
                         return deeper
                     return target
@@ -40,9 +39,11 @@ def is_api_endpoint(url):
         "/api/", "/v2/", "/v1/", "/v3/", "/internal/", "/metrics",
         "/sync", "/imsync", "/usersync", "/ingest", "/ingest.php",
         "/analytics", "/collect", "/pixel", "/beacon",
-        "/track", "/tracker", ".ashx",
+        "/track", "/tracker", ".ashx", "/ingest", "ingest.php",
+        "permutive.com", "ml314.com", "newsroom.bi",
+        "/beacon", "/log?", "collect?", "/events?"
     ]
-    return any(p in path for p in api_patterns)
+    return any(p in path for p in api_patterns) or any(d in url_lower for d in ["ml314.com", "permutive.com", "newsroom.bi"])
 
 def extract_affiliate_from_html(html):
     """
@@ -298,8 +299,8 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     cleaned_r = extract_target_from_params(r_url)
                     r_domain = tldextract.extract(cleaned_r).registered_domain
                     if r_domain != original_domain:
-                        # STRICT: Must be meaningful (NOT media/static) AND have an affiliate signature
-                        if is_meaningful_url(cleaned_r) and any(sig in cleaned_r.lower() for sig in AFFILIATE_SIGNATURES):
+                        # STRICT: Must be meaningful (NOT media/static) AND have an affiliate signature AND NOT an API
+                        if is_meaningful_url(cleaned_r) and any(sig in cleaned_r.lower() for sig in AFFILIATE_SIGNATURES) and not is_api_endpoint(cleaned_r):
                             print(f"Heuristic Fallback (Affiliate Match): Using {cleaned_r}")
                             final_offer_url = cleaned_r
                             found_affiliate_fallback = True
@@ -335,8 +336,8 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                             cleaned_r = extract_target_from_params(r_url)
                             r_domain = tldextract.extract(cleaned_r).registered_domain
                             
-                            # Check if it's meaningful AND not a known intermediary/tracker
-                            if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_intermediary_domain(cleaned_r):
+                            # Check if it's meaningful AND not a known intermediary/tracker AND not an API
+                            if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_intermediary_domain(cleaned_r) and not is_api_endpoint(cleaned_r):
                                 print(f"Heuristic Fallback (Merchant Domain): Using {cleaned_r}")
                                 final_offer_url = cleaned_r
                                 break
@@ -406,6 +407,49 @@ async def analyze_page_structure(page) -> dict:
         }
     except: return {}
 
+async def wait_for_actual_landing(page, timeout=10000):
+    """Wait for the page to settle on a non-intermediary URL."""
+    try:
+        # Increase settle time for network-heavy pages
+        await page.wait_for_load_state("networkidle", timeout=timeout)
+    except:
+        pass
+    
+    waited = 0
+    while is_intermediary_domain(page.url) and waited < 5s:
+        await asyncio.sleep(1.0)
+        waited += 1000
+    return page.url
+
+async def capture_network_intelligence(page) -> dict:
+    """
+    Scans background network requests and JS context for affiliate signals.
+    """
+    intel = {
+        "detected_trackers": [],
+        "potential_offers": [],
+        "js_vars": {}
+    }
+    
+    # 1. Capture common affiliate JS variables
+    js_script = """
+    () => {
+        return {
+            voluum_cid: window.__vl_cid || null,
+            everflow_ef: window.EF || null,
+            binom_id: window.binom_click_id || null,
+            clickbank_split: window.cbsplit || null,
+            tune_tfa: window._tfa || null,
+            cake_id: window.cake_id || null
+        }
+    }
+    """
+    try:
+        intel["js_vars"] = await page.evaluate(js_script)
+    except: pass
+
+    return intel
+
 async def analyze_landing_page_with_page(page, url: str) -> dict:
     """Analyzes a landing page using an existing Playwright page object."""
     result = {
@@ -438,9 +482,31 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             except: pass
             
         page.on("response", handle_response)
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         
-        await wait_for_actual_landing(page, 10000)
+        redirect_chain = []
+        background_offers = []
+    
+        # Listen for background requests that look like affiliate offers
+        async def on_request(request):
+            req_url = request.url
+            if is_api_endpoint(req_url) or not is_meaningful_url(req_url):
+                return
+            
+            # Check if this background request matches affiliate signatures
+            # from url_blacklist or common offer patterns
+            if any(sig in req_url.lower() for sig in ["/click?", "clk=", "/go/", "offid=", "aff_id="]):
+                background_offers.append(req_url)
+
+        page.on("request", on_request)
+
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=40000)
+        # Wait a bit for background pixels/redirects to fire
+        await asyncio.sleep(3)
+        
+        # Capture network and JS intelligence
+        network_intel = await capture_network_intelligence(page)
+        
+        final_url = await wait_for_actual_landing(page, 10000)
         
         await page.mouse.wheel(0, 500)
         await asyncio.sleep(1.0)
@@ -472,5 +538,12 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
     except Exception as e:
         print(f"LP Analysis Error for {url}: {e}")
+
+    # Add background discoveries to intelligence
+    result.update({
+        "background_offers": background_offers,
+        "network_intel": network_intel,
+        "full_html": full_html
+    })
 
     return result

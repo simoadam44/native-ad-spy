@@ -27,37 +27,42 @@ TRACKER_REDIRECT_DOMAINS = [
     "bemob.com",
 ]
 
-def resolve_real_url(url: str) -> str:
+def resolve_url(url: str, max_redirects: int = 10) -> tuple:
     """
-    Follows tracker redirect URLs to get the real landing page URL.
-    Uses requests.head for speed.
+    Follows redirects and returns (final_url, redirect_chain).
+    Compatible with MGID and Taboola crawlers.
     """
     if not url:
-        return url
+        return "", []
         
-    parsed = urlparse(url)
-    domain = parsed.netloc.lower()
+    redirect_chain = []
+    current_url = url
     
-    # Check if URL belongs to a known tracker
-    is_tracker = any(t in domain or t in url for t in TRACKER_REDIRECT_DOMAINS)
-    
-    if not is_tracker:
-        return url
-        
-    print(f"Targeting Tracker Redirect: {domain}...")
     try:
         headers = {"User-Agent": USER_AGENTS[0]}
-        # Follow redirects with a limit of 5 and timeout of 10s
-        response = requests.head(
-            url, 
-            headers=headers, 
-            allow_redirects=True, 
-            timeout=10
-        )
-        return response.url
+        # We use a session to track redirects manually so we can capture the chain
+        with requests.Session() as session:
+            session.max_redirects = max_redirects
+            response = session.get(
+                current_url,
+                headers=headers,
+                allow_redirects=True,
+                timeout=15
+            )
+            
+            for resp in response.history:
+                redirect_chain.append(resp.url)
+            
+            final_url = response.url
+            return final_url, redirect_chain
     except Exception as e:
-        print(f"Tracker resolution failed: {e}. Using original URL.")
-        return url
+        print(f"URL Resolution failed for {url}: {e}")
+        return url, []
+
+def resolve_real_url(url: str) -> str:
+    """Legacy wrapper for resolve_url that only returns the final string."""
+    final, _ = resolve_url(url)
+    return final
 
 if __name__ == "__main__":
     # Test

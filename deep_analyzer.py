@@ -11,7 +11,8 @@ from urllib.parse import urlparse
 from utils.ad_classifier import calculate_ad_score, is_arbitrage_site, get_ad_network_fingerprints
 from utils.url_resolver import resolve_real_url
 from utils.offer_extractor import extract_offer_intelligence
-from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure
+from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint
+from utils.url_blacklist import is_meaningful_url
 
 # Supabase initialization
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -84,8 +85,24 @@ async def classify_with_full_context(
 
     url_lower = landing_url.lower()
     
-    # 1. FORCED AFFILIATE DETECTION (Highest priority)
-    # If these params exist, the URL is an affiliate tracker - cannot be Arbitrage
+    # 1. STRICT MASTER RULE - INSTANT ARBITRAGE SCAN (Highest priority)
+    # If it contains AdSense/Native ad code, it's Arbitrage, period.
+    fingerprint = get_ad_network_fingerprints(page_content)
+    
+    if fingerprint["found"]:
+        # Only exception: Known affiliate landing page domains (rare)
+        # But for big publishers, fingerprint always wins.
+        return {
+            "ad_type": "Arbitrage",
+            "confidence": "high",
+            "stage": "Instant",
+            "reason": f"EXPLICIT_NETWORK_CODE_DETECTED: {fingerprint['network']}",
+            "detected_ad_networks": fingerprint["all_networks"],
+            "skip_deep_analysis": True
+        }
+
+    # 2. FORCED AFFILIATE DETECTION
+    # If these params exist and NO ad code was found above
     STRONG_AFFILIATE_PARAMS = [
         "hop=", "hopId=", "affid=", "aff_id=", "affiliate_id=", 
         "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
@@ -96,8 +113,6 @@ async def classify_with_full_context(
     ]
     is_aff_param_found = any(p in url_lower for p in STRONG_AFFILIATE_PARAMS)
     
-    # If a strong affiliate parameter is found = this is an affiliate, PERIOD.
-    # Retargeting/GA pixels on VSL pages must NOT override this.
     if is_aff_param_found:
         return {
             "ad_type": "Affiliate",
@@ -105,21 +120,6 @@ async def classify_with_full_context(
             "stage": 1,
             "reason": "affiliate_param_found_no_ad_code",
             "skip_deep_analysis": False
-        }
-
-    # 2. STRICT MASTER RULE - INSTANT ARBITRAGE SCAN
-    # Only runs if NO affiliate params were found above
-    fingerprint = get_ad_network_fingerprints(page_content)
-    
-    if fingerprint["found"]:
-        # INSTANT ARBITRAGE
-        return {
-            "ad_type": "Arbitrage",
-            "confidence": "high",
-            "stage": "Instant",
-            "reason": f"EXPLICIT_NETWORK_CODE_DETECTED: {fingerprint['network']}",
-            "detected_ad_networks": fingerprint["all_networks"],
-            "skip_deep_analysis": True
         }
 
     # Page Structure signals
@@ -234,13 +234,46 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             try: detected_lang = detect(page_content[:500])
             except: pass
 
+            # 3. Final Offer URL Selection Logic (Hardened)
+            # Preference order: Network Intel -> HTML Extraction -> Click Result -> Current Page
+            
+            # Check background network captures first (AdPlexity style)
+            bg_offers = lp_result.get("background_offers", [])
+            network_final = None
+            if bg_offers:
+                # Use the last background offer that isn't a sync pixel
+                for bg_url in reversed(bg_offers):
+                    if not is_api_endpoint(bg_url) and is_meaningful_url(bg_url):
+                        network_final = bg_url
+                        break
+
+            potential_final = network_final or intelligence.get("final_offer_url") or click_result.get("final_offer_url") or page.url
+            
+            # Check JS variables for hidden affiliate IDs
+            js_vars = lp_result.get("network_intel", {}).get("js_vars", {})
+            if js_vars.get("voluum_cid") and not intelligence.get("click_id"):
+                intelligence["click_id"] = js_vars["voluum_cid"]
+                intelligence["tracker_tool"] = "Voluum (JS)"
+
+            # CRITICAL: If the potential final URL is an API/sync endpoint, try to recover from redirect chain
+            if is_api_endpoint(potential_final) or not is_meaningful_url(potential_final):
+                chain = click_result.get("redirect_chain", []) + bg_offers
+                recovered = False
+                for r_url in reversed(chain):
+                    if not is_api_endpoint(r_url) and is_meaningful_url(r_url):
+                        potential_final = r_url
+                        recovered = True
+                        break
+                if not recovered:
+                    potential_final = final_url # Fallback to the landing page if all redirects are APIs
+
             full_updates = {
                 "ad_type": final_ad_type,
                 "classification_confidence": classification.get("confidence"),
                 "classification_reason": classification.get("reason"),
                 "landing": final_url,  # The actual resolved landing page
-                "final_offer_url": intelligence.get("final_offer_url") or click_result.get("final_offer_url") or page.url,
-                "offer_domain": intelligence.get("offer_domain"),
+                "final_offer_url": potential_final,
+                "offer_domain": tldextract.extract(potential_final).registered_domain if potential_final else None,
                 "affiliate_network": intelligence.get("affiliate_network"),
                 "tracker_tool": intelligence.get("tracker_tool"),
                 "offer_id": intelligence.get("offer_id"),

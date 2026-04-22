@@ -43,9 +43,12 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
     PER_AD_TIMEOUT = 120  # seconds - hard limit per ad
 
     async def wrapped_analyze(ad):
+        ad_id = ad['id']
+        landing = ad['landing']
         try:
+            print(f"\n[Analysing Ad {ad_id}] {landing[:60]}...")
             result = await asyncio.wait_for(
-                deep_analyze_ad(ad['id'], ad['landing'], ad['title']),
+                deep_analyze_ad(ad_id, landing, ad['title']),
                 timeout=PER_AD_TIMEOUT
             )
             if "error" in result:
@@ -54,10 +57,10 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
                 rtype = result.get("ad_type", "Unknown")
                 stats[rtype] = stats.get(rtype, 0) + 1
         except asyncio.TimeoutError:
-            print(f"TIMEOUT: Ad {ad['id']} exceeded {PER_AD_TIMEOUT}s limit - skipping")
+            print(f"\nTIMEOUT: Ad {ad_id} exceeded {PER_AD_TIMEOUT}s limit - skipping")
             stats["Failed"] += 1
         except Exception as e:
-            print(f"Error for ad {ad['id']}: {e}")
+            print(f"\nError for ad {ad_id}: {e}")
             stats["Failed"] += 1
         finally:
             pbar.update(1)
@@ -69,6 +72,8 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
         await asyncio.gather(*tasks)
         if delay > 0:
             await asyncio.sleep(delay)
+        else:
+            await asyncio.sleep(0.1) # Yield to event loop
     
     pbar.close()
     print("\n" + "="*30)

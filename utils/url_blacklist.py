@@ -85,6 +85,7 @@ STRICT_BLOCK_DOMAINS = [
     "tracking.buygoods.com", "track.buygoods.com",
     "go2cloud.org", "go2jump.org",  # Commission Junction trackers
     "pntra.com", "pntat.com",       # Other CJ tracker domains
+    "ml314.com", "permutive.com", "newsroom.bi", "news-feed.com",
 ]
 
 
@@ -150,7 +151,8 @@ AFFILIATE_SIGNATURES = [
     "utm_campaign=", "utm_content=", "cep=", "widget_id=", 
     "content_id=", "boost_id=", "click_id=", "affiliate_id=",
     "offer_id=", "cbid=", "tblci=", "ob_click_id=",
-    "aff_id", "aff_click_id", "req_id", "sub1", "sub2", "transaction_id"
+    "aff_id", "aff_click_id", "req_id", "sub1", "sub2", "sub3", "transaction_id",
+    "voluumdata=", "voluum", "bsl="
 ]
 
 def is_meaningful_url(url: str) -> bool:

@@ -106,10 +106,11 @@ def get_ad_network_fingerprints(page_content: str) -> dict:
     """
     content = page_content.lower()
     FINGERPRINTS = {
-        "Google AdSense": {
+        "Google AdSense/AdX": {
             "patterns": [
                 "adsbygoogle", "googlesyndication.com/pagead", "google_ad_client",
-                "pub-", "ins class=\"adsbygoogle\""
+                "pub-", "ins class=\"adsbygoogle\"", "gpt.js", "google_ads",
+                "googletagservices.com", "doubleclick.net/adj"
             ], 
             "confidence": "high"
         },
