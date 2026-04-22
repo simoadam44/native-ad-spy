@@ -34,7 +34,8 @@ def extract_target_from_params(url: str, depth: int = 0) -> str:
 def is_api_endpoint(url):
     """Returns True if the URL looks like an API/analytics/sync endpoint."""
     if not url: return True
-    path = urlparse(url.lower()).path
+    url_lower = url.lower()
+    path = urlparse(url_lower).path
     api_patterns = [
         "/api/", "/v2/", "/v1/", "/v3/", "/internal/", "/metrics",
         "/sync", "/imsync", "/usersync", "/ingest", "/ingest.php",
