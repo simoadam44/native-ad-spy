@@ -34,17 +34,16 @@ def extract_target_from_params(url: str, depth: int = 0) -> str:
 def is_api_endpoint(url):
     """Returns True if the URL looks like an API/analytics/sync endpoint."""
     if not url: return True
-    url_lower = url.lower()
-    path = urlparse(url_lower).path
+    u = url.lower()
+    path = urlparse(u).path
     api_patterns = [
         "/api/", "/v2/", "/v1/", "/v3/", "/internal/", "/metrics",
         "/sync", "/imsync", "/usersync", "/ingest", "/ingest.php",
         "/analytics", "/collect", "/pixel", "/beacon",
-        "/track", "/tracker", ".ashx", "/ingest", "ingest.php",
-        "permutive.com", "ml314.com", "newsroom.bi",
-        "/beacon", "/log?", "collect?", "/events?"
+        "/track", "/tracker", ".ashx", "permutive.com", "ml314.com", "newsroom.bi",
+        "/log?", "collect?", "/events?"
     ]
-    return any(p in path for p in api_patterns) or any(d in url_lower for d in ["ml314.com", "permutive.com", "newsroom.bi"])
+    return any(p in path for p in api_patterns) or any(d in u for d in ["ml314.com", "permutive.com", "newsroom.bi"])
 
 def extract_affiliate_from_html(html):
     """
