@@ -552,6 +552,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         
         redirect_chain = []
         background_offers = []
+        network_intel = {"detected_trackers": [], "potential_offers": [], "js_vars": {}}
     
         # Listen for background requests that look like affiliate offers
         async def on_request(request):
@@ -570,10 +571,19 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
         page.on("request", on_request)
 
-        # Increase timeout and use networkidle to capture complex redirect chains (RevContent fix)
-        response = await page.goto(url, wait_until="networkidle", timeout=60000)
+        # OPTIMIZED NAVIGATION:
+        # Use 'load' as the primary target, then try a shorter networkidle.
+        # This prevents 60s timeouts on heavy news sites.
+        try:
+            await page.goto(url, wait_until="load", timeout=45000)
+            # Try to wait for idle, but don't crash if it takes too long
+            try: await page.wait_for_load_state("networkidle", timeout=10000)
+            except: pass 
+        except Exception as e:
+            print(f"Navigation issue for {url}: {e}. Proceeding with current content.")
+        
         # Wait a bit more for late-firing pixels
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         
         # Capture network and JS intelligence
         network_intel = await capture_network_intelligence(page)
