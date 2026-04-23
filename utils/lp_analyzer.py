@@ -8,6 +8,22 @@ from utils.url_blacklist import is_meaningful_url, is_intermediary_domain, AFFIL
 import tldextract
 from urllib.parse import urlparse, parse_qs, unquote
 
+TECHNICAL_NOISE_DOMAINS = [
+    "vturb.com.br",    # Video player service
+    "djpcraze.com",    # Tracking SDK
+    "hotmart.com/embed", # Hotmart video player
+    "vimeo.com",
+    "cloudfront.net",
+    "amazonaws.com",
+    "doubleclick.net",
+    "google-analytics.com",
+    "googletagmanager.com",
+    "bluekai.com",
+    "adnxs.com",
+    "permutive.com",
+    "ml314.com"
+]
+
 def extract_target_from_params(url: str, depth: int = 0) -> str:
     """Attempts to recursively find a destination URL hidden in query parameters (max depth 3)."""
     if not url or depth > 3: return url
@@ -492,14 +508,18 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
     
         # Listen for background requests that look like affiliate offers
         async def on_request(request):
-            req_url = request.url
-            if is_api_endpoint(req_url) or not is_meaningful_url(req_url):
-                return
-            
-            # Check if this background request matches affiliate signatures
-            # from url_blacklist or common offer patterns
-            if any(sig in req_url.lower() for sig in ["/click?", "clk=", "/go/", "offid=", "aff_id="]):
-                background_offers.append(req_url)
+            try:
+                req_url = request.url
+                # 1. Skip technical noise
+                if any(noise in req_url for noise in TECHNICAL_NOISE_DOMAINS):
+                    return
+                
+                # 2. Search for affiliate signals
+                affiliate_signals = ['hopid', 'affiliate', 'aff_id', 'clickid', 'tid', 'extclid', 'click_id', 'offer_id']
+                if any(sig in req_url.lower() for sig in affiliate_signals):
+                    if req_url not in background_offers:
+                        background_offers.append(req_url)
+            except: pass
 
         page.on("request", on_request)
 
@@ -530,12 +550,28 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         elif "advertorial" in content.lower():
             result["page_subtype"] = "Advertorial"
 
+        # 3. Final Offer Selection Logic (Network-First if signals found)
+        best_bg_offer = None
+        if background_offers:
+            # Exclude technical endpoints from background captures
+            clean_bg = [
+                opt for opt in background_offers 
+                if not any(x in opt.lower() for x in ['/check', '/conversion', '/sdk/', '.js', '.png', '/pixel', '/collect'])
+            ]
+            if clean_bg:
+                # Prefer longest URL as it likely contains the most tracking data
+                best_bg_offer = max(clean_bg, key=len)
+
         html_aff = extract_affiliate_from_html(content)
-        if html_aff:
+        
+        if best_bg_offer:
+            result["final_offer_url"] = best_bg_offer
+        elif html_aff:
             print(f"HTML-First Match: {html_aff[:80]}")
             result["final_offer_url"] = html_aff
         else:
             result["final_offer_url"] = page.url
+
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], clean_redirect_chain)
         result["page_structure"] = await analyze_page_structure(page)
         result["clean_redirect_chain"] = clean_redirect_chain
