@@ -86,13 +86,31 @@ async def classify_with_full_context(
 
     url_lower = landing_url.lower()
     
-    # 1. STRICT MASTER RULE - INSTANT ARBITRAGE SCAN (Highest priority)
-    # If it contains AdSense/Native ad code, it's Arbitrage, period.
+    # 1. FORCED AFFILIATE DETECTION (Highest Priority - Signal beats Content)
+    # If these params exist, it's an Affiliate Bridge, period.
+    STRONG_AFFILIATE_MARKERS = [
+        "hop=", "hopid=", "affid=", "aff_id=", "affiliate_id=", 
+        "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
+        "rc_uuid=", "voluumdata=", "voluum", "wellnessgaze", "go.php",
+        "bsl=", "t=aff", "sub1=", "sub2=", "sub3=", "tid=", "extclid="
+    ]
+    is_aff_signal = any(p in url_lower for p in STRONG_AFFILIATE_MARKERS) or \
+                    "voluumdata" in page_content or "/go.php?" in page_content
+    
+    if is_aff_signal:
+        return {
+            "ad_type": "Affiliate",
+            "confidence": "high",
+            "stage": "Signal",
+            "reason": "STRONG_AFFILIATE_SIGNAL_DETECTED",
+            "skip_deep_analysis": False
+        }
+
+    # 2. STRICT ARBITRAGE SCAN
+    # If it contains AdSense/Native ad code, and NO affiliate signals were found above.
     fingerprint = get_ad_network_fingerprints(page_content)
     
     if fingerprint["found"]:
-        # Only exception: Known affiliate landing page domains (rare)
-        # But for big publishers, fingerprint always wins.
         return {
             "ad_type": "Arbitrage",
             "confidence": "high",
@@ -100,27 +118,6 @@ async def classify_with_full_context(
             "reason": f"EXPLICIT_NETWORK_CODE_DETECTED: {fingerprint['network']}",
             "detected_ad_networks": fingerprint["all_networks"],
             "skip_deep_analysis": True
-        }
-
-    # 2. FORCED AFFILIATE DETECTION
-    # If these params exist and NO ad code was found above
-    STRONG_AFFILIATE_PARAMS = [
-        "hop=", "hopId=", "affid=", "aff_id=", "affiliate_id=", 
-        "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
-        "rc_uuid=", "utm_source=", "utm_medium=", "boost_id=", "widget_id=",
-        "voluumdata=", "voluum",  # Voluum affiliate tracker
-        "bsl=", "t=aff",          # Other common affiliate bridges
-        "sub1=", "sub2=", "sub3="  # Generic sub-tracking params
-    ]
-    is_aff_param_found = any(p in url_lower for p in STRONG_AFFILIATE_PARAMS)
-    
-    if is_aff_param_found:
-        return {
-            "ad_type": "Affiliate",
-            "confidence": "high",
-            "stage": 1,
-            "reason": "affiliate_param_found_no_ad_code",
-            "skip_deep_analysis": False
         }
 
     # Page Structure signals

@@ -6,7 +6,25 @@ from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
 from utils.url_blacklist import is_meaningful_url, is_intermediary_domain, AFFILIATE_SIGNATURES
 import tldextract
+import base64
+import json
 from urllib.parse import urlparse, parse_qs, unquote
+
+def extract_hidden_voluum_offer(url: str):
+    """Decodes Voluum Base64 tracking data to find the hidden offer URL."""
+    if "voluumdata=" in url:
+        try:
+            encoded_part = url.split("voluumdata=")[1].split("&")[0]
+            # Handle potential padding issues
+            missing_padding = len(encoded_part) % 4
+            if missing_padding:
+                encoded_part += '=' * (4 - missing_padding)
+            decoded_str = base64.b64decode(unquote(encoded_part)).decode('utf-8')
+            data = json.loads(decoded_str)
+            return data.get("offer")
+        except:
+            return None
+    return None
 
 TECHNICAL_NOISE_DOMAINS = [
     "vturb.com.br",    # Video player service
@@ -27,6 +45,13 @@ TECHNICAL_NOISE_DOMAINS = [
 def extract_target_from_params(url: str, depth: int = 0) -> str:
     """Attempts to recursively find a destination URL hidden in query parameters (max depth 3)."""
     if not url or depth > 3: return url
+    
+    # Check for hidden Voluum data first
+    voluum_offer = extract_hidden_voluum_offer(url)
+    if voluum_offer:
+        # Recurse on the extracted offer
+        return extract_target_from_params(voluum_offer, depth + 1)
+
     try:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
@@ -523,9 +548,10 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
         page.on("request", on_request)
 
-        response = await page.goto(url, wait_until="domcontentloaded", timeout=40000)
-        # Wait a bit for background pixels/redirects to fire
-        await asyncio.sleep(3)
+        # Increase timeout and use networkidle to capture complex redirect chains (RevContent fix)
+        response = await page.goto(url, wait_until="networkidle", timeout=60000)
+        # Wait a bit more for late-firing pixels
+        await asyncio.sleep(5)
         
         # Capture network and JS intelligence
         network_intel = await capture_network_intelligence(page)
