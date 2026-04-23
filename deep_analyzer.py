@@ -7,6 +7,7 @@ from playwright_stealth import Stealth
 from supabase import create_client
 from langdetect import detect
 
+import tldextract
 from urllib.parse import urlparse
 from utils.ad_classifier import calculate_ad_score, is_arbitrage_site, get_ad_network_fingerprints
 from utils.url_resolver import resolve_real_url
