@@ -87,12 +87,13 @@ async def classify_with_full_context(
     url_lower = landing_url.lower()
     
     # 1. FORCED AFFILIATE DETECTION (Highest Priority - Signal beats Content)
-    # If these params exist, it's an Affiliate Bridge, period.
+    # If these params or domains exist, it's an Affiliate Bridge, period.
     STRONG_AFFILIATE_MARKERS = [
         "hop=", "hopid=", "affid=", "aff_id=", "affiliate_id=", 
         "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
         "rc_uuid=", "voluumdata=", "voluum", "wellnessgaze", "go.php",
-        "bsl=", "t=aff", "sub1=", "sub2=", "sub3=", "tid=", "extclid="
+        "bsl=", "t=aff", "sub1=", "sub2=", "sub3=", "tid=", "extclid=",
+        "smeagol.revcontent.com", "revcontent.com/cv"
     ]
     is_aff_signal = any(p in url_lower for p in STRONG_AFFILIATE_MARKERS) or \
                     "voluumdata" in page_content or "/go.php?" in page_content

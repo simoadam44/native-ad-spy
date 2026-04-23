@@ -28,6 +28,7 @@ def extract_hidden_voluum_offer(url: str):
 
 TECHNICAL_NOISE_DOMAINS = [
     "vturb.com.br",    # Video player service
+    "api.vturb.com",   # Vturb API
     "djpcraze.com",    # Tracking SDK
     "hotmart.com/embed", # Hotmart video player
     "vimeo.com",
@@ -39,8 +40,29 @@ TECHNICAL_NOISE_DOMAINS = [
     "bluekai.com",
     "adnxs.com",
     "permutive.com",
-    "ml314.com"
+    "ml314.com",
+    "newsroom.bi"
 ]
+
+def get_best_offer_link(links: list) -> str:
+    """Filters a list of links and picks the best candidate for an offer URL."""
+    valid_links = []
+    for link in links:
+        if not link: continue
+        l_lower = link.lower()
+        # 1. Skip technical noise
+        if any(noise in l_lower for noise in TECHNICAL_NOISE_DOMAINS):
+            continue
+        # 2. Skip obvious technical endpoints
+        if any(term in l_lower for term in ["/check", "/conversion", "/sdk/", ".js", ".png", ".jpg", ".gif", "/pixel", "/collect"]):
+            continue
+        valid_links.append(link)
+    
+    if not valid_links:
+        return None
+    
+    # Prefer longest URL as it likely contains the most tracking data
+    return max(valid_links, key=len)
 
 def extract_target_from_params(url: str, depth: int = 0) -> str:
     """Attempts to recursively find a destination URL hidden in query parameters (max depth 3)."""
@@ -577,17 +599,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             result["page_subtype"] = "Advertorial"
 
         # 3. Final Offer Selection Logic (Network-First if signals found)
-        best_bg_offer = None
-        if background_offers:
-            # Exclude technical endpoints from background captures
-            clean_bg = [
-                opt for opt in background_offers 
-                if not any(x in opt.lower() for x in ['/check', '/conversion', '/sdk/', '.js', '.png', '/pixel', '/collect'])
-            ]
-            if clean_bg:
-                # Prefer longest URL as it likely contains the most tracking data
-                best_bg_offer = max(clean_bg, key=len)
-
+        best_bg_offer = get_best_offer_link(background_offers)
         html_aff = extract_affiliate_from_html(content)
         
         if best_bg_offer:
