@@ -17,7 +17,8 @@ def extract_target_from_params(url: str, depth: int = 0) -> str:
         # Common 'destination' parameter names for trackers
         dest_params = [
             "requestUrl", "dest", "url", "u", "target", "redirect", "destination",
-            "caller_url", "return_url", "final_url", "goto", "next", "landing"
+            "caller_url", "return_url", "final_url", "goto", "next", "landing",
+            "event_source_url", "r", "to", "link", "orig", "origin", "src"
         ]
         for p in dest_params:
             if p in params and params[p]:
@@ -41,9 +42,12 @@ def is_api_endpoint(url):
         "/sync", "/imsync", "/usersync", "/ingest", "/ingest.php",
         "/analytics", "/collect", "/pixel", "/beacon",
         "/track", "/tracker", ".ashx", "permutive.com", "ml314.com", "newsroom.bi",
-        "/log?", "collect?", "/events?"
+        "/log?", "collect?", "/events?", "/sdk/", "/conversion", "/check",
+        "/vturb/", "/player/", "taboola.com/libtrc/", "/notify", "/ping"
     ]
-    return any(p in path for p in api_patterns) or any(d in u for d in ["ml314.com", "permutive.com", "newsroom.bi"])
+    # Check both path and full URL for some specific trackers
+    tracking_domains = ["ml314.com", "permutive.com", "newsroom.bi", "vturb.com.br", "djpcraze.com", "bluekai.com", "adnxs.com"]
+    return any(p in u for p in api_patterns) or any(d in u for d in tracking_domains)
 
 def extract_affiliate_from_html(html):
     """

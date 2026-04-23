@@ -261,19 +261,29 @@ async def deep_analyze_ad(ad_id, landing_url, title):
 
             potential_final = network_final or intelligence.get("final_offer_url") or click_result.get("final_offer_url") or page.url
             
+            # PEELING STEP: If the URL looks like a tracker/API but has a target parameter, peel it
+            from utils.lp_analyzer import extract_target_from_params
+            peeled = extract_target_from_params(potential_final)
+            if peeled != potential_final:
+                potential_final = peeled
+
             # Check JS variables for hidden affiliate IDs
             js_vars = lp_result.get("network_intel", {}).get("js_vars", {})
             if js_vars.get("voluum_cid") and not intelligence.get("click_id"):
                 intelligence["click_id"] = js_vars["voluum_cid"]
                 intelligence["tracker_tool"] = "Voluum (JS)"
 
-            # CRITICAL: If the potential final URL is an API/sync endpoint, try to recover from redirect chain
+            # CRITICAL: If the potential final URL is STILL an API/sync endpoint, try to recover from redirect chain
             if is_api_endpoint(potential_final) or not is_meaningful_url(potential_final):
                 chain = click_result.get("redirect_chain", []) + bg_offers
                 recovered = False
                 for r_url in reversed(chain):
-                    if not is_api_endpoint(r_url) and is_meaningful_url(r_url):
-                        potential_final = r_url
+                    # Try to peel each URL in the chain too
+                    peeled_r = extract_target_from_params(r_url)
+                    target_r = peeled_r if peeled_r != r_url else r_url
+                    
+                    if not is_api_endpoint(target_r) and is_meaningful_url(target_r):
+                        potential_final = target_r
                         recovered = True
                         break
                 if not recovered:
