@@ -71,6 +71,8 @@ STRICT_BLOCK_DOMAINS = [
     "clarity.ms", "doubleclick.net", "adservice.google", "bidswitch",
     "posthog.com", "hotjar.com", "newrelic.com", "nr-data.net",
     "sellerhop", "trusted-badge",
+    "hcaptcha.com", "recaptcha.net", "tr.outbrain.com", "trc.dailylifeinsider.com",
+    "api.hcaptcha.com", "api.recaptcha.net",
     # ClickBank infrastructure (NOT checkout pages)
     "cbtb.clickbank.net", "hop.clickbank.net",
     # Support / SaaS widgets (never final offers)
@@ -100,7 +102,8 @@ INTERMEDIARY_DOMAINS = [
     "outbrain.com", "traffic.outbrain.com", "paid.outbrain.com",
     "yahoo.com/p?prd=",
     "trkerupper.com", "clktrservices.com", "clktrack.com",
-    "be-mob.com", "bemob.com", "trk.healthyinsightjournal.com"
+    "be-mob.com", "bemob.com", "trk.healthyinsightjournal.com",
+    "tr.outbrain.com", "trc.dailylifeinsider.com"
 ]
 
 # ══════════════════════════════════════
@@ -138,6 +141,7 @@ AD_TECH_URL_PATTERNS = [
     "/tr/", "/collect?", "/pixel?", "/track?", "/log?", "/events?",
     "/Track/", "/providersApi/", "/embeddable/config",
     "/cdn-cgi/",  # Cloudflare RUM / monitoring endpoints
+    "cachedClickId", "marketerId", "/view?clickid=", "hcaptcha", "recaptcha", "getcaptcha"
 ]
 
 
@@ -152,7 +156,8 @@ AFFILIATE_SIGNATURES = [
     "content_id=", "boost_id=", "click_id=", "affiliate_id=",
     "offer_id=", "cbid=", "tblci=", "ob_click_id=",
     "aff_id", "aff_click_id", "req_id", "sub1", "sub2", "sub3", "transaction_id",
-    "voluumdata=", "voluum", "bsl="
+    "voluumdata=", "voluum", "bsl=", "click/", "/click?", "/outgoing", "/goto/", "/redir/",
+    "track.", "clck."
 ]
 
 def is_meaningful_url(url: str) -> bool:

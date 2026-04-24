@@ -195,6 +195,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             # 1. Detailed Landing Page Analysis
             print(f"  [Ad {ad_id}] Navigating to landing page...", flush=True)
             lp_result = await analyze_landing_page_with_page(page, landing_url)
+            print(f"  [Ad {ad_id}] Navigation complete. Processing results...", flush=True)
             page_content = lp_result.get("text_content", "")
             final_url = lp_result.get("final_offer_url", landing_url)
             clean_redirect_chain = lp_result.get("clean_redirect_chain", [])

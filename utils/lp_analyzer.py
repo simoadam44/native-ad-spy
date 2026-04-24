@@ -41,7 +41,11 @@ TECHNICAL_NOISE_DOMAINS = [
     "adnxs.com",
     "permutive.com",
     "ml314.com",
-    "newsroom.bi"
+    "newsroom.bi",
+    "tr.outbrain.com",
+    "trc.dailylifeinsider.com",
+    "hcaptcha.com",
+    "recaptcha.net"
 ]
 
 def get_best_offer_link(links: list) -> str:
@@ -50,12 +54,20 @@ def get_best_offer_link(links: list) -> str:
     for link in links:
         if not link: continue
         l_lower = link.lower()
-        # 1. Skip technical noise
+        
+        # 1. Skip technical noise & bot protection
         if any(noise in l_lower for noise in TECHNICAL_NOISE_DOMAINS):
             continue
+            
         # 2. Skip obvious technical endpoints
-        if any(term in l_lower for term in ["/check", "/conversion", "/sdk/", ".js", ".png", ".jpg", ".gif", "/pixel", "/collect"]):
+        tech_terms = ["/check", "/conversion", "/sdk/", ".js", ".png", ".jpg", ".gif", "/pixel", "/collect", "getcaptcha", "marketerid"]
+        if any(term in l_lower for term in tech_terms):
             continue
+            
+        # 3. Use global meaningfulness check
+        if not is_meaningful_url(link):
+            continue
+            
         valid_links.append(link)
     
     if not valid_links:
@@ -106,28 +118,49 @@ def is_api_endpoint(url):
         "/analytics", "/collect", "/pixel", "/beacon",
         "/track", "/tracker", ".ashx", "permutive.com", "ml314.com", "newsroom.bi",
         "/log?", "collect?", "/events?", "/sdk/", "/conversion", "/check",
-        "/vturb/", "/player/", "taboola.com/libtrc/", "/notify", "/ping"
+        "/vturb/", "/player/", "taboola.com/libtrc/", "/notify", "/ping",
+        "cachedclickid", "marketerid", "hcaptcha", "recaptcha"
     ]
     # Check both path and full URL for some specific trackers
     tracking_domains = ["ml314.com", "permutive.com", "newsroom.bi", "vturb.com.br", "djpcraze.com", "bluekai.com", "adnxs.com"]
     return any(p in u for p in api_patterns) or any(d in u for d in tracking_domains)
 
-def extract_affiliate_from_html(html):
+def extract_affiliate_from_html(html: str, base_url: str = None) -> str:
     """
-    HTML-FIRST APPROACH (like AdPlexity/Anstrex):
-    Scan page HTML for affiliate destination URLs before any clicking.
+    HTML-FIRST APPROACH:
+    Scan page HTML for affiliate destination URLs. Resolves relative links.
     """
     if not html: return ""
-    url_pattern = r"https?://[^\s\"'<>\)\\]+"
-    all_urls = re.findall(url_pattern, html)
+    from urllib.parse import urljoin
+    
+    # 1. Find all potential URLs (full and relative via href)
+    # Regex for full URLs
+    full_url_pattern = r"https?://[^\s\"'<>\)\\]+"
+    all_urls = set(re.findall(full_url_pattern, html))
+    
+    # Regex for href attributes (captures relative links like click/1)
+    href_pattern = r"href=[\"']([^\"']+)[\"']"
+    hrefs = re.findall(href_pattern, html)
+    for h in hrefs:
+        if base_url:
+            all_urls.add(urljoin(base_url, h))
+        else:
+            if h.startswith("http"):
+                all_urls.add(h)
+
     best_url = ""
     for url in all_urls:
         url = url.rstrip(".,;)")
         url_lower = url.lower()
+        
+        # Check against signatures
         if not any(sig in url_lower for sig in AFFILIATE_SIGNATURES):
             continue
+            
+        # Filter noise
         if is_api_endpoint(url) or not is_meaningful_url(url):
             continue
+            
         skip_domains = [
             "google-analytics", "googletagmanager", "doubleclick",
             "facebook.com/tr", "clickbank.net/sellerhop",
@@ -136,17 +169,24 @@ def extract_affiliate_from_html(html):
         ]
         if any(sd in url_lower for sd in skip_domains):
             continue
-        priority_paths = ["/pay/", "/order/", "/checkout/", "/vsl", "/video/", "/buy"]
+            
+        # Priority mapping
+        priority_paths = ["/pay/", "/order/", "/checkout/", "/vsl", "/video/", "/buy", "/click?", "click/"]
         if any(p in url_lower for p in priority_paths):
             return url
+            
         if not best_url:
             best_url = url
+            
     return best_url
 
 async def wait_for_actual_landing(page, max_wait=15000):
     """Waits for network to settle, excluding tracker redirects."""
     try:
-        await page.wait_for_load_state("networkidle", timeout=max_wait)
+        await asyncio.wait_for(
+            page.wait_for_load_state("networkidle", timeout=max_wait),
+            timeout=float(max_wait/1000) + 2.0
+        )
         # Extra wait if we are still on a known tracker/intermediary - max 5s
         waited = 0
         while is_intermediary_domain(page.url) and waited < 5000:
@@ -571,19 +611,38 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
         page.on("request", on_request)
 
-        # OPTIMIZED NAVIGATION:
-        # Use 'load' as the primary target, then try a shorter networkidle.
-        # This prevents 60s timeouts on heavy news sites.
+        # 0. AGGRESSIVE RESOURCE BLOCKING (Speed up heavy sites like Independent)
+        async def block_aggressively(route):
+            bad_types = ["image", "media", "font", "stylesheet"]
+            if route.request.resource_type in bad_types:
+                return await route.abort()
+            
+            url_lower = route.request.url.lower()
+            bad_patterns = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".css", ".woff", "google-analytics", "googletagmanager", "doubleclick", "facebook.net"]
+            if any(p in url_lower for p in bad_patterns):
+                return await route.abort()
+            
+            await route.continue_()
+
+        await page.route("**/*", block_aggressively)
+
+        # HARD SAFETY NET:
+        # Use 'commit' (response started) as the target for maximum speed.
+        # Wrapped in asyncio.wait_for to prevent any internal Playwright hangs.
         try:
-            await page.goto(url, wait_until="load", timeout=45000)
-            # Try to wait for idle, but don't crash if it takes too long
-            try: await page.wait_for_load_state("networkidle", timeout=10000)
+            print(f"  [Ad] Starting fast-navigation to {url}...", flush=True)
+            await asyncio.wait_for(
+                page.goto(url, wait_until="commit", timeout=20000),
+                timeout=25.0
+            )
+            # Try to wait for 'domcontentloaded' for 5s max, but don't crash if it fails
+            try: await page.wait_for_load_state("domcontentloaded", timeout=5000)
             except: pass 
         except Exception as e:
-            print(f"Navigation issue for {url}: {e}. Proceeding with current content.")
+            print(f"Navigation issue for {url}: {e}. Proceeding with what we have.")
         
-        # Wait a bit more for late-firing pixels
-        await asyncio.sleep(3)
+        # Remove routing for the rest of the analysis (like CTA click)
+        await page.unroute("**/*")
         
         # Capture network and JS intelligence
         network_intel = await capture_network_intelligence(page)
@@ -610,7 +669,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
         # 3. Final Offer Selection Logic (Network-First if signals found)
         best_bg_offer = get_best_offer_link(background_offers)
-        html_aff = extract_affiliate_from_html(content)
+        html_aff = extract_affiliate_from_html(content, page.url)
         
         if best_bg_offer:
             result["final_offer_url"] = best_bg_offer
@@ -618,7 +677,8 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             print(f"HTML-First Match: {html_aff[:80]}")
             result["final_offer_url"] = html_aff
         else:
-            result["final_offer_url"] = page.url
+            # Fallback to current URL if no other signals, but try to 'peel' it
+            result["final_offer_url"] = extract_target_from_params(page.url)
 
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], clean_redirect_chain)
         result["page_structure"] = await analyze_page_structure(page)
