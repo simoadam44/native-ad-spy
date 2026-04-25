@@ -24,7 +24,12 @@ async def batch_process(limit=10, network=None, delay=0, reanalyze_arbitrage=Fal
             .or_("redirect_chain_json.ilike.%taboola_hm%,redirect_chain_json.ilike.%rubiconproject%,redirect_chain_json.ilike.%gdpr_consent%,redirect_chain_json.ilike.%deepintent%")
     else:
         print(f"Fetching up to {limit} un-analyzed ads...")
-        query = supabase.table("ads").select("id, landing, title, network").is_("deep_analyzed_at", "null")
+        # Strict filter: ONLY ads that haven't been deep analyzed AND don't have a final ad_type yet
+        # and aren't already flagged as needing review (which usually means they failed before)
+        query = supabase.table("ads").select("id, landing, title, network")\
+            .is_("deep_analyzed_at", "null")\
+            .or_("ad_type.is.null,ad_type.eq.Unknown")\
+            .not_.eq("needs_review", "true")
     
     if network:
         query = query.eq("network", network)
