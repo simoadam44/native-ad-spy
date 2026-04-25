@@ -80,6 +80,15 @@ async def save_to_supabase(ad):
         print(f"🔍 [Outbrain] Resolving: {ad_landing[:50]}...")
         final_url, redirect_chain = resolve_url(ad_landing)
         
+        # Check if resolved URL is a tracker pixel (like tr.outbrain.com)
+        from utils.url_blacklist import is_meaningful_url
+        if not is_meaningful_url(final_url):
+            # Try to find last meaningful in chain
+            for r_url in reversed(redirect_chain):
+                if is_meaningful_url(r_url):
+                    final_url = r_url
+                    break
+        
         # Detect from chain
         tracking_info = detect_from_chain(redirect_chain)
         ad['affiliate_network'] = tracking_info["affiliate_network"]

@@ -105,6 +105,11 @@ def extract_target_from_params(url: str, depth: int = 0) -> str:
                         return deeper
                     return target
     except: pass
+    
+    # Validation: Only return if the extracted target is meaningful
+    if target and target.startswith("http") and is_meaningful_url(target):
+        return target
+        
     return url
 
 def is_api_endpoint(url):
@@ -691,8 +696,16 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             print(f"HTML-First Match: {html_aff[:80]}")
             result["final_offer_url"] = html_aff
         else:
-            # Fallback to current URL if no other signals, but try to 'peel' it
-            result["final_offer_url"] = extract_target_from_params(page.url)
+            # Fallback to current URL if no other signals, but ONLY if meaningful
+            candidate = extract_target_from_params(page.url)
+            if is_meaningful_url(candidate) and not is_api_endpoint(candidate):
+                result["final_offer_url"] = candidate
+            else:
+                # If current URL is junk, try the last meaningful one from the chain
+                for r_url in reversed(clean_redirect_chain):
+                    if is_meaningful_url(r_url):
+                        result["final_offer_url"] = r_url
+                        break
 
         result["cloaking"] = detect_cloaking(url, result["final_offer_url"], clean_redirect_chain)
         result["page_structure"] = await analyze_page_structure(page)

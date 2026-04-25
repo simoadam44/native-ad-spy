@@ -14,39 +14,120 @@ from utils.url_resolver import resolve_real_url
 from utils.offer_extractor import extract_offer_intelligence
 from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint
 from utils.url_blacklist import is_meaningful_url
+from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
 
 # Supabase initialization
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-async def save_classification(ad_id: int, classification: dict):
-    """Persists classification results to Supabase."""
+
+
+def strip_tracking_params(url: str) -> str:
+    """
+    Remove known tracking query parameters from URL.
+    Keeps only params that are part of the actual offer.
+    """
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    
+    if not url or not url.startswith("http"): return url
+
+    # Params to REMOVE (pure tracking noise)
+    TRACKING_PARAMS_TO_REMOVE = {
+        # Outbrain
+        "marketerId", "ob_click_id", "outbrainclickid",
+        # Taboola
+        "tblci", "taboola_hm",
+        # Google
+        "gclid", "gclsrc", "gbraid", "wbraid",
+        # Facebook
+        "fbclid",
+        # TikTok
+        "ttclid",
+        # Generic UTM (remove for storage, keep offer params)
+        "utm_source", "utm_medium", "utm_campaign",
+        "utm_content", "utm_term",
+        # Other noise
+        "_ga", "_gl", "msclkid",
+        "zanpid", "igshid",
+    }
+    
+    # Params to KEEP even if they look like tracking
+    # (they are part of the actual affiliate offer)
+    AFFILIATE_PARAMS_TO_KEEP = {
+        "affid", "aff_id", "affiliate_id", "affiliate",
+        "hop", "hopId", "cbid",
+        "offer_id", "offid", "oid",
+        "aff_sub", "subid", "sub1", "s1",
+        "aff_id", "pid", "ref",
+    }
+    
     try:
-        aid = int(ad_id) if isinstance(ad_id, (int, str)) and str(ad_id).isdigit() else ad_id
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
         
-        updates = {
-            "ad_type": classification["ad_type"],
-            "classification_confidence": classification.get("confidence", "low"),
-            "classification_reason": classification.get("reason", "unknown"),
-            "deep_analyzed_at": "now()",
-            "detected_ad_networks": classification.get("detected_ad_networks", []),
-            "needs_review": classification.get("needs_review", False)
-        }
-        if "landing" in classification:
-            updates["landing"] = classification["landing"]
-
+        # Remove tracking params but keep affiliate params
+        cleaned_params = {}
+        for k, v in params.items():
+            if k in AFFILIATE_PARAMS_TO_KEEP or k not in TRACKING_PARAMS_TO_REMOVE:
+                cleaned_params[k] = v
         
-        try:
-            supabase.table("ads").update(updates).eq("id", aid).execute()
-        except Exception as pge:
-            if "detected_ad_networks" in str(pge):
-                updates.pop("detected_ad_networks")
-                supabase.table("ads").update(updates).eq("id", aid).execute()
-            else: raise pge
+        # Rebuild URL
+        new_query = urlencode(cleaned_params, doseq=True)
+        cleaned = urlunparse((
+            parsed.scheme, parsed.netloc, parsed.path,
+            parsed.params, new_query, parsed.fragment
+        ))
+        return cleaned
+    
+    except Exception:
+        return url
 
+def clean_url_for_storage(url: str) -> str:
+    """
+    Resolves tracking redirects and returns the clean
+    human-readable URL suitable for database storage.
+    """
+    if not url or not url.startswith("http"):
+        return url
+    
+    # Step 1: Check if it's a tracking redirect
+    if is_tracking_redirect(url):
+        result = resolve_tracking_url(url)
+        if result["resolved"]:
+            url = result["final"]
+            print(f"  ✅ Resolved tracking URL -> {url[:80]}")
+        else:
+            print(f"  ⚠️ Could not resolve tracking URL: {result.get('reason')}")
+    
+    # Step 2: Remove tracking parameters from the resolved URL
+    url = strip_tracking_params(url)
+    
+    return url
+
+async def save_to_supabase(ad_id: str, data: dict):
+    """Save ad intelligence to database with clean URLs."""
+    
+    # Clean all URL fields before saving
+    url_fields = [
+        "landing", "final_offer_url", "lp_screenshot_url",
+        "offer_screenshot_url"
+    ]
+    
+    for field in url_fields:
+        if data.get(field):
+            data[field] = clean_url_for_storage(data[field])
+    
+    # Save to Supabase
+    try:
+        supabase.table("ads").update(data).eq("id", ad_id).execute()
     except Exception as e:
-        print(f"Error saving classification for {ad_id}: {e}")
+        # Fallback if detected_ad_networks column fails (old schema)
+        if "detected_ad_networks" in str(e):
+            data.pop("detected_ad_networks", None)
+            supabase.table("ads").update(data).eq("id", ad_id).execute()
+        else:
+            print(f"⚠️ DB save error for ad {ad_id}: {e}")
 
 async def log_error(ad_id: int, stage: str, message: str):
     """Logs errors to analysis_logs table."""
@@ -219,7 +300,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             # 3. Final Persistence & Intel Gathering
             if classification.get("skip_deep_analysis"):
                 print(f"  [Ad {ad_id}] Fast-classified as {final_ad_type}", flush=True)
-                await save_classification(ad_id, classification)
+                await save_to_supabase(ad_id, classification)
                 return classification
 
             # Deep Intel for Affiliate/Review
@@ -286,7 +367,12 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                         recovered = True
                         break
                 if not recovered:
-                    potential_final = final_url # Fallback to the landing page if all redirects are APIs
+                    # Fallback to the landing page ONLY if it's meaningful
+                    if is_meaningful_url(final_url):
+                        potential_final = final_url
+                    else:
+                        # Absolute last resort: the original ad link (at least it's an entry point)
+                        potential_final = ad_landing 
 
             full_updates = {
                 "ad_type": final_ad_type,
@@ -314,8 +400,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             except Exception as pge:
                 if "detected_ad_networks" in str(pge):
                     full_updates.pop("detected_ad_networks")
-                    supabase.table("ads").update(full_updates).eq("id", ad_id).execute()
-                else: raise pge
+            await save_to_supabase(ad_id, full_updates)
 
             print(f"Ad {ad_id} Complete: {final_ad_type}")
             return classification
