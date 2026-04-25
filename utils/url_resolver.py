@@ -63,6 +63,9 @@ TRACKING_REDIRECT_DOMAINS = [
     "novatrendnews.com",
     "prough-veridated.icu",
     "prouseum-cheads.xyz",
+    "rejuvacare.com",
+    "adtrafficquality.google",
+    "googlesyndication.com",
 
     # ClickBank intermediate
     "hop.clickbank.net",

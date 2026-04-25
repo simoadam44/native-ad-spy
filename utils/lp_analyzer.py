@@ -300,22 +300,25 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     # Extra reward for VSL specific phrases
                     if any(v in txt_lower for v in ["watch", "video", "presentation"]):
                         score += 5
-                            
-                    # Reward typical CTA class names 
-                    if any(c in class_attr for c in ["btn", "button", "cta", "external", "offer"]):
-                        score += 5
+                                             # Reward typical CTA class names 
+                    if any(c in class_attr for c in ["btn", "button", "cta", "external", "offer", "shop", "buy", "order"]):
+                        score += 10
                         
                     # Reward external or tracking-like hrefs
                     if href and not href.startswith("#") and "facebook" not in href:
                         score += 5
                         # Extra reward for known tracking domains
                         if is_tracking_redirect(href):
-                            score += 20
+                            score += 25
                         
                     # Reward descriptive but concise text
-                    if 5 < len(txt) < 50:
+                    if 5 < len(txt) < 60:
                         score += 2
-                        
+                    
+                    # Reward specific French keywords found in user screenshots
+                    if any(f in txt_lower for f in ["prix", "disponib", "cliquez", "voir"]):
+                        score += 15
+                    
                     if score > best_score and score > 0:
                         best_score = score
                         best_el = el
@@ -325,34 +328,32 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
         except:
             continue
             
-    if best_el:
-        cta_element = best_el
-        cta_text = best_text
-
-    # 3. Perform the click
-    final_offer_url = page.url
-    redirect_chain = []
-    cta_found = False
-
-    if cta_element:
+    # Fallback to images with CTA alt text if no text buttons found
+    if not best_el:
         try:
+            images = await page.query_selector_all("img[alt*='buy'], img[alt*='order'], img[alt*='get'], img[alt*='click']")
+            if images:
+                best_el = images[0]
+                best_text = await best_el.get_attribute("alt")
+        except: pass
+
+    cta_found = False
+    if best_el:
+        try:
+            # We found a button, now we need to capture where it goes
             cta_found = True
-            # Scroll into view with timeout
-            try:
-                await cta_element.scroll_into_view_if_needed(timeout=5000)
-            except Exception as se:
-                print(f"Non-fatal scroll error: {se}")
+            cta_text = best_text
+            print(f"  [CTA] Clicking: {best_text[:30]}...")
             
-            # Click and wait for navigation or a new tab (popup)
             try:
                 # Set up the expectation for a popup with longer timeout
-                async with page.context.expect_event("popup", timeout=12000) as popup_info:
+                async with page.expect_popup(timeout=10000) as popup_info:
                     try:
                         # Attempt a "human-like" click if regular click might be intercepted
-                        await cta_element.click(timeout=5000, force=True, delay=random.randint(50, 150))
+                        await best_el.click(timeout=5000, force=True, delay=random.randint(50, 150))
                     except Exception as click_err:
                         print(f"Playwright click failed, using JS fallback for {page.url}")
-                        await cta_element.evaluate("el => el.click()")
+                        await best_el.evaluate("el => el.click()")
                 
                 # If a popup opened, it's the most likely intended destination
                 popup_page = await popup_info.value
@@ -461,6 +462,13 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                             # AGGRESSIVE: Clean it again
                             cleaned_r = extract_target_from_params(r_url)
                             r_domain = tldextract.extract(cleaned_r).registered_domain
+                            
+                            # Third Pass Fallback: Last meaningful non-tracker domain
+                            if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_tracking_redirect(cleaned_r):
+                                print(f"Heuristic Fallback (Meaningful Chain Match): Using {cleaned_r}")
+                                final_offer_url = cleaned_r
+                                found_affiliate_fallback = True
+                                break
                             
                             # Check if it's meaningful AND not a known intermediary/tracker AND not an API
                             if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_intermediary_domain(cleaned_r) and not is_api_endpoint(cleaned_r):

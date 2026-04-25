@@ -107,7 +107,7 @@ def clean_url_for_storage(url: str) -> str:
     return url
 
 async def save_to_supabase(ad_id: str, data: dict):
-    """Save ad intelligence to database with clean URLs."""
+    """Save ad intelligence to database with clean URLs and robust schema handling."""
     
     # Clean all URL fields before saving
     url_fields = [
@@ -123,8 +123,21 @@ async def save_to_supabase(ad_id: str, data: dict):
     try:
         supabase.table("ads").update(data).eq("id", ad_id).execute()
     except Exception as e:
-        # Fallback if detected_ad_networks column fails (old schema)
-        if "detected_ad_networks" in str(e):
+        err_msg = str(e)
+        # ROBUST FALLBACK: If a column doesn't exist, remove it and retry
+        if "Could not find the" in err_msg and "column" in err_msg:
+            import re
+            match = re.search(r"'([^']+)' column", err_msg)
+            if match:
+                missing_col = match.group(1)
+                if missing_col in data:
+                    print(f"  [DB] Removing unsupported column '{missing_col}' and retrying...")
+                    data.pop(missing_col)
+                    await save_to_supabase(ad_id, data)
+                    return
+        
+        # Specific fallback for ad networks (older code legacy)
+        if "detected_ad_networks" in err_msg:
             data.pop("detected_ad_networks", None)
             supabase.table("ads").update(data).eq("id", ad_id).execute()
         else:
@@ -401,11 +414,6 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 "detected_ad_networks": classification.get("detected_ad_networks", [])
             }
             
-            try:
-                supabase.table("ads").update(full_updates).eq("id", ad_id).execute()
-            except Exception as pge:
-                if "detected_ad_networks" in str(pge):
-                    full_updates.pop("detected_ad_networks")
             await save_to_supabase(ad_id, full_updates)
 
             print(f"Ad {ad_id} Complete: {final_ad_type}")

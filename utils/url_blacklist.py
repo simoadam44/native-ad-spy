@@ -89,6 +89,7 @@ STRICT_BLOCK_DOMAINS = [
     "pntra.com", "pntat.com",       # Other CJ tracker domains
     "ml314.com", "permutive.com", "newsroom.bi", "news-feed.com",
     "us-wf.taboola.com", "cmpv2.independent.co.uk", "adtrafficquality.google",
+    "syndicatedsearch.goog", "trendingboom.com",
     "live.primis.tech", "trk-adv.rixbeedesk.com", "tealiumiq.com", "freshchat.com"
 ]
 
@@ -105,7 +106,8 @@ INTERMEDIARY_DOMAINS = [
     "yahoo.com/p?prd=",
     "trkerupper.com", "clktrservices.com", "clktrack.com",
     "be-mob.com", "bemob.com", "trk.healthyinsightjournal.com",
-    "tr.outbrain.com", "trc.dailylifeinsider.com"
+    "tr.outbrain.com", "trc.dailylifeinsider.com",
+    "trendingboom.com", "trendygadgetreviews.com", "rejuvacare.com"
 ]
 
 # ══════════════════════════════════════
