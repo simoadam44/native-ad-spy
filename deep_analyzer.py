@@ -315,7 +315,16 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             # 3. Final Persistence & Intel Gathering
             if classification.get("skip_deep_analysis"):
                 print(f"  [Ad {ad_id}] Fast-classified as {final_ad_type}", flush=True)
-                await save_to_supabase(ad_id, classification)
+                # Map classification to DB schema
+                fast_updates = {
+                    "ad_type": final_ad_type,
+                    "classification_confidence": classification.get("confidence"),
+                    "classification_reason": classification.get("reason"),
+                    "landing": final_url,
+                    "deep_analyzed_at": "now()",
+                    "detected_ad_networks": classification.get("detected_ad_networks", [])
+                }
+                await save_to_supabase(ad_id, fast_updates)
                 return classification
 
             # Deep Intel for Affiliate/Review
