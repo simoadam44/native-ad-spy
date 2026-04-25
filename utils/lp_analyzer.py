@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
 from utils.url_blacklist import is_meaningful_url, is_intermediary_domain, AFFILIATE_SIGNATURES
+from utils.url_resolver import resolve_real_url, is_tracking_redirect
 import tldextract
 import base64
 import json
@@ -257,9 +258,10 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
         "check", "haz clic", "obtener", "طلب", "klicken", "voir", "guardar", "sehen",
         "see how it works", "watch presentation", "click here to see", "watch the video", 
         "get started", "learn more", "discovery", "hidden video", "shocking video", "presentation",
-        "commandez", "acheter", "profitez", "descubre", "ver video", "clicca qui"
+        "commandez", "acheter", "profitez", "descubre", "ver video", "clicca qui",
+        "vérifier le prix", "disponibilité", "check availability", "check price", "official website"
     ]
-    selectors = "a, button, [role='button'], input[type='button'], input[type='submit'], [class*='btn'], [class*='button'], [class*='cta']"
+    selectors = "a, button, [role='button'], input[type='button'], input[type='submit'], [class*='btn'], [class*='button'], [class*='cta'], [class*='external'], [class*='offer']"
     
     best_el = None
     best_score = -1
@@ -300,12 +302,15 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                         score += 5
                             
                     # Reward typical CTA class names 
-                    if "btn" in class_attr or "button" in class_attr or "cta" in class_attr:
+                    if any(c in class_attr for c in ["btn", "button", "cta", "external", "offer"]):
                         score += 5
                         
                     # Reward external or tracking-like hrefs
                     if href and not href.startswith("#") and "facebook" not in href:
                         score += 5
+                        # Extra reward for known tracking domains
+                        if is_tracking_redirect(href):
+                            score += 20
                         
                     # Reward descriptive but concise text
                     if 5 < len(txt) < 50:
@@ -375,6 +380,14 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 final_offer_url = page.url # Default back to lander so comparison logic triggers
             
             final_offer_url = extract_target_from_params(final_offer_url)
+            
+            # RESOLVE trackers if the browser landed on one
+            if is_tracking_redirect(final_offer_url):
+                print(f"  [CTA] Destination is a tracker: {final_offer_url[:60]}... Resolving...")
+                resolved = resolve_real_url(final_offer_url)
+                if resolved != final_offer_url:
+                    final_offer_url = resolved
+                    print(f"  [CTA] Resolved to: {final_offer_url[:60]}...")
 
             # Normalize URLs for comparison (remove fragments, trailing slashes)
             def clean_url(u):

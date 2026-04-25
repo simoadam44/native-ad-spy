@@ -50,6 +50,7 @@ def strip_tracking_params(url: str) -> str:
         # Other noise
         "_ga", "_gl", "msclkid",
         "zanpid", "igshid",
+        "rtkck", "clickid", "psid", "sjk", "fexp", "jsid"
     }
     
     # Params to KEEP even if they look like tracking
@@ -174,7 +175,7 @@ async def classify_with_full_context(
         "cep=", "clickid=", "click_id=", "lptoken=", "offid=", "offer_id=",
         "rc_uuid=", "voluumdata=", "voluum", "wellnessgaze", "go.php",
         "bsl=", "t=aff", "sub1=", "sub2=", "sub3=", "tid=", "extclid=",
-        "smeagol.revcontent.com", "revcontent.com/cv"
+        "smeagol.revcontent.com", "revcontent.com/cv", "rtkck", "trendingboom"
     ]
     is_aff_signal = any(p in url_lower for p in STRONG_AFFILIATE_MARKERS) or \
                     "voluumdata" in page_content or "/go.php?" in page_content
@@ -192,13 +193,13 @@ async def classify_with_full_context(
     # If it contains AdSense/Native ad code, and NO affiliate signals were found above.
     fingerprint = get_ad_network_fingerprints(page_content)
     
-    if fingerprint["found"]:
+    if fingerprint["found"] or "syndicatedsearch.goog" in url_lower or "google.com/afs" in url_lower:
         return {
             "ad_type": "Arbitrage",
             "confidence": "high",
             "stage": "Instant",
-            "reason": f"EXPLICIT_NETWORK_CODE_DETECTED: {fingerprint['network']}",
-            "detected_ad_networks": fingerprint["all_networks"],
+            "reason": f"EXPLICIT_NETWORK_CODE_DETECTED: {fingerprint.get('network', 'Google AFD')}",
+            "detected_ad_networks": fingerprint.get("all_networks", ["Google Adsense"]),
             "skip_deep_analysis": True
         }
 

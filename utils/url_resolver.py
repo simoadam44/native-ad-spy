@@ -47,6 +47,22 @@ TRACKING_REDIRECT_DOMAINS = [
     "clktrk.",
     "trk.",
     "track.",
+    "trc.",
+    "click.",
+
+    # Specific Trackers identified by user
+    "trendingboom.com",
+    "trendygadgetreviews.com",
+    "genius-markets.com",
+    "geniustech-magazine.com",
+    "gphops.site",
+    "syndicatedsearch.goog",
+    "healthtrending.org",
+    "healthheadlines.info",
+    "dailyactunews.com",
+    "novatrendnews.com",
+    "prough-veridated.icu",
+    "prouseum-cheads.xyz",
 
     # ClickBank intermediate
     "hop.clickbank.net",
@@ -56,6 +72,12 @@ TRACKING_REDIRECT_DOMAINS = [
     "shareasale.com/r.",
     "awin1.com/cread.php",
     "linksynergy.com/click",
+    "cj.com/click",
+    "impact.com/click",
+    "impactradius.com/click",
+    "pxf.io/click",
+    "everflow.com",
+    "evf.com",
 ]
 
 def is_tracking_redirect(url: str) -> bool:

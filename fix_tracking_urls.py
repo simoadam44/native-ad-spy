@@ -25,6 +25,12 @@ def fix_tracking_urls(limit=100, dry_run=False):
         "voluum.com",
         "rdtk.io",
         "bemob.com",
+        "trendingboom.com",
+        "trendygadgetreviews.com",
+        "genius-markets.com",
+        "geniustech-magazine.com",
+        "gphops.site",
+        "syndicatedsearch.goog",
     ]
     
     print(f"Searching for ads with tracking patterns (limit={limit})...")
