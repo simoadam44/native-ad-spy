@@ -100,6 +100,7 @@ async def save_or_update_ad(data):
             print(f"📈 [TABOOLA] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:30]}")
         else:
             data.update({
+                "landing": final_url,
                 "impressions": 1, 
                 "last_seen": "now()", 
                 "country_code": TARGET_COUNTRY, 

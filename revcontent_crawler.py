@@ -107,6 +107,7 @@ async def save_or_update_ad(data):
             print(f"📈 [REVCONTENT] [{TARGET_COUNTRY}] [{lang}]: تحديث ({new_count}): {data['title'][:50]}...")
         else:
             data.update({
+                "landing": final_url,
                 "impressions": 1, 
                 "last_seen": "now()", 
                 "country_code": TARGET_COUNTRY, 
