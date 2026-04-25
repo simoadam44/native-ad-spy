@@ -609,7 +609,13 @@ def extract_offer_intelligence(
 
     # ── Step 3: Decode encoded payloads ──────────────────────
     decoded = {}
-    for url in all_urls:
+    
+    # Process all URLs first, but process the raw_final_url LAST so its parameters overwrite background noise
+    processing_order = [u for u in all_urls if u != raw_final_url]
+    if raw_final_url:
+        processing_order.append(raw_final_url)
+
+    for url in processing_order:
         if not url: continue
         from urllib.parse import parse_qs, urlparse
         params = parse_qs(urlparse(url).query)
