@@ -79,6 +79,7 @@ def get_best_offer_link(links: list) -> str:
 def extract_target_from_params(url: str, depth: int = 0) -> str:
     """Attempts to recursively find a destination URL hidden in query parameters (max depth 3)."""
     if not url or depth > 3: return url
+    target = None
     
     # Check for hidden Voluum data first
     voluum_offer = extract_hidden_voluum_offer(url)

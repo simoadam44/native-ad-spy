@@ -220,8 +220,9 @@ async def classify_with_full_context(
     # 4. Clean Redirect Chain Analysis
     if len(clean_redirect_chain) > 0:
         intelligence = extract_offer_intelligence(
-            final_url=clean_redirect_chain[-1],
-            redirect_chain=clean_redirect_chain
+            landing_url=landing_url,
+            raw_final_url=clean_redirect_chain[-1],
+            all_captured_urls=clean_redirect_chain
         )
         if intelligence.get("affiliate_id") or intelligence.get("offer_id") or \
            intelligence.get("affiliate_network") not in [None, "Unknown", "No Network Detected"]:
@@ -317,7 +318,11 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 if click_result.get("cta_found"):
                     print(f"  [Ad {ad_id}] CTA found! Analyzing offer destination...", flush=True)
                     offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
-                    deep_intel = extract_offer_intelligence(final_url=click_result["final_offer_url"], redirect_chain=click_result["redirect_chain"])
+                    deep_intel = extract_offer_intelligence(
+                        landing_url=landing_url,
+                        raw_final_url=click_result["final_offer_url"],
+                        all_captured_urls=click_result["redirect_chain"]
+                    )
                     intelligence.update(deep_intel)
                     print(f"[Deep Intel Extracted]: {intelligence.get('affiliate_network')}")
 
