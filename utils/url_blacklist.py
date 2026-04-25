@@ -88,6 +88,8 @@ STRICT_BLOCK_DOMAINS = [
     "go2cloud.org", "go2jump.org",  # Commission Junction trackers
     "pntra.com", "pntat.com",       # Other CJ tracker domains
     "ml314.com", "permutive.com", "newsroom.bi", "news-feed.com",
+    "us-wf.taboola.com", "cmpv2.independent.co.uk", "adtrafficquality.google",
+    "live.primis.tech", "trk-adv.rixbeedesk.com", "tealiumiq.com", "freshchat.com"
 ]
 
 
@@ -141,7 +143,8 @@ AD_TECH_URL_PATTERNS = [
     "/tr/", "/collect?", "/pixel?", "/track?", "/log?", "/events?",
     "/Track/", "/providersApi/", "/embeddable/config",
     "/cdn-cgi/",  # Cloudflare RUM / monitoring endpoints
-    "cachedClickId", "marketerId", "/view?clickid=", "hcaptcha", "recaptcha", "getcaptcha"
+    "cachedClickId", "marketerId", "/view?clickid=", "hcaptcha", "recaptcha", "getcaptcha",
+    "VideoBidRequestHandlerServlet", "liveVideo.php", "/report?tntId="
 ]
 
 
@@ -171,6 +174,15 @@ def is_meaningful_url(url: str) -> bool:
         return False
         
     url_lower = url.lower()
+
+    # RULE -1: SKIP LIST (Arbitrage sources we don't want to re-process)
+    SKIP_ANALYSIS_DOMAINS = ["independent.co.uk", "the-independent.com"]
+    for skipped in SKIP_ANALYSIS_DOMAINS:
+        if skipped in url_lower:
+            # Check if it's the main domain (not a parameter)
+            if url_lower.startswith(f"https://{skipped}") or url_lower.startswith(f"http://{skipped}") or f".{skipped}" in url_lower:
+                 # Logic for skipping could be added here if we wanted to abort analysis
+                 pass
 
     # RULE 0: ABSOLUTE MEDIA/STATIC BLOCK
     # Media segments and static assets are NEVER meaningful offer destinations

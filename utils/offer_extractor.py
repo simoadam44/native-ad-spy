@@ -3,318 +3,439 @@ import re
 import tldextract
 from urllib.parse import urlparse, parse_qs
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SIGNATURES: Tracker Identification
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 1. PRE-PROCESSING: Chain Cleaning & Ranking
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-TRACKER_SIGNATURES = {
-    "Voluum": {
-        "domains": ["voluum.com", "voluumtrk.com", "trkvol.com"],
-        "params": ["cid", "voluum"],
-        "url_patterns": ["voluum"],
-        "priority": "high"
-    },
-    "Binom": {
-        "domains": ["binom.org", "binomtracker.com"],
-        "params": ["clickid", "click_id", "binom"],
-        "url_patterns": ["binom"],
-        "priority": "high"
-    },
-    "Keitaro": {
-        "domains": ["keitaro.io", "ktr.ovh"],
-        "params": ["k_click_id", "subid", "keitaro"],
-        "url_patterns": ["keitaro", "ktr."],
-        "priority": "high"
-    },
-    "Revcontent Tracker": {
-        "domains": ["revcontent.com", "smeagol.revcontent.com"],
-        "params": ["rc_uuid", "boost_id", "content_id", "widget_id"],
-        "url_patterns": ["rc_uuid=", "revcontent", "smeagol.rev"],
-        "priority": "high"
-    },
-    "Taboola Tracker": {
-        "domains": ["taboola.com", "trc.taboola.com"],
-        "params": ["trc_click_id", "tblci"],
-        "url_patterns": ["tblci=", "taboola"],
-        "priority": "high"
-    },
-    "Outbrain Tracker": {
-        "domains": ["outbrain.com", "zemanta.com"],
-        "params": ["ob_click_id", "outbrainclickid"],
-        "url_patterns": ["ob_click_id="],
-        "priority": "high"
-    },
-    "ClickBank": {
-        "domains": ["hop.clickbank.net", "clickbank.com", "pay.clickbank.net"],
-        "params": ["hop", "hopId", "cbid", "cbu", "tid", "vtid"],
-        "url_patterns": ["hop=", "hopId=", "clickbank", "cbid=", "hop.clickbank"],
-        "priority": "high"
-    },
-    "Digistore24": {
-        "domains": ["digistore24.com"],
-        "params": ["pay", "cid"],
-        "url_patterns": ["digistore24", "aff=", "ds24"],
-        "priority": "high"
-    },
-    "Everflow": {
-        "domains": ["everflowclient.io", "serving-sys.com"],
-        "params": ["ef_id"],
-        "url_patterns": ["ef_id="],
-        "priority": "high" # Strong affiliate link signature
-    },
-    "RedTrack": {
-        "domains": ["rdtk.io", "redtrack.io"],
-        "params": ["cmpid", "sub1"],
-        "url_patterns": ["rdtk.io"],
-        "priority": "high"
-    },
-    "CAKE": {
-        "domains": ["voluum.com"], # CAKE often uses custom domains, relies on params
-        "params": ["a", "c", "s1", "s2", "ck"],
-        "url_patterns": ["/p.ashx?", "/c.ashx?", "ck="],
-        "priority": "high"
-    },
-    "Custom/In-house Tracker": {
-        "domains": [],
-        "params": ["lptoken", "lp_token", "lpt", "tracking_id", "trk_id", "trkid", "pixel_id", "px_id"],
-        "url_patterns": ["lptoken="],
-        "priority": "low"
-    }
-}
+def clean_and_rank_chain(raw_chain: list, landing_url: str) -> list:
+    """Filters out technical noise and ranks URLs by potential intelligence value."""
+    cleaned = []
+    landing_domain = tldextract.extract(landing_url).registered_domain
+    
+    # 1. Noise Filtering
+    NOISE_EXTS = {".ts", ".m3u8", ".mp4", ".mp3", ".webm", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".css", ".js", ".woff", ".woff2", ".ico"}
+    NOISE_PATTERNS = [
+        "google-analytics", "gtm.js", "clarity.ms", "facebook.com/tr", "bing.com/bat", "doubleclick.net",
+        "deepintent", "stackadapt", "smartadserver", "sync.taboola.com", "id5-sync.com", "adsrvr.org", "adnxs.com",
+        "rubiconproject", "prebid", "3lift.com", "onetag-sys.com", "brainlyads.com", "fastlane.json",
+        "cdn.taboola.com", "images.taboola.com", "cloudfront.net"
+    ]
+    
+    for url in raw_chain:
+        if not url or not isinstance(url, str): continue
+        u_lower = url.lower()
+        
+        # Skip static assets
+        if any(u_lower.endswith(ext) for ext in NOISE_EXTS): continue
+        # Skip known ad-tech noise
+        if any(p in u_lower for p in NOISE_PATTERNS): continue
+        
+        # 2. Scoring
+        score = 0
+        parsed = urlparse(u_lower)
+        domain_info = tldextract.extract(u_lower)
+        reg_domain = domain_info.registered_domain
+        params = parse_qs(parsed.query)
+        
+        # Affiliate Network Domain
+        NET_DOMAINS = ["clickbank.net", "everflow.io", "eflow.io", "go2cloud.org", "go2jump.org", "impact.com", "sjv.io", "awin1.com", "rakuten", "linksynergy"]
+        if any(nd in reg_domain for nd in NET_DOMAINS): score += 3
+        
+        # Affiliate Params
+        AFF_PARAMS = ["affid", "aff_id", "hop", "offid", "offer_id", "clickid", "click_id"]
+        if any(p in params for p in AFF_PARAMS): score += 3
+        
+        # Tracker Signatures
+        if any(tk in u_lower for tk in ["voluum", "binom", "redtrack", "rdtk.io", "keitaro"]): score += 2
+        
+        # Domain Change
+        if reg_domain and reg_domain != landing_domain: score += 2
+        
+        # Path Signals
+        if any(path_sig in parsed.path for path_sig in ["/vsl/", "/offer/", "/lander/", "/checkout/"]): score += 1
+        
+        # Same domain as landing (often just an internal redirect)
+        if reg_domain == landing_domain: score -= 2
+        
+        cleaned.append({"url": url, "score": score, "domain": reg_domain})
+        
+    # Sort by score descending and return top URLs
+    cleaned.sort(key=lambda x: x["score"], reverse=True)
+    return [item["url"] for item in cleaned[:10]]
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SIGNATURES: Network Identification
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 2. DEAD-END DETECTION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def is_dead_end_url(url: str) -> tuple:
+    """Returns (is_dead_end, reason). Checks if URL is an API or postback."""
+    if not url: return False, None
+    u_lower = url.lower()
+    
+    # 1. Video APIs
+    DEAD_END_DOMAINS = ["api.vturb.com.br", "vturb.com", "player.vturb.com", "fast.wistia.net/embed", "vimeo.com/api", "youtube.com/api"]
+    if any(d in u_lower for d in DEAD_END_DOMAINS):
+        return True, "video_api_endpoint"
+        
+    # 2. Conversion Postbacks
+    POSTBACK_PATTERNS = ["/sdk/conversion", "/postback?", "/s2s/", "/server-to-server", "/conversion?effp=", "/track/conversion", "/pixel/fire"]
+    if any(p in u_lower for p in POSTBACK_PATTERNS):
+        return True, "conversion_postback"
+        
+    # 3. Checkout (Special case: is the offer, but is a tracking dead end)
+    CHECKOUT_DOMAINS = ["checkout.stripe.com", "paypal.com/checkout", "pay.google.com", "secure.2checkout.com"]
+    if any(d in u_lower for d in CHECKOUT_DOMAINS):
+        return False, "direct_checkout" # It's not a "dead end" for the user, but for the tracker
+        
+    return False, None
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 3. NETWORK DETECTION ENGINE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 NETWORK_SIGNATURES = {
     "ClickBank": {
-        "domains": ["hop.clickbank.net", "clickbank.com", "pay.clickbank.net"],
-        "url_patterns": ["hop=", "hopId=", "clickbank", "cbid="],
-        "affiliate_id_params": ["hop"],
-        "offer_id_params": ["item", "cbid", "v"],
-        "click_id_params": ["hopId", "tid", "vtid"]
+        "confidence": "high",
+        "detect_fn": lambda url, params: (
+            "hop.clickbank.net" in url or "hop=" in url or "hopId=" in url or 
+            "/cb/vsl/" in url or ("/cb/" in url and "affiliate=" in url) or
+            "pay.clickbank.net" in url
+        )
+    },
+    "Everflow": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: (
+            "effp=" in url or "ef_click_id=" in url or "vndr=evf" in url or 
+            "djpcraze.com" in url or "everflow.io" in url or "eflow.io" in url
+        )
+    },
+    "Tune/HasOffers": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: (
+            "hasoffers.com" in url or "tune.com" in url or "go2cloud.org" in url or
+            ("offer_id" in params and "aff_id" in params)
+        )
+    },
+    "Impact": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: any(d in url for d in ["impact.com", "impactradius.com", "sjv.io", "prf.hn"])
+    },
+    "ShareASale": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: "shareasale.com" in url
+    },
+    "CJ (Commission Junction)": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: any(d in url for d in ["anrdoezrs.net", "dpbolvw.net", "tkqlhce.com", "jdoqocy.com", "qksrv.net", "cj.com"])
+    },
+    "Awin": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: "awin1.com" in url or "awin.com" in url or "awc=" in url
+    },
+    "Rakuten": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: "linksynergy.com" in url or "rakutenmarketing.com" in url
+    },
+    "MaxBounty": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: "maxbounty.com" in url or "mb103.com" in url
     },
     "Digistore24": {
-        "domains": ["digistore24.com"],
-        "url_patterns": ["digistore24", "ds24", "aff="],
-        "affiliate_id_params": ["aff"],
-        "offer_id_params": ["pay", "cid"]
+        "confidence": "high",
+        "detect_fn": lambda url, params: "digistore24.com" in url or "ds24" in url or "aff=" in url
     },
-    "Warrior Plus": {
-        "domains": ["warriorplus.com", "jvzoo.com"],
-        "url_patterns": ["warriorplus", "jvzoo"],
-        "affiliate_id_params": ["affiliate"],
-        "offer_id_params": ["offer_id", "oid"]
-    },
-    "Direct/In-house": {
-        "domains": [],
-        "url_patterns": [],
-        "affiliate_id_params": ["affid", "aff"],
-        "offer_id_params": ["prod", "product", "item"],
-        "is_fallback": True
+    "Admitad": {
+        "confidence": "high",
+        "detect_fn": lambda url, params: "admitad.com" in url or "alitems.com" in url
     }
 }
 
-TRAFFIC_SOURCE_SIGNALS = {
-    "Revcontent": ["rc_uuid", "boost_id", "widget_id", "revcontent"],
-    "Taboola":    ["tblci", "taboola", "utm_source=taboola"],
-    "MGID":       ["mgid", "utm_source=mgid"],
-    "Outbrain":   ["ob_click_id", "outbrain"],
-    "Facebook":   ["fbclid", "utm_source=facebook"],
-    "Google":     ["gclid", "utm_source=google"],
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 4. TRACKER DETECTION ENGINE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TRACKER_SIGNATURES = {
+    "Voluum": {
+        "url_sig": ["voluum", "cid="],
+        "html_sig": ["cdn.voluum.com", "voluumtrk.com/track", "window.__vl_cid"],
+        "confidence": "high"
+    },
+    "Binom": {
+        "url_sig": ["binom.org"],
+        "html_sig": ["binom.org/click", "binom_click_id"],
+        "confidence": "high"
+    },
+    "Keitaro": {
+        "url_sig": ["keitaro.io", "k_click_id="],
+        "html_sig": ["keitaro.io/click", "keitaroClickId"],
+        "confidence": "high"
+    },
+    "Everflow": {
+        "url_sig": ["everflow", "effp=", "ef_click_id"],
+        "html_sig": ["everflow.io/scripts", "window.EF", "EverflowClient"],
+        "confidence": "high"
+    },
+    "RedTrack": {
+        "url_sig": ["rdtk.io", "redtrack.io"],
+        "html_sig": ["redtrack"],
+        "confidence": "high"
+    },
+    "Custom/In-house": {
+        "url_sig": ["lptoken=", "lp_token="],
+        "html_sig": [],
+        "confidence": "medium"
+    }
 }
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# EXTRACTION: Logic Functions
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 5. PARAMETER EXTRACTION ENGINE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def extract_traffic_source(url: str) -> dict:
-    """Identifies the native/social source from URL parameters."""
-    if not url: return {}
-    parsed = urlparse(url)
-    params = parse_qs(parsed.query)
+def extract_all_params(urls: list) -> dict:
+    """Parses and merges params from all URLs in the chain."""
+    results = {"raw_all": {}}
     
-    for source, signals in TRAFFIC_SOURCE_SIGNALS.items():
-        if any(s in url.lower() for s in signals):
-            return {
-                "traffic_source": source,
-                "widget_id": params.get("widget_id", [None])[0] or params.get("utm_source", [None])[0],
-                "publisher_site": params.get("sn", [None])[0],
-                "content_id": params.get("content_id", [None])[0] or params.get("utm_content", [None])[0]
-            }
-    return {}
-
-def extract_from_path(url: str) -> dict:
-    """Extracts intelligence from URL path and subdomains."""
-    results = {}
-    parsed = urlparse(url)
-    netloc = parsed.netloc.lower()
-    path = parsed.path.lower()
+    ID_MAPS = {
+        "affiliate_id": ["affid", "aff_id", "affiliate_id", "affiliate", "aid", "pub_id", "pid", "partner", "ref", "refid", "promo", "hop", "cbaffiliate", "aff", "awinaffid", "irpid"],
+        "offer_id": ["offer_id", "offid", "oid", "prod", "product_id", "campaign_id", "cid", "bid", "item", "f", "cbid", "pay", "awinmid", "id", "campaignid"],
+        "click_id": ["clickid", "click_id", "tid", "transaction_id", "uuid", "hopId", "ef_click_id", "effp", "k_click_id", "rtid", "rc_uuid", "tblci", "ob_click_id"]
+    }
     
-    # 1. ClickBank Subdomain Pattern: {affiliate}.{product}.hop.clickbank.net
-    if "hop.clickbank.net" in netloc:
-        parts = netloc.split(".")
-        if len(parts) >= 4:
-            results["affiliate_id"] = parts[0]
-            results["offer_domain_hint"] = parts[1]
+    SUB_ID_PARAMS = ["subid", "subid1", "subid2", "subid3", "sub1", "sub2", "sub3", "s1", "s2", "s3", "aff_sub"]
     
-    # 2. Numeric IDs in path
-    id_patterns = [
-        (r'/(offer|product|item|deal|promo)/(\d+)/', "offer_id"),
-        (r'/(id|vsl|checkout)/(\d+)/', "offer_id")
-    ]
-    for pattern, key in id_patterns:
-        match = re.search(pattern, path)
-        if match:
-            results[key] = match.group(2)
-            
-    # 3. Path-based geo/variant targets (e.g., /int_pp_spl_ee/)
-    if "/int_" in path:
-        results["path_segments"] = path.strip("/").split("/")
+    for url in urls:
+        if not url: continue
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
         
-    # 4. Content Type Identification
-    if any(k in path for k in ["/vsl/", "/sales/", "/checkout/"]):
-        results["page_subtype"] = "VSL" if "/vsl/" in path else "Checkout"
+        # Store raw for debug
+        for k, v in params.items():
+            results["raw_all"][k] = v[0]
+            
+        # Map IDs
+        for target, aliases in ID_MAPS.items():
+            for alias in aliases:
+                if alias in params:
+                    results[target] = params[alias][0]
+                    
+        # Sub IDs
+        for s_alias in SUB_ID_PARAMS:
+            if s_alias in params:
+                key = f"sub_id{s_alias[-1]}" if s_alias[-1].isdigit() else "sub_id1"
+                results[key] = params[s_alias][0]
+                
+        # Special Param: event_source_url
+        if "event_source_url" in params:
+            results["real_offer_domain"] = params["event_source_url"][0]
+            
+        # Revcontent specific
+        for rc_p in ["widget_id", "boost_id", "content_id", "sitename"]:
+            if rc_p in params:
+                results[rc_p] = params[rc_p][0]
 
     return results
 
-def extract_offer_intelligence(final_url: str, redirect_chain: list, landing_url: str = None) -> dict:
-    """
-    Main forensic analyzer for affiliate offers.
-    Ties together all signatures and logic blocks.
-    """
-    all_urls = []
-    for item in redirect_chain:
-        if isinstance(item, dict):
-            all_urls.append(item.get("url") or item.get("from") or "")
-        else:
-            all_urls.append(str(item))
-    all_urls.append(final_url)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 6. FINAL OFFER RESOLUTION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def resolve_offer_url(cleaned_chain: list, raw_final_url: str, extracted_params: dict) -> dict:
+    """Decides the most accurate final offer URL."""
+    is_dead, reason = is_dead_end_url(raw_final_url)
     
-    # Init storage
-    extracted = {
-        "final_offer_url": final_url,
-        "affiliate_network": "No Network Detected",
-        "tracker_tool": "No Tracker Detected",
-        "traffic_source": "Direct/Unknown",
-        "offer_id": None,
-        "affiliate_id": None,
-        "tracker_id": None,
-        "click_id": None,
-        "sub_id1": None,
-        "all_params": {},
-        "network_confidence": "low",
-        "tracker_confidence": "low",
-        "needs_review": False,
-        "path_segments": []
-    }
-    
-    # 1. Traffic Source (from landing URL)
-    if landing_url:
-        source_info = extract_traffic_source(landing_url)
-        extracted.update(source_info)
-        # Check landing URL params too for IDs
-        lp_params = parse_qs(urlparse(landing_url).query)
-        for k, v in lp_params.items():
-            extracted["all_params"][k] = v[0]
-
-    # 2. Main Detection Loop (Iterate through all URLs in the chain)
-    for url in all_urls:
-        if not url: continue
-        parsed = urlparse(url)
-        domain = parsed.netloc.lower()
-        params = parse_qs(parsed.query)
+    # 1. Not a dead end? Use it.
+    if not is_dead and raw_final_url:
+        return {"url": raw_final_url, "method": "direct_navigation"}
         
-        # Merge all found params into knowledge base
-        for k, v in params.items():
-            extracted["all_params"][k] = v[0]
+    # 2. Dead end? Try recovery
+    # a. event_source_url param
+    if extracted_params.get("real_offer_domain"):
+        domain = extracted_params["real_offer_domain"]
+        if not domain.startswith("http"): domain = f"https://{domain}"
+        return {"url": domain, "method": "event_source_param"}
         
-        # A. Check Trackers
-        for name, sig in TRACKER_SIGNATURES.items():
-            if any(d in domain for d in sig["domains"]) or \
-               any(pk in params for pk in sig["params"]):
-                
-                # Priority check: skip low-priority if high-priority found
-                if sig["priority"] == "low" and extracted["tracker_confidence"] == "high":
-                    continue
-                    
-                extracted["tracker_tool"] = name
-                extracted["tracker_confidence"] = "high" if sig["priority"] == "high" else "medium"
-                
-                # Extract tracker_id from params
-                for pk in sig["params"]:
-                    if pk in params:
-                        extracted["tracker_id"] = params[pk][0]
-                break
-        
-        # B. Check Networks
-        for name, sig in NETWORK_SIGNATURES.items():
-            if any(d in domain for d in sig["domains"]) or \
-               any(p in url.lower() for p in sig["url_patterns"]):
-                extracted["affiliate_network"] = name
-                extracted["network_confidence"] = "high"
-                break
-
-    # 3. Map IDs (Enhanced Aliases from Real-World Cases)
-    PARAM_MAP = {
-        "offer_id": ["offer_id", "offid", "oid", "prod", "product_id", "item", "cbid", "pay", "v", "campaign"],
-        "affiliate_id": ["affiliate_id", "affid", "aff_id", "aid", "pub_id", "pid", "hop", "aff", "partner", "ref", "refid", "promo"],
-        "click_id": ["clickid", "click_id", "tid", "transaction_id", "hopId", "c", "rc_uuid", "tblci", "ob_click_id"]
-    }
-    
-    for key, aliases in PARAM_MAP.items():
-        if extracted[key]: continue
-        for alias in aliases:
-            if alias in extracted["all_params"]:
-                # Validation: ensure it's not a generic short string unless it's known
-                val = str(extracted["all_params"][alias])
-                if len(val) >= 2:
-                    extracted[key] = val
-                    break
-
-    # 4. Path analysis fallback
-    path_intel = extract_from_path(final_url)
-    if not extracted["offer_id"] and path_intel.get("offer_id"):
-        extracted["offer_id"] = path_intel["offer_id"]
-    if not extracted["affiliate_id"] and path_intel.get("affiliate_id"):
-        extracted["affiliate_id"] = path_intel["affiliate_id"]
-    if path_intel.get("path_segments"):
-        extracted["path_segments"] = path_intel["path_segments"]
-
-    # 5. Intelligent Fallbacks (Case-driven)
-    # Case: lptoken present but no tracker domain matched
-    if extracted["tracker_tool"] == "No Tracker Detected":
-        if "lptoken" in extracted["all_params"]:
-            extracted["tracker_tool"] = "Custom/In-house Tracker"
-            extracted["tracker_id"] = extracted["all_params"]["lptoken"]
-            extracted["tracker_confidence"] = "medium"
+    # b. Last non-dead URL in chain
+    for url in reversed(cleaned_chain):
+        if not is_dead_end_url(url)[0]:
+            return {"url": url, "method": "chain_last_valid"}
             
-    # Case: No network found but evidence of affiliation exists
-    if extracted["affiliate_network"] == "No Network Detected":
-        if extracted["affiliate_id"] or extracted["offer_id"]:
-            extracted["affiliate_network"] = "Direct/In-house"
-            extracted["network_confidence"] = "low"
-            extracted["needs_review"] = True
+    # c. Unresolved
+    return {"url": None, "method": "unresolved", "needs_manual_review": True}
 
-    # 6. Metadata: domain register & vertical
-    ext = tldextract.extract(final_url)
-    extracted["offer_domain"] = ext.registered_domain
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 7. DOMAIN & VERTICAL ANALYSIS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def analyze_offer_domain(url: str) -> dict:
+    """Identifies vertical and page type from the offer URL."""
+    if not url: return {"domain": None, "page_type": None, "vertical": None}
     
-    return extracted
+    u_lower = url.lower()
+    domain = tldextract.extract(u_lower).registered_domain
+    
+    VERTICAL_KEYWORDS = {
+        "Health/Supplements": ["supplement", "health", "natural", "remedy", "formula", "keto", "detox", "slim", "blood", "joint", "pain", "sugar", "memory", "brain", "weight", "loss", "fat", "cholesterol", "derila", "ergo", "retinaclear"],
+        "Finance": ["invest", "trading", "forex", "crypto", "insurance", "loan", "credit", "mortgage"],
+        "Beauty/Skincare": ["skin", "beauty", "cream", "serum", "collagen", "hair", "anti-aging"],
+        "Software/App": ["software", "app", "download", "tool", "platform", "saas"]
+    }
+    
+    vertical = "Unknown"
+    for v, keywords in VERTICAL_KEYWORDS.items():
+        if any(k in u_lower for k in keywords):
+            vertical = v
+            break
+            
+    PAGE_TYPES = {
+        "/vsl/": "VSL (Video Sales Letter)",
+        "/video/": "Video Sales Page",
+        "/landers/": "Pre-lander",
+        "/lp/": "Landing Page",
+        "/checkout/": "Direct Checkout",
+        "/order/": "Order Page",
+        "/cb/vsl/": "ClickBank VSL"
+    }
+    
+    page_type = "Landing Page"
+    for path, name in PAGE_TYPES.items():
+        if path in u_lower:
+            page_type = name
+            break
+            
+    return {"domain": domain, "page_type": page_type, "vertical": vertical}
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# MAIN ORCHESTRATOR
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def extract_offer_intelligence(landing_url: str, raw_final_url: str, all_captured_urls: list, page_html: str = "") -> dict:
+    """Full extraction logic from all available signals."""
+    
+    # Step 0: Clean and rank
+    full_chain = all_captured_urls + [raw_final_url]
+    cleaned = clean_and_rank_chain(full_chain, landing_url)
+    
+    # Step 1: Pre-detect dead ends
+    final_is_dead, dead_end_reason = is_dead_end_url(raw_final_url)
+    
+    # Step 2: Extract params
+    all_params = extract_all_params(cleaned + [landing_url])
+    
+    # Step 3: Network Detection
+    network_name = "Unknown"
+    net_confidence = "none"
+    # Analyze EVERYTHING for network signals
+    for url in (cleaned + [raw_final_url, landing_url]):
+        parsed_url = urlparse(url)
+        url_params = parse_qs(parsed_url.query)
+        for name, sig in NETWORK_SIGNATURES.items():
+            if sig["detect_fn"](url, url_params):
+                network_name = name
+                net_confidence = sig["confidence"]
+                break
+        if network_name != "Unknown": break
+        
+    # Step 4: Tracker Detection
+    tracker_name = "Unknown"
+    trk_confidence = "none"
+    # Analyze EVERYTHING for tracker signals
+    for url in (cleaned + [raw_final_url, landing_url]):
+        for name, sig in TRACKER_SIGNATURES.items():
+            if any(s in url.lower() for s in sig["url_sig"]):
+                tracker_name = name
+                trk_confidence = sig["confidence"]
+                break
+        if tracker_name != "Unknown": break
+        
+    # From HTML Fallback
+    if tracker_name == "Unknown" and page_html:
+        for name, sig in TRACKER_SIGNATURES.items():
+            if any(s in page_html for s in sig["html_sig"]):
+                tracker_name = name
+                trk_confidence = "medium"
+                break
+                
+    # Fallback: If we have IDs but no network, it's Direct/In-house
+    if network_name == "Unknown":
+        if all_params.get("affiliate_id") or all_params.get("offer_id"):
+            network_name = "Direct/In-house"
+            net_confidence = "low"
+            
+    # Step 5: Resolve final offer URL
+    offer_url_result = resolve_offer_url(cleaned, raw_final_url, all_params)
+    
+    # Step 6: Domain Analysis
+    domain_intel = analyze_offer_domain(offer_url_result["url"])
+    
+    # Step 7: Final Result Construction
+    return {
+        "affiliate_network": network_name,
+        "network_confidence": net_confidence,
+        "tracker_tool": tracker_name,
+        "tracker_confidence": trk_confidence,
+        
+        "final_offer_url": offer_url_result["url"],
+        "offer_url_method": offer_url_result["method"],
+        "offer_domain": domain_intel["domain"],
+        "offer_vertical": domain_intel["vertical"],
+        "page_type": domain_intel["page_type"],
+        
+        "affiliate_id": all_params.get("affiliate_id"),
+        "offer_id": all_params.get("offer_id"),
+        "click_id": all_params.get("click_id"),
+        "sub_id1": all_params.get("sub_id1"),
+        "sub_id2": all_params.get("sub_id2"),
+        
+        "traffic_source": "Revcontent" if all_params.get("rc_uuid") else ("Taboola" if all_params.get("tblci") else "Unknown"),
+        "widget_id": all_params.get("widget_id"),
+        "publisher_site": all_params.get("sitename"),
+        
+        "needs_manual_review": offer_url_result.get("needs_manual_review", False),
+        "dead_end_detected": final_is_dead,
+        "dead_end_reason": dead_end_reason,
+        "urls_analyzed": len(cleaned)
+    }
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 8. VALIDATION TESTS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 if __name__ == "__main__":
-    # Case 1: theenergyrevolution.net (custom tracker with lptoken)
-    test1_landing = "https://healthierlivingtips.org/int_pp_spl_ee/?c=w9htmg9omb4afuphjsnskcpi&r=289323_joehoft.com_2452300_MA_DESKTOP_Windows&lptoken=17fa761455d13979058f&rc_uuid=a350284b-4273-4c4e-b256-39845b301f2d"
-    test1_offer   = "https://theenergyrevolution.net/index-ers-auto-lead-39-promise-epp-lead-6-ph.html"
-    
-    print("--- Testing Case 1: Energy Revolution ---")
-    res1 = extract_offer_intelligence(test1_offer, [], test1_landing)
-    print(json.dumps(res1, indent=2))
+    print("Running Validation Tests...")
 
-    # Case 2: completejointcare.net (ClickBank via hop= parameter)
-    test2_landing = "https://healthierlivingtips.org/int_jp_spl_jjt/?c=wqbo81mtl08t9uphj6om336r&rc_uuid=7c86c1b5-d441-4721-b42a-bb5bdde8b352"
-    test2_offer   = "https://completejointcare.net/vsl/?hop=b1744&hopId=5553ed8c-113c-49af-9e17-31595b23daa8&v=bvsl"
-    
-    print("\n--- Testing Case 2: Complete Joint Care ---")
-    res2 = extract_offer_intelligence(test2_offer, [], test2_landing)
-    print(json.dumps(res2, indent=2))
+    # Case 1: vturb dead-end
+    res1 = extract_offer_intelligence(
+        landing_url="https://en.healthheadlines.info/v209659-en-V3-Memory-Loss/?lptoken=17fa761455d13979058f&widget_id=289322&sitename=joehoft.com",
+        raw_final_url="https://api.vturb.com.br/vturb/check",
+        all_captured_urls=[]
+    )
+    print("\nCase 1 (vturb):")
+    print(f"  Network: {res1['affiliate_network']} | Tracker: {res1['tracker_tool']}")
+    print(f"  Final URL: {res1['final_offer_url']} | Method: {res1['offer_url_method']}")
+
+    # Case 2: ClickBank via /cb/ path
+    res2 = extract_offer_intelligence(
+        landing_url="https://calmgrowthcenter.com/crstrenght/cb/vsl/v3/?hopId=3f93f391&affiliate=supaffcb&extclid=da81u",
+        raw_final_url="https://calmgrowthcenter.com/crstrenght/cb/vsl/v3/?hopId=3f93f391&affiliate=supaffcb",
+        all_captured_urls=[]
+    )
+    print("\nCase 2 (ClickBank):")
+    print(f"  Network: {res2['affiliate_network']} | AffID: {res2['affiliate_id']}")
+
+    # Case 3: Everflow postback
+    res3 = extract_offer_intelligence(
+        landing_url="https://smarterlivingdaily.org/lps/F1h7P22F4/",
+        raw_final_url="https://www.djpcraze.com/sdk/conversion?effp=37fb5d3f&oid=7971&affid=5351&event_source_url=get-derila-ergo.com",
+        all_captured_urls=[]
+    )
+    print("\nCase 3 (Everflow):")
+    print(f"  Network: {res3['affiliate_network']} | Final URL: {res3['final_offer_url']}")
+
+    # Case 4: getretinaclear.com with aff_id
+    res4 = extract_offer_intelligence(
+        landing_url="https://wellnesspeek.com/lifehacks_001/?widget_id=289325&rc_uuid=76a9ef5c",
+        raw_final_url="https://getretinaclear.com/video/?aff_id=57967&subid=clf2947e55d",
+        all_captured_urls=[]
+    )
+    print("\nCase 4 (RetinaClear):")
+    print(f"  Network: {res4['affiliate_network']} | Page Type: {res4['page_type']}")

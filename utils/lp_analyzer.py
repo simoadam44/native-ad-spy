@@ -572,6 +572,18 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         "full_html": ""
     }
 
+    # QUICK SKIP for known heavy Arbitrage sites we want to avoid
+    if "independent.co.uk" in url or "the-independent.com" in url:
+        print(f"  [Ad] Skipping {url} (Known Arbitrage/Heavy site per request)")
+        return {
+            "final_offer_url": url,
+            "text_content": "Skipped per user request",
+            "full_html": "Skipped",
+            "page_subtype": "Advertorial",
+            "background_offers": [],
+            "clean_redirect_chain": []
+        }
+
     try:
         clean_redirect_chain = []
         original_reg_domain = tldextract.extract(url).registered_domain
@@ -613,16 +625,18 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
         # 0. AGGRESSIVE RESOURCE BLOCKING (Speed up heavy sites like Independent)
         async def block_aggressively(route):
-            bad_types = ["image", "media", "font", "stylesheet"]
-            if route.request.resource_type in bad_types:
-                return await route.abort()
-            
-            url_lower = route.request.url.lower()
-            bad_patterns = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".css", ".woff", "google-analytics", "googletagmanager", "doubleclick", "facebook.net"]
-            if any(p in url_lower for p in bad_patterns):
-                return await route.abort()
-            
-            await route.continue_()
+            try:
+                bad_types = ["image", "media", "font", "stylesheet"]
+                if route.request.resource_type in bad_types:
+                    return await route.abort()
+                
+                url_lower = route.request.url.lower()
+                bad_patterns = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".css", ".woff", "google-analytics", "googletagmanager", "doubleclick", "facebook.net"]
+                if any(p in url_lower for p in bad_patterns):
+                    return await route.abort()
+                
+                await route.continue_()
+            except: pass # Route might already be handled
 
         await page.route("**/*", block_aggressively)
 
