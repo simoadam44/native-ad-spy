@@ -338,6 +338,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
         except: pass
 
     cta_found = False
+    final_offer_url = page.url
     if best_el:
         try:
             # We found a button, now we need to capture where it goes
@@ -375,6 +376,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 try:
                     await wait_for_actual_landing(page, 15000)
                 except: pass
+                final_offer_url = page.url
             # If the current page is a tracker/pixel, don't use it as the final result
             if not is_meaningful_url(final_offer_url) or is_intermediary_domain(final_offer_url):
                 print(f"Landed on tracker/pixel: {final_offer_url}. Seeking fallback.")
