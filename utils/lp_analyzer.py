@@ -126,7 +126,8 @@ def is_api_endpoint(url):
         "/track", "/tracker", ".ashx", "permutive.com", "ml314.com", "newsroom.bi",
         "/log?", "collect?", "/events?", "/sdk/", "/conversion", "/check",
         "/vturb/", "/player/", "taboola.com/libtrc/", "/notify", "/ping",
-        "cachedclickid", "marketerid", "hcaptcha", "recaptcha"
+        "cachedclickid", "marketerid", "hcaptcha", "recaptcha",
+        "fpjs.io", "ip-api.com"
     ]
     # Check both path and full URL for some specific trackers
     tracking_domains = ["ml314.com", "permutive.com", "newsroom.bi", "vturb.com.br", "djpcraze.com", "bluekai.com", "adnxs.com"]
@@ -466,7 +467,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                             r_domain = tldextract.extract(cleaned_r).registered_domain
                             
                             # Third Pass Fallback: Last meaningful non-tracker domain
-                            if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_tracking_redirect(cleaned_r):
+                            if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_tracking_redirect(cleaned_r) and not is_api_endpoint(cleaned_r):
                                 print(f"Heuristic Fallback (Meaningful Chain Match): Using {cleaned_r}")
                                 final_offer_url = cleaned_r
                                 found_affiliate_fallback = True
