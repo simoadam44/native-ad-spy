@@ -10,7 +10,7 @@ import json
 from langdetect import detect
 from utils.url_resolver import resolve_url
 from utils.advanced_detector import detect_from_chain
-
+from utils.url_blacklist import is_meaningful_url
 # إعدادات سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -68,6 +68,11 @@ async def save_or_update_ad(data):
         final_url, redirect_chain = resolve_url(data['landing'])
         clean_landing = final_url.split('?')[0].split('#')[0]
         
+        # حظر الروابط التي لا تمثل صفحات هبوط حقيقية (مثل Video Players و Trackers)
+        if not is_meaningful_url(final_url):
+            print(f"🚫 [Taboola] Ignored non-meaningful URL: {final_url[:60]}")
+            return
+            
         # منع تكرار الروابط في الذاكرة لتجنب استهلاك سوبابيز غير الضروري
         existing = supabase.table("ads").select("id, impressions").eq("landing", clean_landing).execute()
         

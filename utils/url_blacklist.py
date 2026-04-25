@@ -78,7 +78,7 @@ STRICT_BLOCK_DOMAINS = [
     # Support / SaaS widgets (never final offers)
     "zendesk.com", "intercom.io", "tawk.to", "crisp.chat",
     # CDN / media delivery
-    "b-cdn.net", "bunnycdn.com",
+    "b-cdn.net", "bunnycdn.com", "gstatic.com", "googlesyndication.com",
     # Nonprofit / donation tracking
     "everyaction.com", "actionnetwork.org",
     # Checkout platform APIs (backend, not landing pages)
@@ -91,7 +91,8 @@ STRICT_BLOCK_DOMAINS = [
     "us-wf.taboola.com", "cmpv2.independent.co.uk", "adtrafficquality.google",
     "syndicatedsearch.goog", "trendingboom.com",
     "live.primis.tech", "trk-adv.rixbeedesk.com", "tealiumiq.com", "freshchat.com",
-    "media6degrees.com", "fpjs.io", "vturb.com.br", "yieldmo.com", "ip-api.com"
+    "media6degrees.com", "fpjs.io", "vturb.com.br", "yieldmo.com", "ip-api.com",
+    "pm-serv.co", "googletagservices.com", "amazon-adsystem.com"
 ]
 
 
@@ -110,7 +111,7 @@ INTERMEDIARY_DOMAINS = [
     "tr.outbrain.com", "trc.dailylifeinsider.com",
     "trendingboom.com", "trendygadgetreviews.com", "rejuvacare.com",
     "media6degrees.com", "helpingtrk.com", "yieldmo.com", "utmify.com.br",
-    "wellnesspeek.com", "linkhelprt.com", "busterry.com"
+    "wellnesspeek.com", "linkhelprt.com", "busterry.com", "primis.tech"
 ]
 
 # ══════════════════════════════════════
@@ -149,7 +150,7 @@ AD_TECH_URL_PATTERNS = [
     "/Track/", "/providersApi/", "/embeddable/config",
     "/cdn-cgi/",  # Cloudflare RUM / monitoring endpoints
     "cachedClickId", "marketerId", "/view?clickid=", "hcaptcha", "recaptcha", "getcaptcha",
-    "VideoBidRequestHandlerServlet", "liveVideo.php", "/report?tntId="
+    "VideoBidRequestHandlerServlet", "liveVideo.php", "/report?tntId=", "/bql.php?"
 ]
 
 
