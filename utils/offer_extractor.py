@@ -73,6 +73,64 @@ def detect_page_type(url: str) -> str:
             return name
     return "Landing Page"
 
+def urls_are_same_page(url1, url2):
+    """Returns True if only query params differ but same path."""
+    if not url1 or not url2: return False
+    from urllib.parse import urlparse
+    p1 = urlparse(url1.lower())
+    p2 = urlparse(url2.lower())
+    return (p1.netloc == p2.netloc and 
+            p1.path.rstrip("/") == p2.path.rstrip("/"))
+
+KNOWN_DIRECT_OFFER_DOMAINS = {
+    "getretinaclear.com": {
+        "affiliate_param": "aff_id",
+        "vertical": "Beauty/Skincare"
+    },
+    "completejointcare.net": {
+        "affiliate_param": "hop",
+        "network": "ClickBank",
+        "vertical": "Health/Supplements"
+    },
+    "mitolyn.org": {
+        "affiliate_param": "aff",
+        "vertical": "Health/Supplements"
+    },
+    "zapshieldshop.com": {
+        "affiliate_param": "Affid",
+        "vertical": "Home/Gadget"
+    }
+}
+
+def urls_are_same_page(url1, url2):
+    """Returns True if only query params differ but same path."""
+    if not url1 or not url2: return False
+    from urllib.parse import urlparse
+    p1 = urlparse(url1.lower())
+    p2 = urlparse(url2.lower())
+    return (p1.netloc == p2.netloc and 
+            p1.path.rstrip("/") == p2.path.rstrip("/"))
+
+KNOWN_DIRECT_OFFER_DOMAINS = {
+    "getretinaclear.com": {
+        "affiliate_param": "aff_id",
+        "vertical": "Beauty/Skincare"
+    },
+    "completejointcare.net": {
+        "affiliate_param": "hop",
+        "network": "ClickBank",
+        "vertical": "Health/Supplements"
+    },
+    "mitolyn.org": {
+        "affiliate_param": "aff",
+        "vertical": "Health/Supplements"
+    },
+    "zapshieldshop.com": {
+        "affiliate_param": "Affid",
+        "vertical": "Home/Gadget"
+    }
+}
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MODULE 1: ENCODED PAYLOAD DECODER
@@ -551,9 +609,15 @@ def resolve_offer_url(
     raw_final_url, cleaned_chain,
     extracted_params, landing_url
 ) -> dict:
+    from utils.url_blacklist import is_valid_offer_url
+    import tldextract
 
-    # Priority 1: raw_final is valid non-dead-end
-    if not is_dead_end(raw_final_url):
+    # Bug 3: Reject if final URL is same as landing URL
+    if raw_final_url and urls_are_same_page(raw_final_url, landing_url):
+        raw_final_url = None
+
+    # Priority 1: raw_final is valid non-dead-end (Bug 2)
+    if raw_final_url and not is_dead_end(raw_final_url) and is_valid_offer_url(raw_final_url):
         return {"url": raw_final_url, "method": "direct"}
 
     # Priority 2: event_source_url param (Everflow postbacks)
@@ -561,15 +625,16 @@ def resolve_offer_url(
         domain = extracted_params["real_offer_domain"]
         url = domain if domain.startswith("http") \
               else f"https://{domain}"
-        return {"url": url, "method": "event_source_url"}
+        if is_valid_offer_url(url):
+            return {"url": url, "method": "event_source_url"}
 
-    # Priority 3: last valid URL in cleaned chain
+    # Priority 3: last valid URL in cleaned chain (Bug 2)
     for url in reversed(cleaned_chain):
-        if not is_dead_end(url) and not is_ad_tech(url):
+        if not is_dead_end(url) and not is_ad_tech(url) and is_valid_offer_url(url):
             parsed_domain = tldextract.extract(url).registered_domain
             landing_domain = tldextract.extract(landing_url).registered_domain
             if parsed_domain != landing_domain:
-                return {"url": url, "method": "chain_last_valid"}
+                return {"url": url, "method": "chain_last_valid_filtered"}
 
     # Priority 4: build from known offer domain
     offer_domain = extracted_params.get("offer_domain")
@@ -692,10 +757,20 @@ def extract_offer_intelligence(
         network["confidence"] = "high"
         network["source"] = "decoded_payload"
 
-    # Fallback to direct/in-house if IDs found but no network
+    # Fallback to direct/in-house if IDs found but no network (Bug 5)
     if network["name"] == "Unknown" and (decoded.get("affiliate_id") or decoded.get("offer_id")):
-        network["name"] = "Direct/In-house"
-        network["confidence"] = "low"
+        offer_resolution = resolve_offer_url(raw_final_url, cleaned, decoded, landing_url)
+        offer_url = offer_resolution["url"]
+        import tldextract
+        offer_domain = tldextract.extract(offer_url).registered_domain if offer_url else ""
+        
+        if offer_domain in KNOWN_DIRECT_OFFER_DOMAINS:
+            network["name"] = KNOWN_DIRECT_OFFER_DOMAINS[offer_domain].get("network", "Direct Affiliate")
+        else:
+            network["name"] = "Direct Affiliate"
+            
+        network["confidence"] = "medium"
+        network["note"] = "aff_id detected, no known network domain"
 
     # ── Step 5: Detect tracker ────────────────────────────────
     tracker = {"name": "Unknown", "confidence": "none"}

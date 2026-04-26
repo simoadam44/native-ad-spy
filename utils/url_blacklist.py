@@ -116,6 +116,55 @@ INTERMEDIARY_DOMAINS = [
 ]
 
 # ══════════════════════════════════════
+# BLACKLIST: Invalid Offer Types (Bug 2)
+# ══════════════════════════════════════
+
+INVALID_EXTENSIONS = {
+    ".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg",
+    ".ico", ".bmp", ".tiff",
+    ".js", ".css", ".woff", ".woff2", ".ttf", ".eot",
+    ".mp4", ".webm", ".mp3", ".wav",
+    ".pdf", ".zip", ".gz",
+}
+
+INVALID_OFFER_DOMAINS = {
+    # Ad tech & measurement
+    "kueezrtb.com", "otrack.kueezrtb.com",
+    "fpnpmcdn.net",           # fingerprint CDN
+    "ct.pinterest.com",       # Pinterest pixel
+    "pinterest.com/ct.html",
+    "api6.ipify.org",         # IP detection API
+    "ipify.org",
+    "kinesis.us-east-2.amazonaws.com",  # AWS data stream
+    "amazonaws.com",          # any AWS endpoint
+    # Analytics
+    "google-analytics.com",
+    "googletagmanager.com",
+    "adtrafficquality.google",  # CONFIRMED from logs
+    "ep1.adtrafficquality.google",
+    # Social pixels
+    "ct.pinterest.com",
+    "connect.facebook.net",
+    # Ad networks (not offers)
+    "media6degrees.com",      # CONFIRMED from logs
+    "idpix.media6degrees.com",
+    "rejuvacare.com/click",   # click tracker
+    "ad.rejuvacare.com",      # CONFIRMED from logs
+    "paveair.com/eclytics",   # CONFIRMED from logs
+    "lifetechinsider.com/click",  # CONFIRMED from logs
+    "trc.lifetechinsider.com",
+    # Image CDNs
+    "unsplash.com",           # CONFIRMED from logs
+    "images.unsplash.com",
+    "cloudfront.net",
+    "cdn.",
+    # Visymo — link aggregator, not real offer
+    "visymo.com/disclaimer",  # CONFIRMED from logs
+    # Besyner — appears to be intermediate tracker
+    "go.besyner.com/feeder",
+}
+
+# ══════════════════════════════════════
 # BLACKLIST B: URL Patterns to ignore
 # Match against full URL string
 # ══════════════════════════════════════
@@ -237,4 +286,38 @@ def is_intermediary_domain(url: str) -> bool:
         if intermediary in domain:
             return True
     return False
+
+def is_valid_offer_url(url: str) -> bool:
+    """
+    Returns True only if URL could be a real offer/product page.
+    Returns False for images, pixels, CDN scripts, ad tech.
+    """
+    if not url or not url.startswith("http"):
+        return False
+    
+    from urllib.parse import urlparse
+    parsed = urlparse(url.lower())
+    path = parsed.path
+    domain = parsed.netloc
+    
+    # Rule 1: Reject by file extension
+    for ext in INVALID_EXTENSIONS:
+        if path.endswith(ext):
+            return False
+        if ext + "?" in url.lower():  # image.webp?hopId=...
+            return False
+    
+    # Rule 2: Reject by known invalid domain
+    for invalid in INVALID_OFFER_DOMAINS:
+        if invalid in domain or invalid in url.lower():
+            return False
+    
+    # Rule 3: Reject very short paths with no content
+    # e.g. kinesis.us-east-2.amazonaws.com/ (just root)
+    if path in ["", "/", "/index", "/index.html"]:
+        # Only accept root if it has affiliate params
+        if not any(p in url.lower() for p in ["aff", "hop", "offer", "product", "checkout", "clickid"]):
+            return False
+    
+    return True
     

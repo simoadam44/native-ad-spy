@@ -51,6 +51,7 @@ TECHNICAL_NOISE_DOMAINS = [
 
 def get_best_offer_link(links: list) -> str:
     """Filters a list of links and picks the best candidate for an offer URL."""
+    from utils.url_blacklist import is_valid_offer_url
     valid_links = []
     for link in links:
         if not link: continue
@@ -60,13 +61,8 @@ def get_best_offer_link(links: list) -> str:
         if any(noise in l_lower for noise in TECHNICAL_NOISE_DOMAINS):
             continue
             
-        # 2. Skip obvious technical endpoints
-        tech_terms = ["/check", "/conversion", "/sdk/", ".js", ".png", ".jpg", ".gif", "/pixel", "/collect", "getcaptcha", "marketerid"]
-        if any(term in l_lower for term in tech_terms):
-            continue
-            
-        # 3. Use global meaningfulness check
-        if not is_meaningful_url(link):
+        # 2. Skip obvious technical endpoints via global validator (Bug 2)
+        if not is_valid_offer_url(link):
             continue
             
         valid_links.append(link)
@@ -203,6 +199,19 @@ async def wait_for_actual_landing(page, max_wait=15000):
             waited += 1000
     except: pass
 
+EXCLUDED_CTA_PATTERNS = [
+    "disclaimer", "privacy policy", "terms of service", "terms & conditions",
+    "cookie policy", "about us", "contact us", "sitemap", "legal",
+    "©", "copyright", "unsubscribe", "do not sell", "manage preferences",
+    "mentions légales", "politique de confidentialité", "conditions générales"
+]
+
+def is_valid_cta(element_text: str) -> bool:
+    """Returns True if the element text doesn't match excluded patterns (Bug 5)."""
+    text_lower = element_text.lower().strip()
+    if not text_lower: return False
+    return not any(pattern in text_lower for pattern in EXCLUDED_CTA_PATTERNS)
+
 async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
     Clicks the CTA button and captures the full redirect chain.
@@ -210,7 +219,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
     all_requests = []
     all_responses = []
-    redirect_chain = []
+    redirect_chain = [] # Bug 1: Initialize before assignment
     final_offer_url = None
     
     def on_request(request):
@@ -234,14 +243,16 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 })
         except: pass
 
-    # 1. Register ALL listeners BEFORE any action (at Context level to catch popups)
+    # Define route handler for later unrouting
+    async def handle_route(route):
+        await route.continue_()
+
+    # 1. Register ALL listeners BEFORE any action
     context = page.context
     context.on("request", on_request)
     context.on("response", on_response)
     
     # Set up route interception
-    async def handle_route(route):
-        await route.continue_()
     await page.route("**/*", handle_route)
 
     # 2. Find CTA with Heuristic Scoring and Bottom Scrolling
@@ -278,8 +289,10 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     txt = (await el.inner_text() or "").strip()
                     href = (await el.get_attribute("href") or "").lower()
                     class_attr = (await el.get_attribute("class") or "").lower()
-                    
                     if not txt and not href and not class_attr:
+                        continue
+                    
+                    if not is_valid_cta(txt): # Bug 5: Skip legal/disclaimer links
                         continue
                         
                     txt_lower = txt.lower()
@@ -303,7 +316,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     # Extra reward for VSL specific phrases
                     if any(v in txt_lower for v in ["watch", "video", "presentation"]):
                         score += 5
-                                             # Reward typical CTA class names 
+                                              # Reward typical CTA class names 
                     if any(c in class_attr for c in ["btn", "button", "cta", "external", "offer", "shop", "buy", "order"]):
                         score += 10
                         
@@ -495,12 +508,15 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                 final_offer_url = extract_target_from_params(final_offer_url)
                 print(f"Finalized Offer Resolution: {final_offer_url}")
             
-            # Clean up listeners
-            context.remove_listener("request", on_request)
-            context.remove_listener("response", on_response)
-            
         except Exception as e:
             print(f"CTA Interception Error for {page.url}: {e}")
+        finally:
+            # Bug 4: Cleanup listeners and routes in finally block
+            try:
+                context.remove_listener("request", on_request)
+                context.remove_listener("response", on_response)
+                await page.unroute("**/*", handle_route)
+            except: pass
 
     return {
         "cta_found": cta_found,
@@ -644,7 +660,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             
         page.on("response", handle_response)
         
-        redirect_chain = []
+        redirect_chain = [] # Bug 1: Initialize early
         background_offers = []
         network_intel = {"detected_trackers": [], "potential_offers": [], "js_vars": {}}
     
@@ -665,7 +681,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
         page.on("request", on_request)
 
-        # 0. AGGRESSIVE RESOURCE BLOCKING (Speed up heavy sites like Independent)
+        # 0. AGGRESSIVE RESOURCE BLOCKING
         async def block_aggressively(route):
             try:
                 bad_types = ["image", "media", "font", "stylesheet"]
@@ -678,27 +694,24 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                     return await route.abort()
                 
                 await route.continue_()
-            except: pass # Route might already be handled
+            except: pass
 
         await page.route("**/*", block_aggressively)
 
-        # HARD SAFETY NET:
-        # Use 'commit' (response started) as the target for maximum speed.
-        # Wrapped in asyncio.wait_for to prevent any internal Playwright hangs.
+        # HARD SAFETY NET
         try:
             print(f"  [Ad] Starting fast-navigation to {url}...", flush=True)
             await asyncio.wait_for(
                 page.goto(url, wait_until="commit", timeout=20000),
                 timeout=25.0
             )
-            # Try to wait for 'domcontentloaded' for 5s max, but don't crash if it fails
             try: await page.wait_for_load_state("domcontentloaded", timeout=5000)
             except: pass 
         except Exception as e:
             print(f"Navigation issue for {url}: {e}. Proceeding with what we have.")
         
-        # Remove routing for the rest of the analysis (like CTA click)
-        await page.unroute("**/*")
+        # Remove routing for the rest of the analysis
+        await page.unroute("**/*", block_aggressively)
         
         # Capture network and JS intelligence
         network_intel = await capture_network_intelligence(page)
@@ -723,7 +736,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         elif "advertorial" in content.lower():
             result["page_subtype"] = "Advertorial"
 
-        # 3. Final Offer Selection Logic (Network-First if signals found)
+        # 3. Final Offer Selection Logic
         best_bg_offer = get_best_offer_link(background_offers)
         html_aff = extract_affiliate_from_html(content, page.url)
         
@@ -733,12 +746,10 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             print(f"HTML-First Match: {html_aff[:80]}")
             result["final_offer_url"] = html_aff
         else:
-            # Fallback to current URL if no other signals, but ONLY if meaningful
             candidate = extract_target_from_params(page.url)
             if is_meaningful_url(candidate) and not is_api_endpoint(candidate):
                 result["final_offer_url"] = candidate
             else:
-                # If current URL is junk, try the last meaningful one from the chain
                 for r_url in reversed(clean_redirect_chain):
                     if is_meaningful_url(r_url):
                         result["final_offer_url"] = r_url
@@ -750,6 +761,13 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
     except Exception as e:
         print(f"LP Analysis Error for {url}: {e}")
+    finally:
+        # Bug 4: Proper cleanup in finally block
+        try:
+            page.remove_listener("response", handle_response)
+            page.remove_listener("request", on_request)
+            await page.unroute("**/*", block_aggressively)
+        except: pass
 
     # Capture final HTML for classification
     try:

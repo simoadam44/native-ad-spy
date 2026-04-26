@@ -13,7 +13,7 @@ from utils.ad_classifier import calculate_ad_score, is_arbitrage_site, get_ad_ne
 from utils.url_resolver import resolve_real_url
 from utils.offer_extractor import extract_offer_intelligence
 from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint
-from utils.url_blacklist import is_meaningful_url
+from utils.url_blacklist import is_meaningful_url, is_valid_offer_url
 from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
 
 # Supabase initialization
@@ -271,6 +271,13 @@ async def classify_with_full_context(
 async def deep_analyze_ad(ad_id, landing_url, title):
     """Full analysis flow."""
     browser = None
+    context = None
+    page = None
+    
+    # Bug 1: Initialize variables early to prevent UnboundLocalError
+    redirect_chain = []
+    final_offer_url = None
+    
     try:
         print(f"  [Ad {ad_id}] Launching browser...", flush=True)
         async with async_playwright() as p:
@@ -361,9 +368,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             bg_offers = lp_result.get("background_offers", [])
             network_final = None
             if bg_offers:
-                # Use the last background offer that isn't a sync pixel
+                # Use the last background offer that isn't a sync pixel (Bug 2)
                 for bg_url in reversed(bg_offers):
-                    if not is_api_endpoint(bg_url) and is_meaningful_url(bg_url):
+                    if not is_api_endpoint(bg_url) and is_valid_offer_url(bg_url):
                         network_final = bg_url
                         break
 
@@ -382,7 +389,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 intelligence["tracker_tool"] = "Voluum (JS)"
 
             # CRITICAL: If the potential final URL is STILL an API/sync endpoint, try to recover from redirect chain
-            if is_api_endpoint(potential_final) or not is_meaningful_url(potential_final):
+            if is_api_endpoint(potential_final) or not is_valid_offer_url(potential_final):
                 chain = click_result.get("redirect_chain", []) + bg_offers
                 recovered = False
                 for r_url in reversed(chain):
@@ -390,7 +397,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     peeled_r = extract_target_from_params(r_url)
                     target_r = peeled_r if peeled_r != r_url else r_url
                     
-                    if not is_api_endpoint(target_r) and is_meaningful_url(target_r):
+                    if not is_api_endpoint(target_r) and is_valid_offer_url(target_r):
                         potential_final = target_r
                         recovered = True
                         break
@@ -399,8 +406,8 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     if is_meaningful_url(final_url):
                         potential_final = final_url
                     else:
-                        # Absolute last resort: the original ad link (at least it's an entry point)
-                        potential_final = ad_landing 
+                        # Absolute last resort: the original landing_url
+                        potential_final = landing_url 
 
             full_updates = {
                 "ad_type": final_ad_type,
@@ -432,9 +439,11 @@ async def deep_analyze_ad(ad_id, landing_url, title):
         print(f"Error for {ad_id}: {e}")
         return {"error": str(e)}
     finally:
-        if browser:
-            try:
-                # Give browser.close() a hard 10s limit
+        # Bug 4: Improved cleanup order
+        try:
+            if page: await page.close()
+            if context: await context.close()
+            if browser:
                 await asyncio.wait_for(browser.close(), timeout=10.0)
-            except:
-                print(f"  [Ad {ad_id}] Warning: Browser close timed out.", flush=True)
+        except Exception as e:
+            print(f"  [Ad {ad_id}] Warning: Cleanup error: {e}", flush=True)
