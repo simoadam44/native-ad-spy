@@ -210,6 +210,8 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     """
     all_requests = []
     all_responses = []
+    redirect_chain = []
+    final_offer_url = None
     
     def on_request(request):
         all_requests.append({
@@ -347,6 +349,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             cta_text = best_text
             print(f"  [CTA] Clicking: {best_text[:30]}...")
             
+            initial_url = page.url
             try:
                 # Set up the expectation for a popup with longer timeout
                 async with page.expect_popup(timeout=10000) as popup_info:
@@ -357,19 +360,29 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                         print(f"Playwright click failed, using JS fallback for {page.url}")
                         await best_el.evaluate("el => el.click()")
                 
-                # If a popup opened, it's the most likely intended destination
+                # If a popup opened, we need to check if it's a popunder
                 popup_page = await popup_info.value
                 print(f"Popup detected: {popup_page.url}")
                 
-                # Wait for the popup to resolve trackers to the final merchant page
+                # Wait for both pages to settle
                 try:
-                    await wait_for_actual_landing(popup_page, 15000)
-                except: 
-                    print(f"Popup resolution timeout (non-fatal) for {popup_page.url}")
+                    await asyncio.gather(
+                        wait_for_actual_landing(popup_page, 10000),
+                        wait_for_actual_landing(page, 5000),
+                        return_exceptions=True
+                    )
+                except: pass
                 
-                final_offer_url = popup_page.url
-                # CAPTURE REDIRECT CHAIN FROM POPUP TOO
-                # We can't easily merge but we can at least get the final result
+                popup_url = popup_page.url
+                main_url = page.url
+                
+                # If main page navigated to a checkout/offer page, prefer it over the popup!
+                if main_url != initial_url and is_meaningful_url(main_url) and not is_intermediary_domain(main_url):
+                    print(f"Main tab navigated to {main_url}. Assuming popup is a popunder. Preferring main tab.")
+                    final_offer_url = main_url
+                else:
+                    final_offer_url = popup_url
+                    
                 await popup_page.close() 
             except Exception:
                 # If no popup happened, handle same-tab navigation
@@ -402,7 +415,6 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             cleaned_landing = clean_url(page.url)
 
             # Filter clean redirect chain: Only include meaningful redirects
-            redirect_chain = []
             for r in all_requests:
                 r_url = r["url"]
                 

@@ -92,7 +92,8 @@ STRICT_BLOCK_DOMAINS = [
     "syndicatedsearch.goog", "trendingboom.com",
     "live.primis.tech", "trk-adv.rixbeedesk.com", "tealiumiq.com", "freshchat.com",
     "media6degrees.com", "fpjs.io", "vturb.com.br", "yieldmo.com", "ip-api.com",
-    "pm-serv.co", "googletagservices.com", "amazon-adsystem.com"
+    "pm-serv.co", "googletagservices.com", "amazon-adsystem.com",
+    "ipify.org", "fpnpmcdn.net", "cloudflare.com"
 ]
 
 

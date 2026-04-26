@@ -109,37 +109,33 @@ def get_ad_network_fingerprints(page_content: str) -> dict:
         "Google AdSense/AdX": {
             "patterns": [
                 "adsbygoogle", "googlesyndication.com/pagead", "google_ad_client",
-                "pub-", "ins class=\"adsbygoogle\"", "gpt.js", "google_ads",
-                "googletagservices.com", "doubleclick.net/adj"
+                "ins class=\"adsbygoogle\""
             ], 
             "confidence": "high"
         },
         "Taboola": {
             "patterns": [
-                "cdn.taboola.com/libtrc", "_taboola.push", "trc.taboola.com",
                 "taboola-below-article", "taboola-right-rail", "data-taboola-placeholder",
-                "aria-label=\"image for taboola advertising unit\"", "trc_", "am-wf.taboola.com"
+                "aria-label=\"image for taboola advertising unit\"", "class=\"trc_"
             ], 
             "confidence": "high"
         },
         "Outbrain": {
             "patterns": [
                 "widgets.outbrain.com", "ob-widget", "data-ob-mark=",
-                "outbrain-widget", "OUTBRAIN", "aria-label=\"outbrain\""
+                "outbrain-widget", "aria-label=\"outbrain\""
             ], 
             "confidence": "high"
         },
         "MGID": {
             "patterns": [
-                "servicer.mgid.com", "mgid.com/widgets", "jsc.mgid.com",
-                "mgid-widget", "data-mgid-id"
+                "mgid.com/widgets", "mgid-widget", "data-mgid-id"
             ], 
             "confidence": "high"
         },
         "Revcontent": {
             "patterns": [
-                "trends.revcontent.com", "revcontent.com/gp/", "rc_widget",
-                "rev-content", "data-revcontent"
+                "trends.revcontent.com", "rc_widget", "data-revcontent"
             ], 
             "confidence": "high"
         },

@@ -74,6 +74,11 @@ async def save_to_supabase(ad):
         final_url, redirect_chain = resolve_url(ad['landing'])
         clean_url = final_url.split('?')[0]
         
+        from utils.url_blacklist import is_meaningful_url
+        if not is_meaningful_url(final_url):
+            print(f"🚫 [MGID] Ignored non-meaningful URL: {final_url[:60]}")
+            return
+            
         # كلمات مفتاحية لعناوين غير مفيدة
         useless_titles = ["brainberries.co", "pop culture", "herbeauty.co", "easy moves", "trending", "sponsored", "advertisement"]
         if any(ut in title_key for ut in useless_titles) and len(title_key) < 20:

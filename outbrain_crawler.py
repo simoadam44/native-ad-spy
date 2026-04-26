@@ -88,6 +88,11 @@ async def save_to_supabase(ad):
                 if is_meaningful_url(r_url):
                     final_url = r_url
                     break
+            
+            # If still not meaningful, skip this ad completely
+            if not is_meaningful_url(final_url):
+                print(f"🚫 [Outbrain] Ignored non-meaningful URL: {final_url[:60]}")
+                return
         
         # Detect from chain
         tracking_info = detect_from_chain(redirect_chain)
