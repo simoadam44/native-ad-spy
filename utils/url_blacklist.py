@@ -107,12 +107,16 @@ INTERMEDIARY_DOMAINS = [
     "taboola.com", "trc.taboola.com",
     "outbrain.com", "traffic.outbrain.com", "paid.outbrain.com",
     "yahoo.com/p?prd=",
-    "trkerupper.com", "clktrservices.com", "clktrack.com",
+    "trkerupper.com",                    # Bug 2: confirmed click tracker from logs
+    "clktrservices.com", "clktrack.com",
     "be-mob.com", "bemob.com", "trk.healthyinsightjournal.com",
     "tr.outbrain.com", "trc.dailylifeinsider.com",
     "trendingboom.com", "trendygadgetreviews.com", "rejuvacare.com",
     "media6degrees.com", "helpingtrk.com", "yieldmo.com", "utmify.com.br",
-    "wellnesspeek.com", "linkhelprt.com", "busterry.com", "primis.tech"
+    "wellnesspeek.com", "linkhelprt.com", "busterry.com", "primis.tech",
+    "go.viewitquickly.online", "viewitquickly.online",  # Bug 2: causes 120s timeout
+    "link.anti-aging.site", "anti-aging.site",          # Bug 2: tracker
+    "ad.rejuvacare.com",                                 # Bug 2: confirmed from logs
 ]
 
 # ══════════════════════════════════════
@@ -153,6 +157,12 @@ INVALID_OFFER_DOMAINS = {
     "paveair.com/eclytics",   # CONFIRMED from logs
     "lifetechinsider.com/click",  # CONFIRMED from logs
     "trc.lifetechinsider.com",
+    # Bug 2: click trackers confirmed from production logs
+    "trkerupper.com",
+    "go.viewitquickly.online",
+    "viewitquickly.online",
+    "link.anti-aging.site",
+    "hop-apps.clickbank.net",  # Bug 4: ClickBank error redirect (not real offer)
     # Image CDNs
     "unsplash.com",           # CONFIRMED from logs
     "images.unsplash.com",

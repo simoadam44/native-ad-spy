@@ -79,6 +79,13 @@ TRACKING_REDIRECT_DOMAINS = [
 
     # ClickBank intermediate
     "hop.clickbank.net",
+    "hop-apps.clickbank.net",  # Bug 4: ClickBank error redirect with destinationUrl param
+
+    # Bug 2: Confirmed click trackers from production logs
+    "trkerupper.com",          # confirmed — logs show "Landed on tracker: trkerupper.com/click"
+    "link.anti-aging.site",    # confirmed tracker
+    "go.viewitquickly.online", # causes 120s timeout
+    "viewitquickly.online",
 
     # Affiliate networks
     "maxbounty.com/links",

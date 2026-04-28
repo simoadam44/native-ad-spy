@@ -6,9 +6,32 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
 from langdetect import detect
-
-import tldextract
 from urllib.parse import urlparse
+
+# Bug 1 Fix: Offline-safe domain extractor (no DNS/network calls)
+def _extract_domain(url: str) -> str:
+    """Extract registered domain safely, no network I/O, compatible with all tldextract versions."""
+    if not url: return ""
+    try:
+        import tldextract as _tldm
+        try:
+            _ext = _tldm.TLDExtract(suffix_list_urls=[])
+        except TypeError:
+            try:
+                _ext = _tldm.TLDExtract(fetch=False)
+            except TypeError:
+                _ext = _tldm.TLDExtract()
+        result = _ext(url)
+        if result.registered_domain:
+            return result.registered_domain
+    except Exception:
+        pass
+    try:
+        netloc = urlparse(url).netloc.lower().split(":")[0]
+        return netloc[4:] if netloc.startswith("www.") else netloc
+    except Exception:
+        return ""
+
 from utils.ad_classifier import calculate_ad_score, is_arbitrage_site, get_ad_network_fingerprints
 from utils.url_resolver import resolve_real_url
 from utils.offer_extractor import extract_offer_intelligence
@@ -19,7 +42,10 @@ from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
 # Supabase initialization
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL else None
+except Exception:
+    supabase = None
 
 
 
@@ -415,7 +441,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 "classification_reason": classification.get("reason"),
                 "landing": final_url,  # The actual resolved landing page
                 "final_offer_url": potential_final,
-                "offer_domain": tldextract.extract(potential_final).registered_domain if potential_final else None,
+                "offer_domain": _extract_domain(potential_final) if potential_final else None,
                 "affiliate_network": intelligence.get("affiliate_network"),
                 "tracker_tool": intelligence.get("tracker_tool"),
                 "offer_id": intelligence.get("offer_id"),
@@ -439,11 +465,22 @@ async def deep_analyze_ad(ad_id, landing_url, title):
         print(f"Error for {ad_id}: {e}")
         return {"error": str(e)}
     finally:
-        # Bug 4: Improved cleanup order
+        # Bug 3 Fix: Strict cleanup order — page -> context -> browser
+        # This prevents cross-contamination between ads
         try:
-            if page: await page.close()
-            if context: await context.close()
+            if page and not page.is_closed():
+                await page.close()
+        except Exception:
+            pass
+        try:
+            if context:
+                await context.close()
+        except Exception:
+            pass
+        try:
             if browser:
                 await asyncio.wait_for(browser.close(), timeout=10.0)
-        except Exception as e:
-            print(f"  [Ad {ad_id}] Warning: Cleanup error: {e}", flush=True)
+        except Exception as cleanup_err:
+            print(f"  [Ad {ad_id}] Warning: Cleanup error: {cleanup_err}", flush=True)
+        # Bug 3: Null out to prevent any accidental reuse
+        page = context = browser = None

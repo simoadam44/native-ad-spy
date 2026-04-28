@@ -1,8 +1,34 @@
 import base64
 import json
 import re
-import tldextract
 from urllib.parse import urlparse, parse_qs
+
+# ── Bug 1 Fix: Offline-safe domain extractor (no DNS/network calls) ──────────
+def _extract_domain(url: str) -> str:
+    """Extract registered domain safely, no network I/O, compatible with all tldextract versions."""
+    if not url: return ""
+    try:
+        import tldextract as _tldm
+        # Try new API (>=3.6) first, then fall back to old fetch=False
+        try:
+            _ext = _tldm.TLDExtract(suffix_list_urls=[])
+        except TypeError:
+            try:
+                _ext = _tldm.TLDExtract(fetch=False)
+            except TypeError:
+                _ext = _tldm.TLDExtract()
+        result = _ext(url)
+        if result.registered_domain:
+            return result.registered_domain
+    except Exception:
+        pass
+    # Fallback: simple netloc parse
+    try:
+        from urllib.parse import urlparse
+        netloc = urlparse(url).netloc.lower().split(":")[0]
+        return netloc[4:] if netloc.startswith("www.") else netloc
+    except Exception:
+        return ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # HELPER FUNCTIONS
@@ -82,53 +108,20 @@ def urls_are_same_page(url1, url2):
     return (p1.netloc == p2.netloc and 
             p1.path.rstrip("/") == p2.path.rstrip("/"))
 
-KNOWN_DIRECT_OFFER_DOMAINS = {
-    "getretinaclear.com": {
-        "affiliate_param": "aff_id",
-        "vertical": "Beauty/Skincare"
-    },
-    "completejointcare.net": {
-        "affiliate_param": "hop",
-        "network": "ClickBank",
-        "vertical": "Health/Supplements"
-    },
-    "mitolyn.org": {
-        "affiliate_param": "aff",
-        "vertical": "Health/Supplements"
-    },
-    "zapshieldshop.com": {
-        "affiliate_param": "Affid",
-        "vertical": "Home/Gadget"
-    }
-}
-
-def urls_are_same_page(url1, url2):
-    """Returns True if only query params differ but same path."""
-    if not url1 or not url2: return False
-    from urllib.parse import urlparse
-    p1 = urlparse(url1.lower())
-    p2 = urlparse(url2.lower())
-    return (p1.netloc == p2.netloc and 
-            p1.path.rstrip("/") == p2.path.rstrip("/"))
 
 KNOWN_DIRECT_OFFER_DOMAINS = {
-    "getretinaclear.com": {
-        "affiliate_param": "aff_id",
-        "vertical": "Beauty/Skincare"
-    },
-    "completejointcare.net": {
-        "affiliate_param": "hop",
-        "network": "ClickBank",
-        "vertical": "Health/Supplements"
-    },
-    "mitolyn.org": {
-        "affiliate_param": "aff",
-        "vertical": "Health/Supplements"
-    },
-    "zapshieldshop.com": {
-        "affiliate_param": "Affid",
-        "vertical": "Home/Gadget"
-    }
+    "getretinaclear.com": {"network": "Direct Affiliate", "affiliate_param": "aff_id", "vertical": "Beauty/Skincare"},
+    "completejointcare.net": {"network": "ClickBank", "affiliate_param": "hop", "vertical": "Health/Supplements"},
+    "mitolyn.org": {"network": "Direct Affiliate", "affiliate_param": "aff", "vertical": "Health/Supplements"},
+    "zapshieldshop.com": {"network": "Direct Affiliate", "affiliate_param": "Affid", "vertical": "Home/Gadget"},
+    # Bug 6: Additional known ClickBank products identified from production logs
+    "nervovive.com": {"network": "ClickBank", "affiliate_param": "hop", "vertical": "Health/Supplements"},
+    "pronailcomplex.com": {"network": "ClickBank", "affiliate_param": "hop", "vertical": "Beauty"},
+    "menovelle.com": {"network": "ClickBank", "affiliate_param": "hop", "vertical": "Health/Supplements"},
+    "getrevitag.com": {"network": "ClickBank", "affiliate_param": "hop", "vertical": "Health/Supplements"},
+    "optivell.site": {"network": "Direct Affiliate", "affiliate_param": "aff_id", "vertical": "Health/Supplements"},
+    "emptybladdersecret.com": {"network": "Direct Affiliate", "affiliate_param": "aff_id", "vertical": "Health/Supplements"},
+    "mitolyn.com": {"network": "Direct Affiliate", "affiliate_param": "aff", "vertical": "Health/Supplements"},
 }
 
 
@@ -181,6 +174,18 @@ def decode_clickbank(url: str) -> dict:
     params = parse_qs(parsed.query)
 
     result = {"network": None, "affiliate_id": None, "click_id": None}
+
+    # Bug 4: hop-apps.clickbank.net error redirect — extract real destinationUrl
+    if "hop-apps.clickbank.net" in parsed.netloc:
+        result["network"] = "ClickBank"
+        dest = params.get("destinationUrl", [None])[0]
+        if dest:
+            result["offer_domain"] = urlparse(dest).netloc.lstrip("www.")
+            result["real_offer_url"] = dest
+        hop = params.get("hop", [None])[0]
+        if hop:
+            result["affiliate_id"] = hop
+        return result
 
     # Method 1: hop= param
     if "hop" in params:
@@ -610,7 +615,6 @@ def resolve_offer_url(
     extracted_params, landing_url
 ) -> dict:
     from utils.url_blacklist import is_valid_offer_url
-    import tldextract
 
     # Bug 3: Reject if final URL is same as landing URL
     if raw_final_url and urls_are_same_page(raw_final_url, landing_url):
@@ -631,8 +635,8 @@ def resolve_offer_url(
     # Priority 3: last valid URL in cleaned chain (Bug 2)
     for url in reversed(cleaned_chain):
         if not is_dead_end(url) and not is_ad_tech(url) and is_valid_offer_url(url):
-            parsed_domain = tldextract.extract(url).registered_domain
-            landing_domain = tldextract.extract(landing_url).registered_domain
+            parsed_domain = _extract_domain(url)
+            landing_domain = _extract_domain(landing_url)
             if parsed_domain != landing_domain:
                 return {"url": url, "method": "chain_last_valid_filtered"}
 
@@ -757,19 +761,21 @@ def extract_offer_intelligence(
         network["confidence"] = "high"
         network["source"] = "decoded_payload"
 
-    # Fallback to direct/in-house if IDs found but no network (Bug 5)
+    # Fallback to direct/in-house if IDs found but no network (Bug 6 fix)
     if network["name"] == "Unknown" and (decoded.get("affiliate_id") or decoded.get("offer_id")):
         offer_resolution = resolve_offer_url(raw_final_url, cleaned, decoded, landing_url)
         offer_url = offer_resolution["url"]
-        import tldextract
-        offer_domain = tldextract.extract(offer_url).registered_domain if offer_url else ""
-        
+
+        offer_domain = _extract_domain(offer_url) if offer_url else ""
+
         if offer_domain in KNOWN_DIRECT_OFFER_DOMAINS:
-            network["name"] = KNOWN_DIRECT_OFFER_DOMAINS[offer_domain].get("network", "Direct Affiliate")
+            known = KNOWN_DIRECT_OFFER_DOMAINS[offer_domain]
+            network["name"] = known.get("network", "Direct Affiliate")
+            network["confidence"] = "high"
+            network["source"] = "known_domain_db"
         else:
             network["name"] = "Direct Affiliate"
-            
-        network["confidence"] = "medium"
+            network["confidence"] = "medium"
         network["note"] = "aff_id detected, no known network domain"
 
     # ── Step 5: Detect tracker ────────────────────────────────
@@ -823,7 +829,7 @@ def extract_offer_intelligence(
     offer_vertical = None
     page_type = None
     if offer_url:
-        offer_domain = tldextract.extract(offer_url).registered_domain
+        offer_domain = _extract_domain(offer_url)
         offer_vertical = detect_vertical(offer_url)
         page_type = detect_page_type(offer_url)
 

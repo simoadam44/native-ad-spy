@@ -6,10 +6,50 @@ from utils.popup_handler import dismiss_popups
 from utils.cloak_detector import detect_cloaking
 from utils.url_blacklist import is_meaningful_url, is_intermediary_domain, AFFILIATE_SIGNATURES
 from utils.url_resolver import resolve_real_url, is_tracking_redirect
-import tldextract
 import base64
 import json
 from urllib.parse import urlparse, parse_qs, unquote
+
+# Bug 1 Fix: Offline-safe domain extractor (no DNS/network calls)
+def _extract_domain(url: str) -> str:
+    """Extract registered domain safely, no network I/O, compatible with all tldextract versions."""
+    if not url: return ""
+    try:
+        import tldextract as _tldm
+        try:
+            _ext = _tldm.TLDExtract(suffix_list_urls=[])
+        except TypeError:
+            try:
+                _ext = _tldm.TLDExtract(fetch=False)
+            except TypeError:
+                _ext = _tldm.TLDExtract()
+        result = _ext(url)
+        if result.registered_domain:
+            return result.registered_domain
+    except Exception:
+        pass
+    try:
+        netloc = urlparse(url).netloc.lower().split(":")[0]
+        return netloc[4:] if netloc.startswith("www.") else netloc
+    except Exception:
+        return ""
+
+# Bug 5: Domains that cause timeouts or are never affiliate offers
+FAST_SKIP_DOMAINS = [
+    "independent.co.uk",
+    "the-independent.com",
+    "viewitquickly.online",
+    "go.viewitquickly.online",
+    "goodrx.com",
+    "rocketmortgage.com",
+    "blog.ring.com",
+    "ring.com/blog",
+    "ancestry.com",
+    "barkbox.com",
+    "bankrate.com",
+    "nerdwallet.com",
+    "lendingtree.com",
+]
 
 def extract_hidden_voluum_offer(url: str):
     """Decodes Voluum Base64 tracking data to find the hidden offer URL."""
@@ -445,14 +485,15 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
             
             # CRITICAL FALLBACK: If final_offer_url is still essentially the landing page but we have a redirect chain
             if cleaned_final == cleaned_landing and len(redirect_chain) > 0:
-                original_domain = tldextract.extract(cleaned_landing).registered_domain
+                original_domain = _extract_domain(cleaned_landing)
                 
                 # First pass: Look for known affiliate signatures
                 found_affiliate_fallback = False
                 for r_url in reversed(redirect_chain):
                     # DOUBLE-PASS: Always extract the real target first
                     cleaned_r = extract_target_from_params(r_url)
-                    r_domain = tldextract.extract(cleaned_r).registered_domain
+                    r_domain = _extract_domain(cleaned_r)
+                    
                     if r_domain != original_domain:
                         # STRICT: Must be meaningful (NOT media/static) AND have an affiliate signature AND NOT an API
                         if is_meaningful_url(cleaned_r) and any(sig in cleaned_r.lower() for sig in AFFILIATE_SIGNATURES) and not is_api_endpoint(cleaned_r):
@@ -489,7 +530,7 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                         for r_url in reversed(redirect_chain):
                             # AGGRESSIVE: Clean it again
                             cleaned_r = extract_target_from_params(r_url)
-                            r_domain = tldextract.extract(cleaned_r).registered_domain
+                            r_domain = _extract_domain(cleaned_r)
                             
                             # Third Pass Fallback: Last meaningful non-tracker domain
                             if r_domain != original_domain and is_meaningful_url(cleaned_r) and not is_tracking_redirect(cleaned_r) and not is_api_endpoint(cleaned_r):
@@ -642,9 +683,25 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             "clean_redirect_chain": []
         }
 
+    # Bug 5: Fast-skip known non-affiliate / timeout-causing domains
+    for skip_domain in FAST_SKIP_DOMAINS:
+        if skip_domain in url.lower():
+            print(f"  [Ad] Fast-skip: {url} ({skip_domain})")
+            return {
+                "final_offer_url": url,
+                "text_content": "Fast-skipped (known non-affiliate domain)",
+                "full_html": "",
+                "page_subtype": "Arbitrage",
+                "background_offers": [],
+                "clean_redirect_chain": [],
+                "page_structure": {},
+                "fast_skip": True,
+                "skip_reason": skip_domain
+            }
+
     try:
         clean_redirect_chain = []
-        original_reg_domain = tldextract.extract(url).registered_domain
+        original_reg_domain = _extract_domain(url)
         
         def handle_response(response):
             try:
@@ -653,7 +710,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                 if not is_meaningful_url(r_url): return
                 if is_api_endpoint(r_url): return
                 if status < 200 or status >= 400: return
-                url_domain = tldextract.extract(r_url).registered_domain
+                url_domain = _extract_domain(r_url)
                 if url_domain == original_reg_domain: return
                 if r_url not in clean_redirect_chain: clean_redirect_chain.append(r_url)
             except: pass
