@@ -400,7 +400,16 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                         network_final = bg_url
                         break
 
-            potential_final = network_final or intelligence.get("final_offer_url") or click_result.get("final_offer_url") or page.url
+            # Build candidate list in priority order, rejecting trackers
+            cta_url = click_result.get("final_offer_url")
+            lp_url = lp_result.get("final_offer_url")  # HTML-First Match from page analysis
+            
+            # Reject CTA result if it landed on a known tracker
+            if cta_url and (is_tracking_redirect(cta_url) or not is_valid_offer_url(cta_url)):
+                print(f"  [Ad {ad_id}] CTA landed on tracker/invalid: {cta_url[:60]}... falling back to HTML-First Match")
+                cta_url = None
+            
+            potential_final = network_final or intelligence.get("final_offer_url") or cta_url or lp_url or page.url
             
             # PEELING STEP: If the URL looks like a tracker/API but has a target parameter, peel it
             from utils.lp_analyzer import extract_target_from_params

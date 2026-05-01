@@ -93,7 +93,11 @@ STRICT_BLOCK_DOMAINS = [
     "live.primis.tech", "trk-adv.rixbeedesk.com", "tealiumiq.com", "freshchat.com",
     "media6degrees.com", "fpjs.io", "vturb.com.br", "yieldmo.com", "ip-api.com",
     "pm-serv.co", "googletagservices.com", "amazon-adsystem.com",
-    "ipify.org", "fpnpmcdn.net", "cloudflare.com"
+    "ipify.org", "fpnpmcdn.net", "cloudflare.com",
+    # Production run 2026-05-01: non-offer domains picked by heuristic fallback
+    "youtube.com", "www.youtube.com",       # generate_204 tracking pixel
+    "a.vturb.net", "vturb.net",              # video CDN — NOT an offer page
+    "converteai.net",                        # video player SaaS
 ]
 
 
@@ -172,6 +176,10 @@ INVALID_OFFER_DOMAINS = {
     "visymo.com/disclaimer",  # CONFIRMED from logs
     # Besyner — appears to be intermediate tracker
     "go.besyner.com/feeder",
+    # Production run 2026-05-01: non-offer URLs found in redirect chains
+    "youtube.com/generate_204",  # tracking pixel masquerading as offer
+    "a.vturb.net",               # video CDN endpoint
+    "vturb.net",
 }
 
 # ══════════════════════════════════════

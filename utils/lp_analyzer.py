@@ -86,7 +86,12 @@ TECHNICAL_NOISE_DOMAINS = [
     "tr.outbrain.com",
     "trc.dailylifeinsider.com",
     "hcaptcha.com",
-    "recaptcha.net"
+    "recaptcha.net",
+    # Production run 2026-05-01: incorrectly captured as background offers
+    "a.vturb.net",      # Video CDN endpoint, not an offer
+    "vturb.net",
+    "youtube.com",       # generate_204 tracking pixel
+    "converteai.net",    # Video player SaaS platform
 ]
 
 def get_best_offer_link(links: list) -> str:
@@ -193,9 +198,16 @@ def extract_affiliate_from_html(html: str, base_url: str = None) -> str:
                 all_urls.add(h)
 
     best_url = ""
+    base_domain = _extract_domain(base_url) if base_url else ""
     for url in all_urls:
         url = url.rstrip(".,;)")
         url_lower = url.lower()
+        
+        # CRITICAL: Skip self-referencing URLs from the same domain
+        # e.g. wellnesswiredaily.com/click/1 when base is wellnesswiredaily.com
+        url_domain = _extract_domain(url)
+        if base_domain and url_domain == base_domain:
+            continue
         
         # Check against signatures
         if not any(sig in url_lower for sig in AFFILIATE_SIGNATURES):
