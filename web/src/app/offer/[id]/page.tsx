@@ -15,35 +15,77 @@ export default function OfferIntelligencePage() {
   const router = useRouter();
   const [ads, setAds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const offerId = params.id as string;
+  const offerId = decodeURIComponent(params.id as string);
 
   useEffect(() => {
+    if (!offerId) return;
+
     async function fetchData() {
       setLoading(true);
-      // Query ads table directly by offer_id OR by final_offer_url containing the id
-      const { data } = await supabase
-        .from("ads")
-        .select("*")
-        .eq("offer_id", offerId)
-        .order("impressions", { ascending: false })
-        .limit(30);
+      setError(null);
 
-      // If nothing found by offer_id, try by offer_domain
-      if (!data?.length) {
+      try {
+        // Strategy 1: Match by offer_id column (exact)
+        const { data: byOfferId } = await supabase
+          .from("ads")
+          .select("*")
+          .eq("offer_id", offerId)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (byOfferId?.length) {
+          setAds(byOfferId);
+          setLoading(false);
+          return;
+        }
+
+        // Strategy 2: Match by offer_domain column (exact)
         const { data: byDomain } = await supabase
           .from("ads")
           .select("*")
+          .eq("offer_domain", offerId)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (byDomain?.length) {
+          setAds(byDomain);
+          setLoading(false);
+          return;
+        }
+
+        // Strategy 3: Match by final_offer_url containing the id
+        const { data: byUrl } = await supabase
+          .from("ads")
+          .select("*")
           .ilike("final_offer_url", `%${offerId}%`)
-          .order("impressions", { ascending: false })
-          .limit(30);
-        setAds(byDomain || []);
-      } else {
-        setAds(data);
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        if (byUrl?.length) {
+          setAds(byUrl);
+          setLoading(false);
+          return;
+        }
+
+        // Strategy 4: Match by landing URL
+        const { data: byLanding } = await supabase
+          .from("ads")
+          .select("*")
+          .ilike("landing", `%${offerId}%`)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        setAds(byLanding || []);
+      } catch (e: any) {
+        setError(e.message || "Failed to fetch offer data");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
-    if (offerId) fetchData();
+
+    fetchData();
   }, [offerId]);
 
   // Derive all stats from raw ads
@@ -56,22 +98,18 @@ export default function OfferIntelligencePage() {
     const affiliateNet = ads.find(a => a.affiliate_network)?.affiliate_network || "Direct/In-house";
     const vertical = ads.find(a => a.offer_vertical)?.offer_vertical || "General";
     const totalImpressions = ads.reduce((s, a) => s + (a.impressions || 1), 0);
-    const offerDomain = ads.find(a => a.offer_domain)?.offer_domain;
+    const offerDomain = ads.find(a => a.offer_domain)?.offer_domain || offerId;
     const finalOfferUrl = ads.find(a => a.final_offer_url)?.final_offer_url;
     const landingUrl = ads.find(a => a.landing)?.landing;
     const firstSeen = ads.reduce((min, a) => (!min || a.created_at < min) ? a.created_at : min, null);
     const lastSeen = ads.reduce((max, a) => (!max || a.created_at > max) ? a.created_at : max, null);
-    const redirectChains = ads
-      .filter(a => a.redirect_chain && Array.isArray(a.redirect_chain))
-      .flatMap(a => a.redirect_chain)
-      .filter(Boolean);
 
     // Network distribution
     const netCounts: Record<string, number> = {};
     ads.forEach(a => { if (a.network) netCounts[a.network] = (netCounts[a.network] || 0) + 1; });
 
-    return { networks, affiliates, geos, trackers, affiliateNet, vertical, totalImpressions, offerDomain, finalOfferUrl, landingUrl, firstSeen, lastSeen, redirectChains, netCounts };
-  }, [ads]);
+    return { networks, affiliates, geos, trackers, affiliateNet, vertical, totalImpressions, offerDomain, finalOfferUrl, landingUrl, firstSeen, lastSeen, netCounts };
+  }, [ads, offerId]);
 
   const copyText = (text: string) => navigator.clipboard.writeText(text);
 
@@ -79,21 +117,38 @@ export default function OfferIntelligencePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="space-y-4 text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary mx-auto" />
+          <div className="w-16 h-16 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-neutral-500 text-sm font-bold uppercase tracking-widest">Loading Offer Intelligence...</p>
+          <p className="text-neutral-600 text-xs font-mono">{offerId}</p>
         </div>
       </div>
     );
   }
 
-  if (!ads.length && !loading) {
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] space-y-4">
+        <div className="w-20 h-20 rounded-3xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+          <AlertTriangle size={36} className="text-red-400" />
+        </div>
+        <h2 className="text-2xl font-black font-syne">Error Loading Offer</h2>
+        <p className="text-neutral-500 text-sm">{error}</p>
+        <button onClick={() => router.back()} className="mt-2 bg-primary/10 hover:bg-primary text-primary hover:text-white border border-primary/30 px-6 py-2.5 rounded-xl text-sm font-bold transition-all">
+          ← Go Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!ads.length) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[70vh] space-y-4">
         <div className="w-20 h-20 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center">
           <Package size={36} className="text-primary" />
         </div>
         <h2 className="text-2xl font-black font-syne">Offer Not Found</h2>
-        <p className="text-neutral-500 text-sm">No ads found for Offer ID: <code className="text-primary font-mono">{offerId}</code></p>
+        <p className="text-neutral-500 text-sm">No ads found for: <code className="text-primary font-mono">{offerId}</code></p>
+        <p className="text-neutral-600 text-xs max-w-md text-center">This offer may not have been analyzed yet. Run the analyzer to discover offer intelligence.</p>
         <button onClick={() => router.back()} className="mt-2 bg-primary/10 hover:bg-primary text-primary hover:text-white border border-primary/30 px-6 py-2.5 rounded-xl text-sm font-bold transition-all">
           ← Go Back
         </button>
@@ -121,8 +176,8 @@ export default function OfferIntelligencePage() {
               <div>
                 <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Offer Intelligence</p>
                 <h1 className="text-2xl font-black font-syne tracking-tight flex items-center gap-2">
-                  Offer ID: <span className="text-primary">{offerId}</span>
-                  <button onClick={() => copyText(offerId)} className="p-1.5 hover:bg-white/10 rounded-lg text-neutral-500 hover:text-white transition-all">
+                  <span className="text-primary truncate max-w-sm">{stats?.offerDomain || offerId}</span>
+                  <button onClick={() => copyText(offerId)} className="p-1.5 hover:bg-white/10 rounded-lg text-neutral-500 hover:text-white transition-all shrink-0">
                     <Copy size={13} />
                   </button>
                 </h1>
@@ -144,7 +199,7 @@ export default function OfferIntelligencePage() {
               )}
             </div>
 
-            {/* Offer URL */}
+            {/* Final Offer URL */}
             {stats?.finalOfferUrl && (
               <div className="bg-black/40 border border-emerald-500/20 rounded-2xl p-4 space-y-2">
                 <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -189,7 +244,7 @@ export default function OfferIntelligencePage() {
           <div className="grid grid-cols-2 gap-3 shrink-0 min-w-[220px]">
             {[
               { label: "Domain", value: stats?.offerDomain || "Hidden", icon: Globe2 },
-              { label: "Affiliates Running", value: stats?.affiliates.length || 1, icon: Network },
+              { label: "Affiliates", value: stats?.affiliates.length || 1, icon: Network },
               { label: "First Seen", value: stats?.firstSeen ? new Date(stats.firstSeen).toLocaleDateString() : "—", icon: Activity },
               { label: "Last Active", value: stats?.lastSeen ? new Date(stats.lastSeen).toLocaleDateString() : "—", icon: Eye },
             ].map((s, i) => (
@@ -225,10 +280,10 @@ export default function OfferIntelligencePage() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
 
-        {/* Creatives */}
+        {/* Creatives Grid */}
         <div className="lg:col-span-3 space-y-5">
           <h2 className="text-lg font-black font-syne flex items-center gap-2 uppercase tracking-tight">
-            <Layers className="text-primary" size={20} /> Top Performing Creatives
+            <Layers className="text-primary" size={20} /> Top Performing Creatives ({ads.length})
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {ads.map((ad, i) => (
@@ -236,7 +291,7 @@ export default function OfferIntelligencePage() {
                 key={ad.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: i * 0.04 }}
+                transition={{ delay: i * 0.03 }}
                 className="bg-card border border-border rounded-2xl overflow-hidden group cursor-pointer hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all"
                 onClick={() => router.push(`/dashboard?ad=${ad.id}`)}
               >
@@ -247,12 +302,13 @@ export default function OfferIntelligencePage() {
                   }
                   <div className="absolute top-2 left-2 flex gap-1">
                     <span className="bg-black/70 backdrop-blur px-1.5 py-0.5 rounded text-[8px] font-black text-white uppercase">{ad.network}</span>
+                    {ad.country_code && <span className="bg-black/70 backdrop-blur px-1.5 py-0.5 rounded text-[8px] font-black text-white uppercase">{ad.country_code}</span>}
                   </div>
                 </div>
                 <div className="p-3 space-y-1.5">
                   <p className="text-xs font-bold line-clamp-2 leading-tight">{ad.title}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-bold text-primary uppercase">{ad.network}</span>
+                    <span className="text-[9px] font-bold text-primary uppercase">{ad.ad_type || ad.network}</span>
                     <span className="text-[9px] font-bold text-neutral-500">{(ad.impressions || 1).toLocaleString()} impr.</span>
                   </div>
                   {ad.affiliate_id && (
@@ -291,6 +347,23 @@ export default function OfferIntelligencePage() {
                   ))}
                 </div>
               </div>
+              {/* Network bars */}
+              {stats && Object.entries(stats.netCounts).map(([net, count]) => (
+                <div key={net} className="space-y-1">
+                  <div className="flex justify-between text-[9px] font-bold">
+                    <span className="text-neutral-400 uppercase">{net}</span>
+                    <span className="text-neutral-500">{count}</span>
+                  </div>
+                  <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(count / ads.length) * 100}%` }}
+                      transition={{ duration: 0.8, delay: 0.2 }}
+                      className="h-full bg-primary rounded-full"
+                    />
+                  </div>
+                </div>
+              ))}
               {stats && stats.geos.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[9px] font-black text-neutral-500 uppercase tracking-tighter">Geo Targeting</p>
@@ -311,7 +384,7 @@ export default function OfferIntelligencePage() {
                 <Network size={13} className="text-purple-400" /> Affiliates Running This Offer
               </h4>
               <div className="space-y-2">
-                {stats.affiliates.slice(0, 8).map((aff, i) => (
+                {stats.affiliates.slice(0, 10).map((aff, i) => (
                   <button
                     key={i}
                     onClick={() => router.push(`/advertiser/${aff}`)}
@@ -335,7 +408,7 @@ export default function OfferIntelligencePage() {
               <span className="text-[10px] font-black uppercase tracking-widest">Competitive Alert</span>
             </div>
             <p className="text-[10px] text-amber-200/70 font-medium leading-relaxed">
-              This offer is currently being scaled by <strong className="text-amber-400">{stats?.affiliates.length || 1}</strong> high-volume partners across multiple native networks.
+              This offer is currently being scaled by <strong className="text-amber-400">{stats?.affiliates.length || 1}</strong> high-volume partners across {stats?.networks.length || 1} native networks.
             </p>
           </div>
 

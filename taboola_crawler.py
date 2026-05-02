@@ -7,10 +7,12 @@ from urllib.parse import urljoin, unquote
 import os
 import re
 import json
+import random
 from langdetect import detect
 from utils.url_resolver import resolve_url
 from utils.advanced_detector import detect_from_chain
 from utils.url_blacklist import is_meaningful_url
+from utils.site_pool import get_rotation_config, get_random_ua, get_random_referrer, get_random_sites
 # إعدادات سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -50,15 +52,21 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-TABOOLA_ARTICLE_SITES = [
-    "https://www.tips-and-tricks.co/do-it-yourself/shoestretch/", 
-    "https://sabq.org/article/Ybvpfba",     
-    "https://www.habittribe.com/wellness/water", 
-    "https://www.independent.co.uk",
-    "https://www.articlestone.com/social/rings",
-    "https://www.dailysportx.com/news/vveins",
-    "https://www.tips-and-tricks.co/online/sisterrevenge/2/"
-]
+# ══════════════════════════════════════
+# DYNAMIC SITE ROTATION — NO MORE LOOP TRAP
+# Picks 5-8 random sites from the 200+ pool every run
+# ══════════════════════════════════════
+def get_session_config():
+    """Get a fresh randomized config for this crawl session."""
+    config = get_rotation_config(geo=TARGET_COUNTRY)
+    print(f"🎲 [TABOOLA] Session config:")
+    print(f"   User-Agent: {config['user_agent'][:80]}")
+    print(f"   Referrer:   {config['referrer'] or '(direct)'}")
+    print(f"   Sites ({len(config['sites'])}):")
+    for s in config["sites"]:
+        print(f"     - {s}")
+    return config
+
 
 async def save_or_update_ad(data):
     try:
@@ -139,18 +147,25 @@ async def smart_scroll_and_wait(page):
     """)
     await asyncio.sleep(10) # زيادة وقت الانتظار لضمان الرندرة
 
-async def scrape_taboola(browser, url, semaphore):
+async def scrape_taboola(browser, url, semaphore, session_ua: str = None, session_referrer: str = None):
     async with semaphore:
         context = None
         page = None
         taboola_ads = []
+        # Use session UA/referrer or pick fresh random ones per page
+        ua = session_ua or get_random_ua()
+        referrer = session_referrer if session_referrer is not None else get_random_referrer()
         try:
             context = await browser.new_context(
                 proxy=PROXY_CONFIG,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                user_agent=ua,
                 locale=GEO["locale"],
                 timezone_id=GEO["timezone_id"],
-                permissions=["geolocation"]
+                permissions=["geolocation"],
+                extra_http_headers={
+                    "Referer": referrer,
+                    "Accept-Language": GEO["locale"].replace("_", "-") + ",en;q=0.8",
+                } if referrer else {}
             )
             page = await context.new_page()
             await Stealth().apply_stealth_async(page)
@@ -306,7 +321,14 @@ async def scrape_taboola(browser, url, semaphore):
             if context: await context.close()
 
 async def run_spy():
-    semaphore = asyncio.Semaphore(1) 
+    semaphore = asyncio.Semaphore(1)
+    
+    # Get fresh random session config
+    session = get_session_config()
+    sites = session["sites"]
+    ua = session["user_agent"]
+    referrer = session["referrer"]
+    
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
         browser = await p.chromium.launch(
@@ -321,7 +343,18 @@ async def run_spy():
                 "--no-sandbox"
             ]
         )
-        await asyncio.gather(*[scrape_taboola(browser, s, semaphore) for s in TABOOLA_ARTICLE_SITES])
+        # Random delay between sites to avoid pattern detection
+        for site in sites:
+            await scrape_taboola(browser, site, semaphore, session_ua=ua, session_referrer=referrer)
+            # Random human-like pause between pages (3-12 seconds)
+            delay = random.uniform(3, 12)
+            print(f"⏳ [TABOOLA] Waiting {delay:.1f}s before next site...")
+            await asyncio.sleep(delay)
+            # 30% chance of rotating UA mid-session for extra diversity
+            if random.random() < 0.3:
+                ua = get_random_ua()
+                referrer = get_random_referrer()
+                print(f"🔄 [TABOOLA] Mid-session UA rotation")
         await browser.close()
 
 if __name__ == "__main__":

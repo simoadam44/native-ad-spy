@@ -9,6 +9,7 @@ import os as _os
 _sys.path.insert(0, _os.path.dirname(__file__))
 from utils.url_resolver import resolve_url
 from utils.advanced_detector import detect_from_chain
+from utils.site_pool import get_rotation_config, get_random_ua, get_random_referrer
 
 # إعداد سوبابيز
 try:
@@ -55,15 +56,19 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-# ✅ تنظيف الروابط وتوسيع قائمة الأهداف لضمان نتائج أفضل
-MGID_TARGETS = [url.strip() for url in [
-    "https://pjmedia.com/vodkapundit/2026/03/23/are-you-ready-for-the-dems-2028-presidential-childhood-trauma-olympics-n4950953",
-    "https://www.ibtimes.com/us-secured-secret-deal-cameroon-deport-migrants-using-aid-leverage-report-3800110",
-    "https://brainberries.co/interesting/britney-spears-then-vs-now-her-changing-face-in-photos/",
-    "https://herbeauty.co/ar/altarfih/maqati-video-raqs-zouk-lan-tastatia-at-tawaqquf-an-mushahadatiha-miraran-wa-takraran/",
-    "https://buzzday.info/2026/02/13/what-happens-if-you-consume-ginger-every-day/?utm_id=57223822&utm_medium=cpc&utm_source=mgid.com&utm_campaign=buzzday_prt_en_mob&utm_term=57223822&utm_content=22902986",
-    "https://zestradar.com/celebrities/the-worst-beckham-family-rumors-theyll-never-outrun/"
-]]
+# ══════════════════════════════════════
+# DYNAMIC SITE ROTATION — 200+ sites, fresh each run
+# ══════════════════════════════════════
+def get_session_config():
+    config = get_rotation_config(geo=TARGET_COUNTRY)
+    print(f"🎲 [MGID] Session config:")
+    print(f"   User-Agent: {config['user_agent'][:80]}")
+    print(f"   Referrer:   {config['referrer'] or '(direct)'}")
+    print(f"   Sites ({len(config['sites'])}):")
+    for s in config["sites"]:
+        print(f"     - {s}")
+    return config
+
 
 async def save_to_supabase(ad):
     try:
@@ -548,6 +553,12 @@ async def scrape_mgid(browser, url):
         await page.close()
 
 async def run():
+    # Get fresh random session config
+    session = get_session_config()
+    targets = session["sites"]
+    ua = session["user_agent"]
+    referrer = session["referrer"]
+    
     async with async_playwright() as p:
         try:
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
@@ -562,19 +573,29 @@ async def run():
                 ]
             )
             
-            # محاولة استخدام سياق واحد مع البروكسي هنا (أكثر استقراراً للمصادقة)
             context = await browser.new_context(
                 proxy=PROXY_CONFIG,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                user_agent=ua,
                 locale=GEO["locale"],
                 timezone_id=GEO["timezone_id"],
-                permissions=["geolocation"]
+                permissions=["geolocation"],
+                extra_http_headers={
+                    "Referer": referrer,
+                    "Accept-Language": GEO["locale"].replace("_", "-") + ",en;q=0.8",
+                } if referrer else {}
             )
             
-            for target in MGID_TARGETS:
+            for target in targets:
                 print(f"Checking target: {target}")
                 await scrape_mgid(browser, target)
-                await asyncio.sleep(random.uniform(3, 7))
+                delay = random.uniform(4, 10)
+                print(f"⏳ [MGID] Waiting {delay:.1f}s before next site...")
+                await asyncio.sleep(delay)
+                # 30% chance of rotating UA mid-session
+                if random.random() < 0.3:
+                    ua = get_random_ua()
+                    referrer = get_random_referrer()
+                    print(f"🔄 [MGID] Mid-session UA rotation")
                 
         except Exception as e:
             print(f"Error: {e}")
