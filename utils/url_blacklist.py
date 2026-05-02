@@ -57,7 +57,9 @@ AD_TECH_DOMAINS = [
     "customer-f8ksu.cloudflarestream.com",
     "videodelivery.net",
     "google.co.ma", "adservice.google.com", "bidswitch.net", "x.bidswitch.net",
-    "analytics.twitter.com", "analytics.google.com", "pixel.facebook.com"
+    "analytics.twitter.com", "analytics.google.com", "pixel.facebook.com",
+    "c.mgid.com", "landerlab.io", "track.landerlab.io", "fundingchoicesmessages.google.com",
+    "la-wf.taboola.com", "profitorapi.com", "trk.profitorapi.com"
 ]
 
 # ══════════════════════════════════════
@@ -98,6 +100,9 @@ STRICT_BLOCK_DOMAINS = [
     "youtube.com", "www.youtube.com",       # generate_204 tracking pixel
     "a.vturb.net", "vturb.net",              # video CDN — NOT an offer page
     "converteai.net",                        # video player SaaS
+    "c.mgid.com", "la-wf.taboola.com", "fundingchoicesmessages.google.com",
+    "landerlab.io", "track.landerlab.io",
+    "challenges.cloudflare.com", "trkflstr.com", "optivell.site"
 ]
 
 
@@ -121,6 +126,7 @@ INTERMEDIARY_DOMAINS = [
     "go.viewitquickly.online", "viewitquickly.online",  # Bug 2: causes 120s timeout
     "link.anti-aging.site", "anti-aging.site",          # Bug 2: tracker
     "ad.rejuvacare.com",                                 # Bug 2: confirmed from logs
+    "trkflstr.com", "optivell.site", "challenges.cloudflare.com"
 ]
 
 # ══════════════════════════════════════
@@ -180,6 +186,31 @@ INVALID_OFFER_DOMAINS = {
     "youtube.com/generate_204",  # tracking pixel masquerading as offer
     "a.vturb.net",               # video CDN endpoint
     "vturb.net",
+    "challenges.cloudflare.com",
+    "cdn-cgi/challenge-platform",
+    "trkflstr.com",
+    "trkclikr.com",
+    "optivell.site/opv-site",
+}
+
+INVALID_OFFER_PATH_PATTERNS = [
+    "/opv-site/",
+    "/opv-site",
+    "/cards",           # generic path — not offer
+    "/dashboard",
+    "/panel/",
+    "/admin/",
+    "/redirect",
+    "/click-only",
+    "/tracking/",
+]
+
+INVALID_OFFER_EXACT_PATHS = {
+    "/opv-site/cards",
+    "/cards",
+    "/",
+    "/index",
+    "/home",
 }
 
 # ══════════════════════════════════════
@@ -218,7 +249,9 @@ AD_TECH_URL_PATTERNS = [
     "/Track/", "/providersApi/", "/embeddable/config",
     "/cdn-cgi/",  # Cloudflare RUM / monitoring endpoints
     "cachedClickId", "marketerId", "/view?clickid=", "hcaptcha", "recaptcha", "getcaptcha",
-    "VideoBidRequestHandlerServlet", "liveVideo.php", "/report?tntId=", "/bql.php?"
+    "VideoBidRequestHandlerServlet", "liveVideo.php", "/report?tntId=", "/bql.php?",
+    "collect?", "/collect/", "events?", "site/events", "trk.profitorapi.com", "landerlab.io/cf/cv",
+    "challenges.cloudflare.com", "/cdn-cgi/challenge-platform/"
 ]
 
 
@@ -330,10 +363,19 @@ def is_valid_offer_url(url: str) -> bool:
         if invalid in domain or invalid in url.lower():
             return False
     
-    # Rule 3: Reject very short paths with no content
-    # e.g. kinesis.us-east-2.amazonaws.com/ (just root)
+    # Rule 3: Reject by path pattern (unless has affiliate params)
+    params_str = parsed.query
+    has_affiliate_params = any(p in params_str for p in ["aff_id", "affid", "hop=", "offer_id", "affiliate_id"])
+    
+    if not has_affiliate_params:
+        if path in INVALID_OFFER_EXACT_PATHS:
+            return False
+        for pattern in INVALID_OFFER_PATH_PATTERNS:
+            if pattern in path:
+                return False
+
+    # Rule 4: Reject very short paths with no content
     if path in ["", "/", "/index", "/index.html"]:
-        # Only accept root if it has affiliate params
         if not any(p in url.lower() for p in ["aff", "hop", "offer", "product", "checkout", "clickid"]):
             return False
     

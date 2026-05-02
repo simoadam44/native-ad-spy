@@ -163,13 +163,19 @@ def is_arbitrage_site(url: str, page_content: str, has_network_fingerprint: bool
     url_lower = url.lower()
     content_lower = (page_content or "").lower()
     
-    arb_rules = {"/trending/": 3, "/article/": 2, "/list/": 2, "/gallery/": 2, "/celebrities/": 3}
+    arb_rules = {
+        "/trending/": 3, "/article/": 2, "/list/": 2, "/gallery/": 2, 
+        "/celebrities/": 3, "/slideshow/": 3, "/facts/": 2, "/shocking/": 2,
+        "/around-the-web/": 3, "/sponsored/": 3
+    }
     for p, pts in arb_rules.items():
         if p in url_lower: score += pts; signals_found.append(f"url:{p}(+{pts})")
         
-    content_signals = {"you might also like": 2, "related articles": 2, "recommended for you": 2, "next page": 3}
-    for p, pts in content_signals.items():
-        if p in content_lower: score += pts; signals_found.append(f"content:{p}(+{pts})")
+    content_signals = {
+        "you might also like": 2, "related articles": 2, "recommended for you": 2, 
+        "next page": 3, "sponsored content": 2, "advertisement": 2, "around the web": 2,
+        "read next": 1, "continue reading": 2
+    }
         
     return {"is_arbitrage": True, "score": score, "confidence": "high", "signals": signals_found}
 

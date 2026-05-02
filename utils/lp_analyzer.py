@@ -46,9 +46,31 @@ FAST_SKIP_DOMAINS = [
     "ring.com/blog",
     "ancestry.com",
     "barkbox.com",
-    "bankrate.com",
     "nerdwallet.com",
     "lendingtree.com",
+    "profitorapi.com",
+    "landerlab.io",
+    "track.landerlab.io",
+    "analytics.google.com",
+    "brainberries.co",
+    "herbeauty.co",
+    "vsn.ua",
+    "goodrx.com",
+    "rocketmortgage.com",
+    "ring.com",
+    "ancestry.com",
+    "barkbox.com",
+]
+
+CLOUDFLARE_INDICATORS = [
+    "challenges.cloudflare.com",
+    "cdn-cgi/challenge",
+    "Just a moment",           # Cloudflare page title
+    "Please wait while we",    # Cloudflare text
+    "Checking your browser",   # Cloudflare text
+    "DDoS protection by",      # Cloudflare footer
+    "Ray ID:",                 # Cloudflare error ID
+    "cf-browser-verification", # Cloudflare class
 ]
 
 def extract_hidden_voluum_offer(url: str):
@@ -92,6 +114,11 @@ TECHNICAL_NOISE_DOMAINS = [
     "vturb.net",
     "youtube.com",       # generate_204 tracking pixel
     "converteai.net",    # Video player SaaS platform
+    "c.mgid.com",
+    "la-wf.taboola.com",
+    "fundingchoicesmessages.google.com",
+    "landerlab.io",
+    "track.landerlab.io"
 ]
 
 def get_best_offer_link(links: list) -> str:
@@ -386,6 +413,10 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
                     # Reward specific French keywords found in user screenshots
                     if any(f in txt_lower for f in ["prix", "disponib", "cliquez", "voir"]):
                         score += 15
+                        
+                    # Reward Arabic CTA keywords
+                    if any(a in txt for a in ["اطلب", "اشتري", "اشتر", "الآن", "المزيد", "تفاصيل"]):
+                        score += 20
                     
                     if score > best_score and score > 0:
                         best_score = score
@@ -409,7 +440,17 @@ async def click_cta_and_capture(page, ad_type: str = "Affiliate") -> dict:
     final_offer_url = page.url
     if best_el:
         try:
-            # We found a button, now we need to capture where it goes
+            # PASS 1: Let the landing page SET its cookies naturally (Bug Fix)
+            # This is critical for trackers like trkflstr.com that require session cookies
+            print(f"  [Cookie Prep] Waiting for session cookies to stabilize...")
+            await asyncio.sleep(3.0) 
+            
+            cookies = await page.context.cookies()
+            tracker_cookies = [c for c in cookies if any(t in c['domain'] for t in ['trkflstr', 'rejuvacare', 'trkerupper', 'anti-aging'])]
+            if tracker_cookies:
+                print(f"  [Cookie Prep] Tracker cookies ready: {len(tracker_cookies)}")
+
+            # PASS 2: Now click the CTA
             cta_found = True
             cta_text = best_text
             print(f"  [CTA] Clicking: {best_text[:30]}...")
@@ -695,6 +736,13 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             "clean_redirect_chain": []
         }
 
+    # AD SERVER EXTRACTION: Before analyzing, check if it's an ad server wrapper (Bug 4)
+    from utils.url_resolver import extract_real_url_from_ad_server
+    real_url = extract_real_url_from_ad_server(url)
+    if real_url != url:
+        print(f"  [Ad Server] De-wrapped {url[:40]}... -> {real_url[:40]}...")
+        url = real_url
+
     # Bug 5: Fast-skip known non-affiliate / timeout-causing domains
     for skip_domain in FAST_SKIP_DOMAINS:
         if skip_domain in url.lower():
@@ -711,9 +759,38 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                 "skip_reason": skip_domain
             }
 
-    try:
-        clean_redirect_chain = []
-        original_reg_domain = _extract_domain(url)
+        # Handle Initial Page Load
+        try:
+            # We already navigated in the outer scope, but if we extracted a NEW URL from ad-server, go there
+            if url != page.url:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            
+            # Check for Cloudflare Block (Bug 3)
+            page_title = await page.title()
+            page_content = await page.content()
+            if any(ind in page.url or ind in page_title or ind in page_content for ind in CLOUDFLARE_INDICATORS):
+                print(f"  ⚠️ Cloudflare challenge detected for {url}")
+                await asyncio.sleep(5.0)
+                await page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(2.0)
+                
+                # Check again
+                if any(ind in page.url or ind in page_title or ind in await page.content() for ind in CLOUDFLARE_INDICATORS):
+                    print(f"  ❌ Cloudflare blocked — saving with flag")
+                    return {
+                        "final_offer_url": None,
+                        "cloudflare_blocked": True,
+                        "needs_manual_review": True,
+                        "landing_url": url,
+                        "error": "cloudflare_bot_challenge"
+                    }
+                else:
+                    print(f"  ✅ Cloudflare challenge auto-solved!")
+
+            # Normal analysis continues...
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception as e:
+            print(f"  [Ad] Navigation warning for {url}: {e}")
         
         def handle_response(response):
             try:

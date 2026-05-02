@@ -86,6 +86,16 @@ TRACKING_REDIRECT_DOMAINS = [
     "link.anti-aging.site",    # confirmed tracker
     "go.viewitquickly.online", # causes 120s timeout
     "viewitquickly.online",
+    "c.mgid.com",
+    "landerlab.io",
+    "track.landerlab.io",
+    "profitorapi.com",
+    "la-wf.taboola.com",
+    "fundingchoicesmessages.google.com",
+    "trkflstr.com",
+    "optivell.site",
+    "challenges.cloudflare.com",
+    "cdn-cgi/challenge-platform",
 
     # Affiliate networks
     "maxbounty.com/links",
@@ -98,7 +108,44 @@ TRACKING_REDIRECT_DOMAINS = [
     "pxf.io/click",
     "everflow.com",
     "evf.com",
+    "trkflstr.com",
+    "trkclikr.com",
+    "servicer.idealmedia.io",
+    "clck.idealmedia.io",
 ]
+
+AD_SERVER_URL_PARAMS = {
+    # MGID / Ideal Media
+    "servicer.idealmedia.io": ["cxurl", "lu", "ref"],
+    "clck.idealmedia.io": ["lu", "cxurl"],
+    # Other ad servers that embed destination in params
+    "ads.serverbid.com": ["dest", "url"],
+}
+
+def extract_real_url_from_ad_server(url: str) -> str:
+    """
+    Ad servers often embed the real destination URL
+    in a parameter. Extract and return it.
+    """
+    from urllib.parse import urlparse, parse_qs, unquote
+    
+    if not url: return url
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        params = parse_qs(parsed.query)
+        
+        for server_domain, param_names in AD_SERVER_URL_PARAMS.items():
+            if server_domain in domain:
+                for param in param_names:
+                    if param in params:
+                        real_url = unquote(params[param][0])
+                        if real_url.startswith("http"):
+                            print(f"  Extracted real URL from {server_domain}: {real_url[:60]}")
+                            return real_url
+    except: pass
+    
+    return url  # Return original if no extraction possible
 
 def is_tracking_redirect(url: str) -> bool:
     """Check if URL is a tracking redirect that hides real destination."""

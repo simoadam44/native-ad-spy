@@ -283,8 +283,20 @@ async def classify_with_full_context(
             "confidence": score_check["confidence"],
             "stage": 5,
             "reason": f"scoring_system: {score_check['score']}",
+            "signals": score_check.get("signals", []),
             "skip_deep_analysis": False
         }
+    
+    # 5b. Supplemental Arbitrage Check (Bridge Pages)
+    if "trending" in url_lower or "article" in url_lower or "gallery" in url_lower:
+        if "next page" in page_content.lower() or "read more" in page_content.lower():
+             return {
+                "ad_type": "Arbitrage",
+                "confidence": "medium",
+                "stage": "BridgeHeuristic",
+                "reason": "URL_PATH_AND_PAGINATION_MATCH",
+                "skip_deep_analysis": True
+            }
 
     return {
         "ad_type": "Unknown",
@@ -293,6 +305,35 @@ async def classify_with_full_context(
         "reason": "no_conclusive_signals",
         "skip_deep_analysis": False
     }
+
+def detect_vertical_from_title(title: str) -> str:
+    """Detect ad vertical from title for smart referrer selection."""
+    if not title:
+        return "general"
+    
+    title_lower = title.lower()
+    
+    health_words = [
+        "health", "pain", "joint", "weight", "diet", "sugar",
+        "blood", "heart", "skin", "keto", "supplement", "natural",
+        "doctor", "remedy", "cure", "relief", "memory", "brain"
+    ]
+    finance_words = [
+        "money", "invest", "loan", "credit", "insurance", "mortgage",
+        "trading", "forex", "crypto", "savings", "retire", "income"
+    ]
+    entertainment_words = [
+        "celebrity", "actor", "star", "movie", "show", "tv",
+        "shocking", "surprising", "unbelievable", "weight loss"
+    ]
+    
+    if any(w in title_lower for w in health_words):
+        return "health"
+    if any(w in title_lower for w in finance_words):
+        return "finance"
+    if any(w in title_lower for w in entertainment_words):
+        return "entertainment"
+    return "general"
 
 async def deep_analyze_ad(ad_id, landing_url, title):
     """Full analysis flow."""
@@ -305,24 +346,56 @@ async def deep_analyze_ad(ad_id, landing_url, title):
     final_offer_url = None
     
     try:
-        print(f"  [Ad {ad_id}] Launching browser...", flush=True)
+        # Choose profile — prefer desktop US for most ads
+        from utils.ghost_browser import (
+            get_profile, apply_profile, navigate_with_identity,
+            should_rotate_identity
+        )
+        
+        # 70% preference for US desktop profiles
+        if random.random() < 0.7:
+            profile = get_profile(device_type="desktop", country="us")
+        else:
+            profile = get_profile()
+        
+        print(f"  [Ghost] Identity: {profile['locale']} {profile['device_type']} {profile['user_agent'][:50]}...", flush=True)
+        
+        # Proxy config from env if available
+        proxy_url = os.environ.get("PROXY_URL")
+        proxy_config = {"server": proxy_url} if proxy_url else None
+        
+        print(f"  [Ad {ad_id}] Launching Ghost browser...", flush=True)
         async with async_playwright() as p:
-            # Add GHA-compatible flags
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            browser, context, page = await apply_profile(
+                p, profile, proxy=proxy_config
             )
-            print(f"  [Ad {ad_id}] Creating context...", flush=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
             
-            # Apply stealth
-            await Stealth().apply_stealth_async(page)
+            # Navigate with smart referrer and human simulation
+            vertical = detect_vertical_from_title(title)
+            print(f"  [Ad {ad_id}] Navigating with {vertical} referrer...", flush=True)
+            
+            success = await navigate_with_identity(
+                page, landing_url,
+                vertical=vertical,
+                simulate_human=True
+            )
+            
+            if not success:
+                return {"error": "navigation_failed"}
+
+            # 30% chance: rotate User-Agent mid-session
+            if should_rotate_identity():
+                new_profile = get_profile(device_type="desktop")
+                await context.add_init_script(f"""
+                    Object.defineProperty(navigator, 'userAgent', {{
+                        get: () => '{new_profile["user_agent"]}',
+                        configurable: true
+                    }});
+                """)
+                print(f"  [Ghost] 🔄 Rotated identity mid-session", flush=True)
             
             # 1. Detailed Landing Page Analysis
-            print(f"  [Ad {ad_id}] Navigating to landing page...", flush=True)
+            print(f"  [Ad {ad_id}] Analyzing landing page content...", flush=True)
             lp_result = await analyze_landing_page_with_page(page, landing_url)
             print(f"  [Ad {ad_id}] Navigation complete. Processing results...", flush=True)
             page_content = lp_result.get("text_content", "")
@@ -354,6 +427,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     "classification_confidence": classification.get("confidence"),
                     "classification_reason": classification.get("reason"),
                     "landing": final_url,
+                    "cloudflare_blocked": lp_result.get("cloudflare_blocked", False),
                     "deep_analyzed_at": "now()",
                     "detected_ad_networks": classification.get("detected_ad_networks", [])
                 }
@@ -411,11 +485,36 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             
             potential_final = network_final or intelligence.get("final_offer_url") or cta_url or lp_url or page.url
             
+            # 🛡️ REFINEMENT: If it's an Affiliate ad, ensure final_offer is NOT the same as landing if better info exists
+            if final_ad_type == "Affiliate":
+                landing_domain = _extract_domain(final_url)
+                offer_domain = _extract_domain(potential_final)
+                if landing_domain == offer_domain and cta_url and _extract_domain(cta_url) != landing_domain:
+                    potential_final = cta_url
+                elif landing_domain == offer_domain and intelligence.get("final_offer_url"):
+                    potential_final = intelligence["final_offer_url"]
+
             # PEELING STEP: If the URL looks like a tracker/API but has a target parameter, peel it
             from utils.lp_analyzer import extract_target_from_params
             peeled = extract_target_from_params(potential_final)
             if peeled != potential_final:
                 potential_final = peeled
+
+            # 🚀 NEW: FINAL DEEP RESOLVE for known trackers that survived
+            from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
+            from utils.url_blacklist import is_intermediary_domain
+            
+            if is_tracking_redirect(potential_final) or is_intermediary_domain(potential_final):
+                 print(f"  [Deep Resolve] Following final tracker/bridge chain: {potential_final[:60]}...")
+                 res = resolve_tracking_url(potential_final)
+                 if res["resolved"] and not is_intermediary_domain(res["final"]):
+                     potential_final = res["final"]
+                     print(f"  [Deep Resolve] Reached: {potential_final[:60]}")
+                 else:
+                     # If resolution failed or reached another tracker, try to find a destination param
+                     peeled = extract_target_from_params(potential_final)
+                     if peeled != potential_final:
+                         potential_final = peeled
 
             # Check JS variables for hidden affiliate IDs
             js_vars = lp_result.get("network_intel", {}).get("js_vars", {})
@@ -432,7 +531,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     peeled_r = extract_target_from_params(r_url)
                     target_r = peeled_r if peeled_r != r_url else r_url
                     
-                    if not is_api_endpoint(target_r) and is_valid_offer_url(target_r):
+                    if not is_api_endpoint(target_r) and is_valid_offer_url(target_r) and not is_intermediary_domain(target_r):
                         potential_final = target_r
                         recovered = True
                         break
@@ -443,6 +542,13 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     else:
                         # Absolute last resort: the original landing_url
                         potential_final = landing_url 
+
+            # 🛡️ BOT CHECK: If we are on a Cloudflare challenge page, mark it
+            page_title = await page.title()
+            if "Cloudflare" in page_title or "Just a moment" in page_title or "challenges.cloudflare.com" in potential_final:
+                print(f"  [Warning] Ad {ad_id} blocked by Cloudflare/Bot Protection.")
+                classification["needs_review"] = True
+                classification["reason"] = (classification.get("reason", "") + " | BOT_CHALLENGE_DETECTED").strip(" | ")
 
             full_updates = {
                 "ad_type": final_ad_type,
@@ -458,6 +564,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 "cta_found": click_result.get("cta_found", False),
                 "redirect_chain_json": json.dumps(click_result.get("redirect_chain", [])),
                 "needs_review": classification.get("needs_review", False),
+                "cloudflare_blocked": lp_result.get("cloudflare_blocked", False),
                 "lp_screenshot_url": lp_screenshot_url,
                 "offer_screenshot_url": offer_screenshot_url,
                 "language": detected_lang,
@@ -471,13 +578,17 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             return classification
 
     except Exception as e:
-        print(f"Error for {ad_id}: {e}")
-        return {"error": str(e)}
+        err_msg = str(e)
+        print(f"Error for {ad_id}: {err_msg}")
+        await log_error(ad_id, "deep_analyze_exception", err_msg)
+        return {"error": err_msg}
     finally:
         # Bug 3 Fix: Strict cleanup order — page -> context -> browser
-        # This prevents cross-contamination between ads
+        # Safe cleanup to prevent TargetClosedError
         try:
             if page and not page.is_closed():
+                await page.unroute("**/*")
+                await asyncio.sleep(0.1) # Give internal tasks a moment
                 await page.close()
         except Exception:
             pass
