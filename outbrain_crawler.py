@@ -3,9 +3,11 @@ sys.stdout.reconfigure(encoding='utf-8')
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from supabase import create_client
-import json
+import json, re
+from langdetect import detect
 from utils.url_resolver import resolve_url
 from utils.advanced_detector import detect_from_chain
+from utils.site_pool import get_rotation_config, get_random_ua, get_random_referrer, USER_AGENTS, REFERRERS
 
 # إعداد سوبابيز
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -47,17 +49,19 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-OUTBRAIN_TARGETS = [url.strip() for url in [
-    "https://www.foxnews.com/politics/carney-casts-himself-nato-defender-amid-trump-beef-despite-canada-missing-key-benchmark-decades",
-    "https://www.foxnews.com/world",
-    "https://www.foxnews.com/us/ex-biden-staffer-claims-accidental-shot-killed-girlfriend-dad-blasts-toxic-abusive-relationship-report",
-    "https://www.dailymail.co.uk/news/article-15726397/Woman-raped-outside-church-surrey-police.html",
-    "https://www.lemonde.fr/en/european-union/article/2024/05/21/the-eu-s-artificial-intelligence-act-is-finally-adopted_6672074_156.html",
-    "https://www.9news.com.au/world/us-israel-iran-war-donald-trump-says-us-will-block-ships-crossing-strait-of-hormuz/2d285cc7-18a9-4061-971e-d0cc6a681169",
-    "https://www.marca.com/en/football/real-madrid/2024/05/21/664c8d5046163f91598b4594.html",
-    "https://www.lequipe.fr/Football/Article/Toni-kroos-real-madrid-la-legende-s-en-va/1470404"
-]]
-
+# ══════════════════════════════════════
+# DYNAMIC SITE ROTATION — NO MORE LOOP TRAP
+# Picks 5-8 random sites from the 200+ pool every run
+# ══════════════════════════════════════
+def get_session_config():
+    config = get_rotation_config(geo=TARGET_COUNTRY)
+    print(f"🎲 [OUTBRAIN] Session config:")
+    print(f"   User-Agent : {config['user_agent'][:80]}")
+    print(f"   Referrer   : {config['referrer'] or '(direct)'}")
+    print(f"   Sites ({len(config['sites'])}) :")
+    for s in config["sites"]:
+        print(f"     - {s}")
+    return config
 
 
 async def save_to_supabase(ad):
@@ -159,29 +163,25 @@ async def scrape_outbrain(browser, url):
     context = None
     page = None
     try:
-        # 🕵️ تعزيز التخفي: تنويع بصمة المتصفح
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-        ]
-        viewports = [
+        # 🕵️ Use the shared 14-UA pool instead of the tiny 5-agent list
+        ua = get_random_ua()
+        referrer = get_random_referrer() or "https://www.google.com/"
+        viewport = random.choice([
             {"width": 1920, "height": 1080},
             {"width": 1440, "height": 900},
             {"width": 1366, "height": 768},
-            {"width": 1536, "height": 864}
-        ]
-        
-        # إضافة Referer عشوائي لإيهام الموقع بأن الزيارة طبيعية من بحث جوجل أو موقع شهير
-        referers = ["https://www.google.com/", "https://www.bing.com/", "https://news.google.com/"]
+            {"width": 1536, "height": 864},
+            {"width": 1280, "height": 800},
+        ])
         
         context = await browser.new_context(
             proxy=PROXY_CONFIG,
-            user_agent=random.choice(user_agents),
-            viewport=random.choice(viewports),
-            extra_http_headers={"Referer": random.choice(referers)},
+            user_agent=ua,
+            viewport=viewport,
+            extra_http_headers={
+                "Referer": referrer,
+                "Accept-Language": GEO["locale"].replace("_", "-") + ",en;q=0.8",
+            },
             locale=GEO["locale"],
             timezone_id=GEO["timezone_id"],
             permissions=["geolocation"]
@@ -508,6 +508,10 @@ async def scrape_outbrain(browser, url):
         except: pass
 
 async def run():
+    # Get fresh random session config
+    session = get_session_config()
+    targets = session["sites"]
+
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
         browser = await p.chromium.launch(
@@ -522,20 +526,21 @@ async def run():
                 "--no-sandbox"
             ]
         )
-        for target in OUTBRAIN_TARGETS:
+        for target in targets:
             success = False
-            for attempt in range(2): # محاولة ثانية في حال الفشل (Retry Logic)
+            for attempt in range(2):
                 if attempt > 0:
                     print(f"🔄 [OUTBRAIN]: إعادة المحاولة ({attempt + 1}/2) للهدف: {target}")
                     await asyncio.sleep(10)
-                
-                try: 
+                try:
                     success = await scrape_outbrain(browser, target)
                     if success: break
                 except Exception as e:
                     print(f"⚠️ [RETRY WARNING]: {e}")
-            
-            await asyncio.sleep(random.uniform(3, 7))
+
+            delay = random.uniform(4, 12)
+            print(f"⏳ [OUTBRAIN] Waiting {delay:.1f}s before next site...")
+            await asyncio.sleep(delay)
         await browser.close()
 
 if __name__ == "__main__":

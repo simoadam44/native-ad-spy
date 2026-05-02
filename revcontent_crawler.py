@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 from langdetect import detect
 from utils.url_resolver import resolve_url
 from utils.advanced_detector import detect_from_chain
+from utils.site_pool import get_rotation_config, get_random_ua, get_random_referrer
 
 # --- 1. الإعدادات والاتصال الآمن ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -48,13 +49,20 @@ COUNTRY_CONFIGS = {
 }
 GEO = COUNTRY_CONFIGS.get(TARGET_COUNTRY, COUNTRY_CONFIGS["US"])
 
-REVCONTENT_TARGETS = [
-    "https://joehoft.com/doj-leadership-quietly-dismantles-weaponization-working-group-despite/",
-    "https://wltreport.com/2026/04/03/watch-president-trump-delivers-easter-message-be-great/",
-    "https://wltreport.com/2026/04/03/update-one-pilot-rescued-another-still-missing-after/?utm_source=PTN&utm_medium=mixed&utm_campaign=PTN",
-    "https://gatewayhispanic.com/2026/04/trump-emite-un-comunicado-sobre-el-despido-de/",
-    "https://100percentfedup.com/lets-talk-about-artemis-ii-moon-launch-part/"
-]
+# ══════════════════════════════════════
+# DYNAMIC SITE ROTATION — NO MORE LOOP TRAP
+# Picks 5-8 random sites from the 200+ pool every run
+# ══════════════════════════════════════
+def get_session_config():
+    config = get_rotation_config(geo=TARGET_COUNTRY)
+    print(f"🎲 [REVCONTENT] Session config:")
+    print(f"   User-Agent : {config['user_agent'][:80]}")
+    print(f"   Referrer   : {config['referrer'] or '(direct)'}")
+    print(f"   Sites ({len(config['sites'])}) :")
+    for s in config["sites"]:
+        print(f"     - {s}")
+    return config
+
 
 # محددات Revcontent المتطورة
 REV_SELECTORS = [
@@ -120,18 +128,24 @@ async def save_or_update_ad(data):
     except Exception as e:
         print(f"⚠️ [DB ERROR]: {str(e)[:50]}")
 
-async def scrape_revcontent(browser, url, semaphore):
+async def scrape_revcontent(browser, url, semaphore, session_ua: str = None, session_referrer: str = None):
     async with semaphore:
         context = None
         page = None
         rev_ads = []
+        ua = session_ua or get_random_ua()
+        referrer = session_referrer if session_referrer is not None else get_random_referrer()
         try:
             context = await browser.new_context(
                 proxy=PROXY_CONFIG,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                user_agent=ua,
                 locale=GEO["locale"],
                 timezone_id=GEO["timezone_id"],
-                permissions=["geolocation"]
+                permissions=["geolocation"],
+                extra_http_headers={
+                    "Referer": referrer,
+                    "Accept-Language": GEO["locale"].replace("_", "-") + ",en;q=0.8",
+                } if referrer else {}
             )
             page = await context.new_page()
             await Stealth().apply_stealth_async(page)
@@ -274,14 +288,11 @@ async def scrape_revcontent(browser, url, semaphore):
             if context: await context.close()
 
 async def run_spy():
-    sites = []
-    try:
-        response = supabase.table("target_sites").select("url").execute()
-        if response.data:
-            sites = [row['url'] for row in response.data][:10] # تحديد العدد للاختبار
-    except: pass
-
-    if not sites: sites = REVCONTENT_TARGETS
+    # Get fresh random session config
+    session = get_session_config()
+    sites = session["sites"]
+    ua = session["user_agent"]
+    referrer = session["referrer"]
 
     semaphore = asyncio.Semaphore(1)
     async with async_playwright() as p:
@@ -298,7 +309,16 @@ async def run_spy():
                 "--no-sandbox"
             ]
         )
-        await asyncio.gather(*[scrape_revcontent(browser, s, semaphore) for s in sites])
+        for site in sites:
+            await scrape_revcontent(browser, site, semaphore, session_ua=ua, session_referrer=referrer)
+            delay = random.uniform(3, 10)
+            print(f"⏳ [REVCONTENT] Waiting {delay:.1f}s before next site...")
+            await asyncio.sleep(delay)
+            # 30% chance of rotating UA mid-session
+            if random.random() < 0.3:
+                ua = get_random_ua()
+                referrer = get_random_referrer()
+                print(f"🔄 [REVCONTENT] Mid-session UA rotation")
         await browser.close()
 
 if __name__ == "__main__":
