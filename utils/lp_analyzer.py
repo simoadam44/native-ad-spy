@@ -759,6 +759,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                 "skip_reason": skip_domain
             }
 
+    try:
         # Handle Initial Page Load
         try:
             # We already navigated in the outer scope, but if we extracted a NEW URL from ad-server, go there
@@ -792,6 +793,9 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         except Exception as e:
             print(f"  [Ad] Navigation warning for {url}: {e}")
         
+        clean_redirect_chain = []
+        original_reg_domain = _extract_domain(url)
+
         def handle_response(response):
             try:
                 r_url = response.url
@@ -806,7 +810,6 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
             
         page.on("response", handle_response)
         
-        redirect_chain = [] # Bug 1: Initialize early
         background_offers = []
         network_intel = {"detected_trackers": [], "potential_offers": [], "js_vars": {}}
     
@@ -848,13 +851,14 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         try:
             print(f"  [Ad] Starting fast-navigation to {url}...", flush=True)
             await asyncio.wait_for(
-                page.goto(url, wait_until="commit", timeout=20000),
-                timeout=25.0
+                page.goto(url, wait_until="domcontentloaded", timeout=45000),
+                timeout=50.0
             )
-            try: await page.wait_for_load_state("domcontentloaded", timeout=5000)
-            except: pass 
-        except Exception as e:
-            print(f"Navigation issue for {url}: {e}. Proceeding with what we have.")
+        except:
+            print(f"  ⚠️ Timeout/Error during goto for {url}, proceeding with what we have.")
+            
+        # Increase settle time for network-heavy pages
+        await asyncio.sleep(4.0)
         
         # Remove routing for the rest of the analysis
         await page.unroute("**/*", block_aggressively)
@@ -867,6 +871,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         await page.mouse.wheel(0, 500)
         await asyncio.sleep(1.0)
 
+        # 2. Extract Data
         result["popups"] = await dismiss_popups(page)
         content = await page.content()
         try: text_content = await page.evaluate("document.body.innerText")
