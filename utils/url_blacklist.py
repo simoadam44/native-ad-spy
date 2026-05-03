@@ -141,8 +141,20 @@ INVALID_EXTENSIONS = {
     ".pdf", ".zip", ".gz",
 }
 
+# Confirmed tracking domains that need browser click to resolve:
+NEEDS_BROWSER_CLICK_DOMAINS = [
+    "prough-veridated.icu",
+    "trends.clktrkservices.com",
+    "clktrkservices.com",
+    "trkflstr.com",
+    "trkerupper.com",
+    "anti-aging.site",
+]
+
 INVALID_OFFER_DOMAINS = {
     # Ad tech & measurement
+    "prough-veridated.icu",   # tracking only
+    "clktrkservices.com",     # tracking only
     "kueezrtb.com", "otrack.kueezrtb.com",
     "fpnpmcdn.net",           # fingerprint CDN
     "ct.pinterest.com",       # Pinterest pixel
