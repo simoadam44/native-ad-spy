@@ -147,7 +147,10 @@ async def save_to_supabase(ad_id: str, data: dict):
     
     # Save to Supabase
     try:
-        supabase.table("ads").update(data).eq("id", ad_id).execute()
+        # Wrap sync execution in to_thread to prevent event loop block
+        await asyncio.to_thread(
+            lambda: supabase.table("ads").update(data).eq("id", ad_id).execute()
+        )
     except Exception as e:
         err_msg = str(e)
         # ROBUST FALLBACK: If a column doesn't exist, remove it and retry
@@ -506,7 +509,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             
             if is_tracking_redirect(potential_final) or is_intermediary_domain(potential_final):
                  print(f"  [Deep Resolve] Following final tracker/bridge chain: {potential_final[:60]}...")
-                 res = resolve_tracking_url(potential_final)
+                 # Wrap sync resolution in to_thread
+                 res = await asyncio.to_thread(resolve_tracking_url, potential_final)
+                 
                  if res["resolved"] and not is_intermediary_domain(res["final"]):
                      potential_final = res["final"]
                      print(f"  [Deep Resolve] Reached: {potential_final[:60]}")

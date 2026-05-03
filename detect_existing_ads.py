@@ -94,10 +94,17 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    asyncio.run(batch_process(
-        limit=args.limit, 
-        network=args.network, 
-        delay=args.delay, 
-        reanalyze_arbitrage=args.reanalyze_arbitrage,
-        reanalyze_affiliates=args.reanalyze_affiliates
-    ))
+    try:
+        # GLOBAL TIMEOUT: 1 hour max for the whole script to prevent GitHub Action hangs
+        asyncio.run(asyncio.wait_for(
+            batch_process(
+                limit=args.limit, 
+                network=args.network, 
+                delay=args.delay, 
+                reanalyze_arbitrage=args.reanalyze_arbitrage,
+                reanalyze_affiliates=args.reanalyze_affiliates
+            ),
+            timeout=3600 
+        ))
+    except asyncio.TimeoutError:
+        print("\n❌ GLOBAL TIMEOUT REACHED: Terminating batch process to prevent runner hang.")

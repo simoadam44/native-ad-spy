@@ -159,7 +159,7 @@ def is_tracking_redirect(url: str) -> bool:
             return True
     return False
 
-def resolve_tracking_url(url: str, timeout: int = 15, max_redirects: int = 10) -> dict:
+def resolve_tracking_url(url: str, timeout: int = 10, max_redirects: int = 10) -> dict:
     """
     Follows a tracking redirect URL and returns the real destination.
     Uses requests (fast, no browser needed for simple redirects).
