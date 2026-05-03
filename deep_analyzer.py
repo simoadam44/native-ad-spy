@@ -35,8 +35,8 @@ def _extract_domain(url: str) -> str:
 from utils.ad_classifier import calculate_ad_score, is_arbitrage_site, get_ad_network_fingerprints
 from utils.url_resolver import resolve_real_url
 from utils.offer_extractor import extract_offer_intelligence
-from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint
-from utils.url_blacklist import is_meaningful_url, is_valid_offer_url
+from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint, extract_target_from_params
+from utils.url_blacklist import is_meaningful_url, is_valid_offer_url, is_intermediary_domain
 from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
 
 # Supabase initialization
@@ -526,15 +526,11 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                     potential_final = intelligence["final_offer_url"]
 
             # PEELING STEP: If the URL looks like a tracker/API but has a target parameter, peel it
-            from utils.lp_analyzer import extract_target_from_params
             peeled = extract_target_from_params(potential_final)
             if peeled != potential_final:
                 potential_final = peeled
 
             # 🚀 NEW: FINAL DEEP RESOLVE for known trackers that survived
-            from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
-            from utils.url_blacklist import is_intermediary_domain
-            
             if is_tracking_redirect(potential_final) or is_intermediary_domain(potential_final):
                  print(f"  [Deep Resolve] Following final tracker/bridge chain: {potential_final[:60]}...")
                  # Wrap sync resolution in to_thread
@@ -582,6 +578,10 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 print(f"  [Warning] Ad {ad_id} blocked by Cloudflare/Bot Protection.")
                 classification["needs_review"] = True
                 classification["reason"] = (classification.get("reason", "") + " | BOT_CHALLENGE_DETECTED").strip(" | ")
+
+            # 🛑 DUPLICATION PREVENTION: Distinguish between Landing and Offer URLs
+            if potential_final == final_url or potential_final == landing_url:
+                potential_final = None
 
             full_updates = {
                 "ad_type": final_ad_type,
