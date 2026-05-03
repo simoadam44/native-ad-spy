@@ -465,19 +465,19 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         try:
             # We already navigated in the outer scope, but if we extracted a NEW URL from ad-server, go there
             if url != page.url:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.wait_for(page.goto(url, wait_until="domcontentloaded", timeout=30000), timeout=35.0)
             
             # Check for Cloudflare Block (Bug 3)
-            page_title = await page.title()
-            page_content = await page.content()
+            page_title = await asyncio.wait_for(page.title(), timeout=10.0)
+            page_content = await asyncio.wait_for(page.content(), timeout=15.0)
             if any(ind in page.url or ind in page_title or ind in page_content for ind in CLOUDFLARE_INDICATORS):
                 print(f"  ⚠️ Cloudflare challenge detected for {url}")
                 await asyncio.sleep(5.0)
-                await page.reload(wait_until="domcontentloaded")
+                await asyncio.wait_for(page.reload(wait_until="domcontentloaded"), timeout=20.0)
                 await asyncio.sleep(2.0)
                 
                 # Check again
-                if any(ind in page.url or ind in page_title or ind in await page.content() for ind in CLOUDFLARE_INDICATORS):
+                if any(ind in page.url or ind in page_title or ind in await asyncio.wait_for(page.content(), timeout=15.0) for ind in CLOUDFLARE_INDICATORS):
                     print(f"  ❌ Cloudflare blocked — saving with flag")
                     return {
                         "final_offer_url": None,
@@ -490,7 +490,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
                     print(f"  ✅ Cloudflare challenge auto-solved!")
 
             # Normal analysis continues...
-            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+            await asyncio.wait_for(page.wait_for_load_state("domcontentloaded", timeout=10000), timeout=15.0)
         except Exception as e:
             print(f"  [Ad] Navigation warning for {url}: {e}")
         
@@ -573,15 +573,25 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         await asyncio.sleep(1.0)
 
         # 2. Extract Data
-        result["popups"] = await dismiss_popups(page)
-        content = await page.content()
-        try: text_content = await page.evaluate("document.body.innerText")
+        try: result["popups"] = await asyncio.wait_for(dismiss_popups(page), timeout=20.0)
+        except: result["popups"] = {}
+        
+        try: content = await asyncio.wait_for(page.content(), timeout=15.0)
+        except: content = ""
+        
+        try: text_content = await asyncio.wait_for(page.evaluate("document.body.innerText"), timeout=15.0)
         except: text_content = ""
+        
         result["text_content"] = text_content
         result["full_html"] = content
         
-        result["has_video"] = bool(await page.query_selector("video") or "youtube.com/embed" in content)
-        result["has_countdown"] = bool(await page.query_selector("[class*='timer'], [id*='timer']"))
+        try: has_video = bool(await asyncio.wait_for(page.query_selector("video"), timeout=5.0) or "youtube.com/embed" in content)
+        except: has_video = False
+        result["has_video"] = has_video
+        
+        try: has_countdown = bool(await asyncio.wait_for(page.query_selector("[class*='timer'], [id*='timer']"), timeout=5.0))
+        except: has_countdown = False
+        result["has_countdown"] = has_countdown
 
         if any(k in text_content.lower() for k in ["add to cart", "buy now", "order now"]):
             result["page_subtype"] = "Direct Sales"
@@ -623,7 +633,7 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
 
     # Capture final HTML for classification
     try:
-        final_html = await page.content()
+        final_html = await asyncio.wait_for(page.content(), timeout=10.0)
     except:
         final_html = ""
 
