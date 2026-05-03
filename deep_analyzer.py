@@ -451,13 +451,41 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 if click_result.get("cta_found"):
                     print(f"  [Ad {ad_id}] CTA found! Analyzing offer destination...", flush=True)
                     offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
-                    deep_intel = extract_offer_intelligence(
-                        landing_url=landing_url,
-                        raw_final_url=click_result["final_offer_url"],
-                        all_captured_urls=click_result["redirect_chain"]
+                    from utils.offer_validator import validate_and_classify_offer
+                    
+                    raw_offer_url = click_result.get("final_offer_url")
+                    
+                    # Validate and potentially find better URL
+                    validation = await validate_and_classify_offer(
+                        page=page,
+                        offer_url=raw_offer_url,
+                        landing_url=landing_url
                     )
-                    intelligence.update(deep_intel)
-                    print(f"[Deep Intel Extracted]: {intelligence.get('affiliate_network')}")
+                    
+                    if validation["valid"]:
+                        # Use validated URL (may be different from raw)
+                        final_offer_url = validation["final_offer_url"]
+                        offer_type = validation["offer_type"]
+                        
+                        # Extract intelligence from VALIDATED URL
+                        deep_intel = extract_offer_intelligence(
+                            landing_url=landing_url,
+                            raw_final_url=final_offer_url,
+                            all_captured_urls=click_result.get("redirect_chain", [])
+                        )
+                        
+                        # Merge validation data
+                        deep_intel["offer_type_detail"] = offer_type
+                        deep_intel["offer_type_confidence"] = validation.get("offer_type_confidence", "low")
+                        deep_intel["validation_retries"] = validation.get("retry_count", 0)
+                        
+                        intelligence.update(deep_intel)
+                        click_result["final_offer_url"] = final_offer_url
+                        print(f"[Deep Intel Extracted]: {intelligence.get('affiliate_network')} | Type: {offer_type}")
+                    else:
+                        print(f"  [Ad {ad_id}] ❌ Could not validate a real offer after retries.")
+                        click_result["final_offer_url"] = None
+                        intelligence["offer_type_detail"] = "Unknown"
 
             # Persist full results
             detected_lang = "en"
@@ -566,6 +594,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 "tracker_tool": intelligence.get("tracker_tool"),
                 "offer_id": intelligence.get("offer_id"),
                 "affiliate_id": intelligence.get("affiliate_id"),
+                "offer_type_detail": intelligence.get("offer_type_detail"),
+                "offer_type_confidence": intelligence.get("offer_type_confidence"),
+                "validation_retries": intelligence.get("validation_retries", 0),
                 "cta_found": click_result.get("cta_found", False),
                 "redirect_chain_json": json.dumps(click_result.get("redirect_chain", [])),
                 "needs_review": classification.get("needs_review", False),
