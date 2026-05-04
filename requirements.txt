@@ -4,7 +4,6 @@ requests
 beautifulsoup4
 supabase
 cloakbrowser
-mmdb-lib
 langdetect
 pandas
 groq
