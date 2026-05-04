@@ -1,7 +1,7 @@
 import asyncio, os, random, sys
 sys.stdout.reconfigure(encoding='utf-8')
-from playwright.async_api import async_playwright
-from playwright_stealth import Stealth
+# Removed playwright_stealth import
+from cloakbrowser._binary import get_binary_path
 from supabase import create_client
 from langdetect import detect
 import sys as _sys
@@ -265,7 +265,7 @@ async def scrape_mgid(browser, url):
         await route.continue_()
 
     await page.route("**/*", block_resources)
-    await Stealth().apply_stealth_async(page)
+    # CloakBrowser handles stealth natively at the C++ level
 
     # اعتراض استجابات الـ API - نستخرج الرابط الحقيقي مباشرة من JSON
     api_debug_done = False
@@ -551,14 +551,17 @@ async def run():
     async with async_playwright() as p:
         try:
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
+            binary_path = get_binary_path()
             browser = await p.chromium.launch(
+                executable_path=binary_path,
                 headless=True, 
                 args=[
                     "--blink-settings=imagesEnabled=false",
                     "--disable-features=IsolateOrigins,site-per-process",
                     "--disable-background-networking",
                     "--disable-dev-shm-usage",
-                    "--no-sandbox"
+                    "--no-sandbox",
+                    "--fingerprint-platform=windows"
                 ]
             )
             

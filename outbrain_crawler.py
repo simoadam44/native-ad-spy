@@ -1,7 +1,7 @@
 import asyncio, os, random, sys
 sys.stdout.reconfigure(encoding='utf-8')
-from playwright.async_api import async_playwright
-from playwright_stealth import Stealth
+# Removed playwright_stealth import
+from cloakbrowser._binary import get_binary_path
 from supabase import create_client
 import json
 from utils.url_resolver import resolve_url
@@ -187,7 +187,7 @@ async def scrape_outbrain(browser, url):
             permissions=["geolocation"]
         )
         page = await context.new_page()
-        await Stealth().apply_stealth_async(page)
+        # CloakBrowser handles stealth natively at the C++ level
         
         # 🚫 خطة الحظر العنيفة جداً (Zero-Trust) لتوفير الباندويث 
         async def block_resources(route):
@@ -510,7 +510,9 @@ async def scrape_outbrain(browser, url):
 async def run():
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
+        binary_path = get_binary_path()
         browser = await p.chromium.launch(
+            executable_path=binary_path,
             headless=True,
             args=[
                 "--blink-settings=imagesEnabled=false",
@@ -519,7 +521,8 @@ async def run():
                 "--disable-dev-shm-usage",
                 "--disable-extensions",
                 "--disable-sync",
-                "--no-sandbox"
+                "--no-sandbox",
+                "--fingerprint-platform=windows"
             ]
         )
         for target in OUTBRAIN_TARGETS:

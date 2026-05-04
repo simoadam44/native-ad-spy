@@ -1,6 +1,6 @@
 import asyncio
-from playwright.async_api import async_playwright
-from playwright_stealth import Stealth
+# Removed playwright_stealth import
+from cloakbrowser._binary import get_binary_path
 from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin, unquote
@@ -153,7 +153,7 @@ async def scrape_taboola(browser, url, semaphore):
                 permissions=["geolocation"]
             )
             page = await context.new_page()
-            await Stealth().apply_stealth_async(page)
+            # CloakBrowser handles stealth natively at the C++ level
             
             # خطة توفير البيانات: حظر الصور والميديا والخطوط
             async def block_resources(route):
@@ -309,7 +309,9 @@ async def run_spy():
     semaphore = asyncio.Semaphore(1) 
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
+        binary_path = get_binary_path()
         browser = await p.chromium.launch(
+            executable_path=binary_path,
             headless=True, 
             args=[
                 "--blink-settings=imagesEnabled=false",
@@ -318,7 +320,8 @@ async def run_spy():
                 "--disable-dev-shm-usage",
                 "--disable-extensions",
                 "--disable-sync",
-                "--no-sandbox"
+                "--no-sandbox",
+                "--fingerprint-platform=windows"
             ]
         )
         await asyncio.gather(*[scrape_taboola(browser, s, semaphore) for s in TABOOLA_ARTICLE_SITES])
