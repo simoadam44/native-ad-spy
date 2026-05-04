@@ -551,7 +551,7 @@ async def run():
     async with async_playwright() as p:
         try:
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-            binary_path = binary_info()['path']
+            binary_path = binary_info()['binary_path']
             browser = await p.chromium.launch(
                 executable_path=binary_path,
                 headless=True, 

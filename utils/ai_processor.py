@@ -4,7 +4,7 @@ from cloakbrowser import binary_info
 async def fast_analyze_offer(url):
     # 1. إعداد المحرك المحصن بـ CloakBrowser
     browser_cfg = BrowserConfig(
-        executable_path=binary_info()['path'],
+        executable_path=binary_info()['binary_path'],
         headless=True
     )
 
