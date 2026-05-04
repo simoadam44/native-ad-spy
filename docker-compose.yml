@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+
+  # CloakBrowser CDP server
+  cloakbrowser:
+    image: cloakhq/cloakbrowser
+    command: cloakserve
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9222:9222"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Your spy tool (connects to CloakBrowser via CDP)
+  spy-tool:
+    build: .
+    depends_on:
+      cloakbrowser:
+        condition: service_healthy
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - CLOAK_CDP_URL=http://cloakbrowser:9222
+    command: python detect_existing_ads.py --limit 50

@@ -3,7 +3,8 @@ streamlit
 requests
 beautifulsoup4
 supabase
-playwright-stealth
+cloakbrowser
+mmdb-lib
 langdetect
 pandas
 groq

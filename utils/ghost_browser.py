@@ -280,9 +280,13 @@ async def apply_profile(
 ) -> Tuple:
     """
     Launch browser and create context with full profile applied.
+    Uses CloakBrowser binary for native C++ stealth.
     """
     is_mobile = profile.get("is_mobile", False)
     has_touch = profile.get("has_touch", False)
+    
+    from cloakbrowser._binary import get_binary_path
+    binary_path = get_binary_path()
     
     launch_args = [
         "--no-sandbox",
@@ -291,9 +295,11 @@ async def apply_profile(
         "--disable-features=IsolateOrigins,site-per-process",
         "--disable-infobars",
         "--window-size={width},{height}".format(**profile["viewport"]),
+        "--fingerprint-platform=windows"
     ]
     
     browser = await playwright.chromium.launch(
+        executable_path=binary_path,
         headless=True,
         args=launch_args
     )
@@ -328,49 +334,7 @@ async def apply_profile(
     
     context = await browser.new_context(**context_options)
     
-    await context.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-            configurable: true
-        });
-        
-        if (!window.chrome) {
-            window.chrome = {
-                runtime: {},
-                loadTimes: function() {},
-                csi: function() {},
-                app: {}
-            };
-        }
-        
-        Object.defineProperty(navigator, 'plugins', {
-            get: () => {
-                const arr = [1, 2, 3, 4, 5];
-                arr.__proto__ = PluginArray.prototype;
-                return arr;
-            },
-            configurable: true
-        });
-        
-        Object.defineProperty(navigator, 'languages', {
-            get: () => ['""" + profile["accept_language"].split(",")[0] + """', 'en'],
-            configurable: true
-        });
-        
-        Object.defineProperty(navigator, 'platform', {
-            get: () => '""" + profile.get("platform", "Win32") + """',
-            configurable: true
-        });
-        
-        Object.defineProperty(window, 'outerWidth', {
-            get: () => """ + str(profile["viewport"]["width"]) + """,
-            configurable: true
-        });
-        Object.defineProperty(window, 'outerHeight', {
-            get: () => """ + str(profile["viewport"]["height"]) + """,
-            configurable: true
-        });
-    """)
+    # CloakBrowser patches stealth at C++ level, so no init scripts needed
     
     page = await context.new_page()
     

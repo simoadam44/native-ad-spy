@@ -3,7 +3,7 @@ import os
 import random
 import json
 from playwright.async_api import async_playwright
-from playwright_stealth import Stealth
+# Removed playwright_stealth import
 from supabase import create_client
 from langdetect import detect
 from urllib.parse import urlparse
@@ -388,14 +388,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
 
             # 30% chance: rotate User-Agent mid-session
             if should_rotate_identity():
-                new_profile = get_profile(device_type="desktop")
-                await context.add_init_script(f"""
-                    Object.defineProperty(navigator, 'userAgent', {{
-                        get: () => '{new_profile["user_agent"]}',
-                        configurable: true
-                    }});
-                """)
-                print(f"  [Ghost] 🔄 Rotated identity mid-session", flush=True)
+                # Removed JS-based userAgent spoofing because CloakBrowser
+                # patches stealth natively at the C++ level.
+                print(f"  [Ghost] 🔄 Rotated identity mid-session (skipped JS injection for CloakBrowser)", flush=True)
             
             # 1. Detailed Landing Page Analysis
             print(f"  [Ad {ad_id}] Analyzing landing page content...", flush=True)
