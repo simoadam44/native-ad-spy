@@ -401,6 +401,13 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             clean_redirect_chain = lp_result.get("clean_redirect_chain", [])
             page_structure = lp_result.get("page_structure", {})
 
+            # 1.5 Smart Markdown Extraction via Crawl4AI
+            print(f"  [Ad {ad_id}] Extracting smart Markdown using Crawl4AI...", flush=True)
+            from utils.ai_processor import fast_analyze_offer
+            crawl_result = await fast_analyze_offer(landing_url)
+            
+            markdown_content = crawl_result.get("clean_text", "") if crawl_result else page_content
+
             # 2. Master Classification
             print(f"  [Ad {ad_id}] Classifying content...", flush=True)
             classification = await classify_with_full_context(
@@ -409,11 +416,18 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 final_url=final_url,
                 clean_redirect_chain=clean_redirect_chain,
                 page_structure=page_structure,
-                page_content=lp_result.get("full_html", page_content),
+                page_content=markdown_content,
                 ad_id=ad_id
             )
             
-            final_ad_type = classification["ad_type"]
+            # Overwrite classification if Crawl4AI found a confident match
+            if crawl_result and crawl_result.get("type", "Unknown") != "Unknown":
+                if classification.get("ad_type") in ["Unknown", None] or classification.get("confidence") == "low":
+                    classification["ad_type"] = crawl_result["type"]
+                    classification["confidence"] = "medium"
+                    classification["reason"] = "Classified via Crawl4AI fast intent analysis"
+            
+            final_ad_type = classification.get("ad_type", "Unknown")
             classification["landing"] = final_url
             
             # 3. Final Persistence & Intel Gathering
