@@ -1,6 +1,6 @@
 import asyncio, os, random, sys, re, json
 sys.stdout.reconfigure(encoding='utf-8')
-# Removed playwright_stealth import
+from playwright.async_api import async_playwright
 from cloakbrowser import binary_info
 from bs4 import BeautifulSoup
 from supabase import create_client
