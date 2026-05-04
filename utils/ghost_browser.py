@@ -285,8 +285,8 @@ async def apply_profile(
     is_mobile = profile.get("is_mobile", False)
     has_touch = profile.get("has_touch", False)
     
-    from cloakbrowser._binary import get_binary_path
-    binary_path = get_binary_path()
+    from cloakbrowser import binary_info
+    binary_path = binary_info()['path']
     
     launch_args = [
         "--no-sandbox",

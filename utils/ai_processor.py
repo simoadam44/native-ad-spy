@@ -1,10 +1,10 @@
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from cloakbrowser._binary import get_binary_path
+from cloakbrowser import binary_info
 
 async def fast_analyze_offer(url):
     # 1. إعداد المحرك المحصن بـ CloakBrowser
     browser_cfg = BrowserConfig(
-        executable_path=get_binary_path(),
+        executable_path=binary_info()['path'],
         headless=True
     )
 

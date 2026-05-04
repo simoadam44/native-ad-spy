@@ -1,6 +1,6 @@
 import asyncio
 # Removed playwright_stealth import
-from cloakbrowser._binary import get_binary_path
+from cloakbrowser import binary_info
 from bs4 import BeautifulSoup
 from supabase import create_client
 from urllib.parse import urljoin, unquote
@@ -309,7 +309,7 @@ async def run_spy():
     semaphore = asyncio.Semaphore(1) 
     async with async_playwright() as p:
         print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-        binary_path = get_binary_path()
+        binary_path = binary_info()['path']
         browser = await p.chromium.launch(
             executable_path=binary_path,
             headless=True, 

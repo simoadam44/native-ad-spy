@@ -1,7 +1,7 @@
 import asyncio, os, random, sys
 sys.stdout.reconfigure(encoding='utf-8')
 # Removed playwright_stealth import
-from cloakbrowser._binary import get_binary_path
+from cloakbrowser import binary_info
 from supabase import create_client
 from langdetect import detect
 import sys as _sys
@@ -551,7 +551,7 @@ async def run():
     async with async_playwright() as p:
         try:
             print(f"Launching independent Chrome browser with proxy for {TARGET_COUNTRY}...")
-            binary_path = get_binary_path()
+            binary_path = binary_info()['path']
             browser = await p.chromium.launch(
                 executable_path=binary_path,
                 headless=True, 
