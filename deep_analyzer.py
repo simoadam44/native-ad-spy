@@ -420,12 +420,25 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 ad_id=ad_id
             )
             
+            # 1.6 Ad Density Check (AdBlock Plus Filter Parser logic)
+            from utils.adblock_detector import analyze_ad_density
+            print(f"  [Ad {ad_id}] Checking Ad Density (Arbitrage indicator)...", flush=True)
+            ad_density_info = analyze_ad_density(lp_result.get("full_html", ""))
+            
             # Overwrite classification if Crawl4AI found a confident match
             if crawl_result and crawl_result.get("type", "Unknown") != "Unknown":
                 if classification.get("ad_type") in ["Unknown", None] or classification.get("confidence") == "low":
                     classification["ad_type"] = crawl_result["type"]
                     classification["confidence"] = "medium"
                     classification["reason"] = "Classified via Crawl4AI fast intent analysis"
+            
+            # Apply AdBlock Plus Arbitrage Penalty
+            if ad_density_info.get("is_high_density"):
+                print(f"  [Ad {ad_id}] ⚠️ High Ad Density detected! Ratio: {ad_density_info['density_ratio']:.2f}", flush=True)
+                if classification.get("ad_type") != "Affiliate":
+                    classification["ad_type"] = "Arbitrage"
+                    classification["confidence"] = "high"
+                    classification["reason"] = f"AdBlock rules flagged {ad_density_info['ad_count']} ad zones ({ad_density_info['density_ratio']*100:.1f}% density)"
             
             final_ad_type = classification.get("ad_type", "Unknown")
             classification["landing"] = final_url

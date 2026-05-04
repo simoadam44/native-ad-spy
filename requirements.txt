@@ -11,3 +11,4 @@ groq
 tqdm
 tldextract
 crawl4ai
+adblockparser
