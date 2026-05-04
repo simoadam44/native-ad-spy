@@ -38,6 +38,7 @@ from utils.offer_extractor import extract_offer_intelligence
 from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint, extract_target_from_params
 from utils.url_blacklist import is_meaningful_url, is_valid_offer_url, is_intermediary_domain
 from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
+from utils.tech_analyzer import TechAnalyzer
 
 # Supabase initialization
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -420,18 +421,22 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 ad_id=ad_id
             )
             
-            # 1.6 Ad Density Check (AdBlock Plus Filter Parser logic)
-            from utils.adblock_detector import analyze_ad_density
-            print(f"  [Ad {ad_id}] Checking Ad Density (Arbitrage indicator)...", flush=True)
-            ad_density_info = analyze_ad_density(lp_result.get("full_html", ""))
+            # 1.7 Tech Stack & Tracking Detection (Wappalyzer)
+            print(f"  [Ad {ad_id}] Analyzing Tech Stack & Tracking Software (Wappalyzer)...", flush=True)
+            tech_analyzer = TechAnalyzer()
+            full_html = lp_result.get("full_html", "")
+            tech_info = tech_analyzer.analyze(landing_url, html_content=full_html)
             
-            # Overwrite classification if Crawl4AI found a confident match
-            if crawl_result and crawl_result.get("type", "Unknown") != "Unknown":
-                if classification.get("ad_type") in ["Unknown", None] or classification.get("confidence") == "low":
-                    classification["ad_type"] = crawl_result["type"]
-                    classification["confidence"] = "medium"
-                    classification["reason"] = "Classified via Crawl4AI fast intent analysis"
+            # Merge Tech Info into classification
+            classification["tech_stack"] = tech_info.get("technologies", [])
+            classification["cms"] = tech_info.get("cms")
             
+            # Combine detected trackers
+            found_trackers = tech_info.get("tracking_software", [])
+            if tracking_info.get("tracking_tool") and tracking_info["tracking_tool"] not in found_trackers:
+                found_trackers.append(tracking_info["tracking_tool"])
+            classification["tracking_software"] = found_trackers
+
             # Apply AdBlock Plus Arbitrage Penalty
             if ad_density_info.get("is_high_density"):
                 print(f"  [Ad {ad_id}] ⚠️ High Ad Density detected! Ratio: {ad_density_info['density_ratio']:.2f}", flush=True)

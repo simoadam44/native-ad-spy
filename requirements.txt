@@ -11,3 +11,4 @@ tqdm
 tldextract
 crawl4ai
 adblockparser
+python-Wappalyzer
