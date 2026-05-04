@@ -39,6 +39,7 @@ from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capt
 from utils.url_blacklist import is_meaningful_url, is_valid_offer_url, is_intermediary_domain
 from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
 from utils.tech_analyzer import TechAnalyzer
+from utils.link_finder import LinkFinder, filter_potential_offers
 
 # Supabase initialization
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -436,6 +437,19 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             if tracking_info.get("tracking_tool") and tracking_info["tracking_tool"] not in found_trackers:
                 found_trackers.append(tracking_info["tracking_tool"])
             classification["tracking_software"] = found_trackers
+
+            # 1.8 LinkFinder: Forensic JS Analysis for hidden links
+            print(f"  [Ad {ad_id}] Forensic JS analysis (LinkFinder) for hidden endpoints...", flush=True)
+            lf = LinkFinder()
+            hidden_links = await lf.analyze_page_scripts(page, landing_url)
+            potential_offers = filter_potential_offers(hidden_links)
+            
+            if potential_offers:
+                print(f"  [LinkFinder] Found {len(potential_offers)} potential hidden offers in JS!", flush=True)
+                # Augment clean_redirect_chain with these hidden links for extraction
+                clean_redirect_chain.extend(potential_offers)
+                # Also store a sample in classification for context
+                classification["hidden_endpoints_found"] = potential_offers[:10]
 
             # Apply AdBlock Plus Arbitrage Penalty
             if ad_density_info.get("is_high_density"):
