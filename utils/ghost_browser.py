@@ -1,5 +1,6 @@
 import random
 import asyncio
+import os
 from typing import Optional, Tuple
 
 PROFILES = {
@@ -285,9 +286,6 @@ async def apply_profile(
     is_mobile = profile.get("is_mobile", False)
     has_touch = profile.get("has_touch", False)
     
-    from cloakbrowser import binary_info
-    binary_path = binary_info()['binary_path']
-    
     launch_args = [
         "--no-sandbox",
         "--disable-dev-shm-usage",
@@ -298,11 +296,30 @@ async def apply_profile(
         "--fingerprint-platform=windows"
     ]
     
-    browser = await playwright.chromium.launch(
-        executable_path=binary_path,
-        headless=True,
-        args=launch_args
-    )
+    browser = None
+    try:
+        from cloakbrowser import binary_info
+        info = binary_info()
+        binary_path = info.get('binary_path') or info.get('path')
+        
+        if binary_path and os.path.exists(binary_path):
+            print(f"  [Ghost] Launching CloakBrowser (Stealth Mode) from {binary_path}...")
+            browser = await playwright.chromium.launch(
+                executable_path=binary_path,
+                headless=True,
+                args=launch_args
+            )
+        else:
+            print(f"  [Ghost] CloakBrowser binary not found at {binary_path}. Falling back to standard Chromium.")
+    except Exception as e:
+        print(f"  [Ghost] CloakBrowser error: {e}. Falling back to standard Chromium.")
+    
+    if not browser:
+        print(f"  [Ghost] Launching standard Playwright Chromium...")
+        browser = await playwright.chromium.launch(
+            headless=True,
+            args=[a for a in launch_args if "fingerprint" not in a] # Remove custom args
+        )
     
     context_options = {
         "user_agent": profile["user_agent"],
