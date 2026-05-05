@@ -349,6 +349,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
     # Bug 1: Initialize variables early to prevent UnboundLocalError
     redirect_chain = []
     final_offer_url = None
+    lp_result = {}
+    click_result = {}
+    intelligence = {}
     
     try:
         # Choose profile — prefer desktop US for most ads
@@ -426,7 +429,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             print(f"  [Ad {ad_id}] Analyzing Tech Stack & Tracking Software (Wappalyzer)...", flush=True)
             tech_analyzer = TechAnalyzer()
             full_html = lp_result.get("full_html", "")
-            tech_info = tech_analyzer.analyze(landing_url, html_content=full_html)
+            tech_info = await asyncio.to_thread(tech_analyzer.analyze, landing_url, html_content=full_html)
             
             # Merge Tech Info into classification
             classification["tech_stack"] = tech_info.get("technologies", [])
@@ -434,8 +437,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             
             # Combine detected trackers
             found_trackers = tech_info.get("tracking_software", [])
-            if tracking_info.get("tracking_tool") and tracking_info["tracking_tool"] not in found_trackers:
-                found_trackers.append(tracking_info["tracking_tool"])
+            intelligence = classification.get("intelligence", {})
+            if intelligence.get("tracker_tool") and intelligence["tracker_tool"] not in found_trackers:
+                found_trackers.append(intelligence["tracker_tool"])
             classification["tracking_software"] = found_trackers
 
             # 1.8 LinkFinder: Forensic JS Analysis for hidden links
@@ -631,15 +635,15 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 "landing": final_url,  # The actual resolved landing page
                 "final_offer_url": potential_final,
                 "offer_domain": _extract_domain(potential_final) if potential_final else None,
-                "affiliate_network": intelligence.get("affiliate_network"),
-                "tracker_tool": intelligence.get("tracker_tool"),
-                "offer_id": intelligence.get("offer_id"),
-                "affiliate_id": intelligence.get("affiliate_id"),
-                "offer_type_detail": intelligence.get("offer_type_detail"),
-                "offer_type_confidence": intelligence.get("offer_type_confidence"),
-                "validation_retries": intelligence.get("validation_retries", 0),
-                "cta_found": click_result.get("cta_found", False),
-                "redirect_chain_json": json.dumps(click_result.get("redirect_chain", [])),
+                "affiliate_network": intelligence.get("affiliate_network") if intelligence else None,
+                "tracker_tool": intelligence.get("tracker_tool") if intelligence else None,
+                "offer_id": intelligence.get("offer_id") if intelligence else None,
+                "affiliate_id": intelligence.get("affiliate_id") if intelligence else None,
+                "offer_type_detail": intelligence.get("offer_type_detail") if intelligence else None,
+                "offer_type_confidence": intelligence.get("offer_type_confidence") if intelligence else None,
+                "validation_retries": intelligence.get("validation_retries", 0) if intelligence else 0,
+                "cta_found": click_result.get("cta_found", False) if click_result else False,
+                "redirect_chain_json": json.dumps(click_result.get("redirect_chain", [])) if click_result else "[]",
                 "needs_review": classification.get("needs_review", False),
                 "cloudflare_blocked": lp_result.get("cloudflare_blocked", False),
                 "lp_screenshot_url": lp_screenshot_url,

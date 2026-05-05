@@ -1,43 +1,61 @@
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from cloakbrowser import binary_info
+try:
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+    CRAWL4AI_AVAILABLE = True
+except ImportError:
+    CRAWL4AI_AVAILABLE = False
+
+try:
+    from cloakbrowser import binary_info
+    CLOAK_AVAILABLE = True
+except ImportError:
+    CLOAK_AVAILABLE = False
 
 async def fast_analyze_offer(url):
-    # 1. إعداد المحرك المحصن بـ CloakBrowser
-    browser_cfg = BrowserConfig(
-        executable_path=binary_info()['binary_path'],
-        headless=True
-    )
+    if not CRAWL4AI_AVAILABLE:
+        print("  [AI] ⚠️ Crawl4AI not installed. Skipping smart markdown extraction.")
+        return None
 
-    # 2. إعداد استراتيجية الاستخراج (نركز على النص والروابط فقط)
-    run_cfg = CrawlerRunConfig(
-        word_count_threshold=5,
-        exclude_external_links=False, # نحتاجها لتتبع مسار الأفلييت
-        process_iframes=True,
-        cache_mode=CacheMode.BYPASS, # نضمن دائماً جلب أحدث نسخة للعرض
-    )
+    try:
+        # 1. إعداد المحرك المحصن بـ CloakBrowser
+        binary_path = None
+        if CLOAK_AVAILABLE:
+            try:
+                binary_path = binary_info().get('binary_path')
+            except: pass
 
-    async with AsyncWebCrawler(config=browser_cfg) as crawler:
-        result = await crawler.arun(url=url, config=run_cfg)
-        
-        if result.success:
-            # هنا السحر: تصنيف العرض بناءً على محتوى Markdown النظيف
-            content = result.markdown.lower() if result.markdown else ""
+        browser_cfg = BrowserConfig(
+            executable_path=binary_path,
+            headless=True
+        )
+
+        # 2. إعداد استراتيجية الاستخراج
+        run_cfg = CrawlerRunConfig(
+            word_count_threshold=5,
+            exclude_external_links=False,
+            process_iframes=True,
+            cache_mode=CacheMode.BYPASS,
+        )
+
+        async with AsyncWebCrawler(config=browser_cfg) as crawler:
+            result = await crawler.arun(url=url, config=run_cfg)
             
-            classification = "Unknown"
-            if "sponsored links" in content or "recommended for you" in content:
-                classification = "Arbitrage"
-            elif "buy now" in content or "add to cart" in content:
-                classification = "CPA/E-com"
-            elif "enter your email" in content or "get a quote" in content:
-                classification = "Lead Gen"
+            if result.success:
+                content = result.markdown.lower() if result.markdown else ""
+                
+                classification = "Unknown"
+                if "sponsored links" in content or "recommended for you" in content:
+                    classification = "Arbitrage"
+                elif "buy now" in content or "add to cart" in content:
+                    classification = "CPA/E-com"
+                elif "enter your email" in content or "get a quote" in content:
+                    classification = "Lead Gen"
 
-            # استخراج الملخص إذا كان متوفراً من Crawl4AI (اختياري، في بعض الإصدارات)
-            summary = getattr(result, "summary", "")
-
-            return {
-                "type": classification,
-                "summary": summary,
-                "final_url": result.url,
-                "clean_text": result.markdown
-            }
+                return {
+                    "type": classification,
+                    "summary": getattr(result, "summary", ""),
+                    "final_url": result.url,
+                    "clean_text": result.markdown
+                }
+    except Exception as e:
+        print(f"  [AI] ❌ Crawl4AI Error: {e}")
     return None

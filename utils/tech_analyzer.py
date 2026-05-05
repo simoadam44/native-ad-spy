@@ -1,16 +1,25 @@
 import json
 import requests
-from Wappalyzer import Wappalyzer, WebPage
+try:
+    from Wappalyzer import Wappalyzer, WebPage
+    WAPPALYZER_AVAILABLE = True
+except ImportError:
+    WAPPALYZER_AVAILABLE = False
 import re
 
 class TechAnalyzer:
     def __init__(self):
-        try:
-            # نحاول تحميل أحدث القواعد
-            self.wappalyzer = Wappalyzer.latest()
-        except:
-            # إذا فشل، نستخدم النسخة الافتراضية
-            self.wappalyzer = Wappalyzer.latest(update=False)
+        self.wappalyzer = None
+        if WAPPALYZER_AVAILABLE:
+            try:
+                # نحاول تحميل أحدث القواعد
+                self.wappalyzer = Wappalyzer.latest()
+            except:
+                # إذا فشل، نستخدم النسخة الافتراضية
+                try:
+                    self.wappalyzer = Wappalyzer.latest(update=False)
+                except:
+                    self.wappalyzer = None
             
         # إضافة بصمات مخصصة لأدوات الأفلييت (Tracking Tools) التي قد لا توجد في Wappalyzer
         self.custom_trackers = {
@@ -39,29 +48,36 @@ class TechAnalyzer:
 
         try:
             # 1. تحليل Wappalyzer
-            if html_content:
-                webpage = WebPage(url, html_content, headers or {})
+            if self.wappalyzer and WAPPALYZER_AVAILABLE:
+                try:
+                    if html_content:
+                        webpage = WebPage(url, html_content, headers or {})
+                    else:
+                        webpage = WebPage.new_from_url(url, timeout=10)
+                    
+                    tech_results = self.wappalyzer.analyze_with_categories(webpage)
+                    
+                    for tech, categories in tech_results.items():
+                        results["technologies"].append(tech)
+                        
+                        # تصنيف التقنيات المهمة لنا
+                        cat_list = [c.lower() for c in categories]
+                        if "cms" in cat_list:
+                            results["cms"] = tech
+                            if tech.lower() == "wordpress":
+                                results["is_wordpress"] = True
+                        
+                        if "analytics" in cat_list or "tracking" in cat_list:
+                            results["tracking_software"].append(tech)
+                except Exception as e:
+                    print(f"⚠️ [Wappalyzer Runtime Error]: {e}")
             else:
-                webpage = WebPage.new_from_url(url, timeout=10)
-            
-            tech_results = self.wappalyzer.analyze_with_categories(webpage)
-            
-            for tech, categories in tech_results.items():
-                results["technologies"].append(tech)
-                
-                # تصنيف التقنيات المهمة لنا
-                cat_list = [c.lower() for c in categories]
-                if "cms" in cat_list:
-                    results["cms"] = tech
-                    if tech.lower() == "wordpress":
-                        results["is_wordpress"] = True
-                
-                if "analytics" in cat_list or "tracking" in cat_list:
-                    results["tracking_software"].append(tech)
+                if not WAPPALYZER_AVAILABLE:
+                    print("  [Tech] ⚠️ Wappalyzer not installed. Skipping deep tech scan.")
 
             # 2. فحص يدوي للمقتنيات المخصصة (Custom Tracking Detection)
             content_to_check = html_content or ""
-            if not content_to_check and not html_content:
+            if not content_to_check:
                 # إذا لم يتم توفير HTML، نحاول جلب أول 5000 حرف لتسريع الفحص
                 try:
                     r = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
