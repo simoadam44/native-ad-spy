@@ -2,6 +2,11 @@ import asyncio
 import re
 import random
 import time
+import httpx
+from urllib.parse import urlparse
+from utils.url_resolver import resolve_forensically_async
+from utils.tech_analyzer import TechAnalyzer
+from utils.adblock_detector import is_likely_cta
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PART 1: Find the offer link in HTML
@@ -165,6 +170,25 @@ async def deep_click_and_capture(
     page.on("request", on_request)
     page.on("response", on_response)
     
+    # Forensic context for new pages
+    captured_pages = []
+    
+    async def handle_new_page(new_page):
+        try:
+            print(f"  [DeepNav] 🚀 NEW TAB DETECTED: {new_page.url[:60]}")
+            captured_pages.append(new_page)
+            # Apply same listeners to new page
+            new_page.on("request", on_request)
+            new_page.on("response", on_response)
+            
+            # Wait for content to settle in new tab
+            await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
+            await asyncio.sleep(2) # Human pause
+        except Exception:
+            pass
+            
+    page.context.on("page", handle_new_page)
+    
     # ── STEP 1: Human warm-up behavior ───────────────────────
     # Simulate reading the article for a few seconds
     
@@ -226,24 +250,42 @@ async def deep_click_and_capture(
         (f"a[href*='{offer_link_url[:30]}']" if offer_link_url else None, "known url"),
     ]
     
-    for selector, label in CTA_SELECTORS:
-        if not selector:
-            continue
+    # ── STEP 2.5: AdBlock Plus Forensic Fallback ───────────
+    if not cta_element:
+        print("  [DeepNav] Standard CTA search failed, using AdBlock Plus forensic fallback...", flush=True)
         try:
-            element = await page.query_selector(selector)
-            if element:
-                text = await element.text_content() or ""
-                skip = ["disclaimer", "privacy", "terms",
-                        "cookie", "unsubscribe", "©", "sitemap", "about"]
-                if any(s in text.lower() for s in skip):
-                    continue
-                cta_element = element
-                cta_text = text.strip()[:50]
-                print(f"  [DeepNav] CTA found via: {label} — '{cta_text}'")
-                break
+            # Evaluate elements in browser to find likely CTAs
+            best_match = await page.evaluate("""
+                () => {
+                    const elements = Array.from(document.querySelectorAll('a, button'));
+                    for (const el of elements) {
+                        const classes = Array.from(el.classList);
+                        const id = el.id || "";
+                        const text = el.innerText || "";
+                        const tagName = el.tagName.toLowerCase();
+                        
+                        // We use a simplified version of is_likely_cta in JS for speed
+                        const combined = (classes.join(" ") + " " + id).toLowerCase();
+                        const textLower = text.toLowerCase().strip();
+                        
+                        if (combined.includes("cta") || combined.includes("button") || combined.includes("offlink") ||
+                            textLower.includes("order now") || textLower.includes("buy now") || textLower.includes("check availability")) {
+                            return {
+                                selector: `a:has-text("${text.slice(0, 20)}")`,
+                                text: text
+                            };
+                        }
+                    }
+                    return null;
+                }
+            """)
+            if best_match:
+                cta_element = await page.query_selector(best_match["selector"])
+                cta_text = best_match["text"]
+                print(f"  [DeepNav] Found via Forensic Fallback: '{cta_text}'")
         except Exception:
-            continue
-    
+            pass
+            
     if not cta_element:
         print("  [DeepNav] No CTA found")
         # Cleanup
@@ -284,21 +326,7 @@ async def deep_click_and_capture(
     
     # ── STEP 4: Click and wait for all redirects ─────────────
     
-    # Handle new tab opening
-    new_page_url = None
-    
-    async def handle_new_page(new_page):
-        nonlocal new_page_url
-        try:
-            await new_page.wait_for_load_state("domcontentloaded", timeout=15000)
-            new_page_url = new_page.url
-            # Capture requests from new tab too
-            new_page.on("response", on_response)
-            await new_page.wait_for_load_state("networkidle", timeout=8000)
-        except Exception:
-            pass
-    
-    page.context.on("page", handle_new_page)
+    # (Handled by global context listener above)
     
     try:
         async with page.expect_navigation(
@@ -326,9 +354,11 @@ async def deep_click_and_capture(
     final_url = None
     
     # Priority 1: New tab opened
-    if new_page_url:
-        final_url = new_page_url
-        print(f"  [DeepNav] New tab detected: {final_url[:60]}")
+    if captured_pages:
+        # Use the latest meaningful page opened
+        final_page = captured_pages[-1]
+        final_url = final_page.url
+        print(f"  [DeepNav] Final URL from new tab: {final_url[:60]}")
     
     # Priority 2: Current page URL changed
     elif page.url != landing_url:
@@ -358,12 +388,26 @@ async def deep_click_and_capture(
     for resp in all_responses:
         url = resp["url"]
         if (resp["status"] in [200, 301, 302, 303, 307, 308] and
-            url not in clean_chain and
+            url not in [c["url"] for c in clean_chain] and
             not any(skip in url for skip in [
                 "google-analytics", "doubleclick",
                 "cookie", "sync", "pixel", "beacon"
             ])):
-            clean_chain.append(url)
+            clean_chain.append({
+                "url": url,
+                "status": resp["status"],
+                "location": resp.get("location", "")
+            })
+    
+    # Analyze chain with Wappalyzer
+    print(f"  [DeepNav] Analyzing redirect chain for affiliate networks...", flush=True)
+    tech = TechAnalyzer()
+    for item in clean_chain:
+        if "google" not in item["url"]:
+            site_tech = tech.analyze(item["url"])
+            if site_tech.get("tracking_software"):
+                item["tracking_software"] = site_tech["tracking_software"]
+                print(f"  [DeepNav] 🔍 Found tracker in chain: {site_tech['tracking_software']} at {item['url'][:40]}...")
     
     print(f"  [DeepNav] Captured {len(clean_chain)} meaningful URLs")
     print(f"  [DeepNav] Final URL: {str(final_url)[:60]}")
@@ -374,7 +418,7 @@ async def deep_click_and_capture(
         "cta_text": cta_text,
         "clean_chain": clean_chain,
         "all_responses_count": len(all_responses),
-        "new_tab": bool(new_page_url)
+        "new_tab": bool(captured_pages)
     }
 
 
@@ -453,6 +497,20 @@ async def find_real_offer_deep(
                 "clean_chain": [offer_url],
                 "deep_click_needed": False
             }
+        else:
+            # It's a tracker, but maybe we can resolve it FAST via HTTPX
+            print(f"  [DeepNav] Tracker detected in HTML, attempting fast forensic resolution...", flush=True)
+            httpx_res = await resolve_forensically_async(offer_url)
+            if httpx_res["success"] and is_valid_offer_url(httpx_res["final_url"]):
+                print(f"  [DeepNav] Fast resolution success: {httpx_res['final_url'][:60]}")
+                return {
+                    "final_url": httpx_res["final_url"],
+                    "method": f"fast_forensic:{html_result['method']}",
+                    "success": True,
+                    "clean_chain": [c["url"] for c in httpx_res["chain"]],
+                    "deep_click_needed": False
+                }
+            print(f"  [DeepNav] Fast resolution inconclusive, proceeding to deep click.")
     
     # PHASE 2: Must do deep click
     print(f"  [DeepNav] Performing deep click...")
@@ -478,14 +536,11 @@ async def find_real_offer_deep(
     clean_chain = click_result["clean_chain"]
     
     # PHASE 3: Validate the final URL
-    if final_url:
-        from utils.offer_validator import check_url_health
-        health = check_url_health(final_url)
-        
         if not health["valid"]:
             # Try to find better URL in the chain
             from utils.url_blacklist import is_valid_offer_url
-            for url in reversed(clean_chain):
+            for item in reversed(clean_chain):
+                url = item["url"] if isinstance(item, dict) else item
                 if is_valid_offer_url(url) and url != landing_url:
                     final_url = url
                     break

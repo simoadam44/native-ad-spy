@@ -66,3 +66,30 @@ def analyze_ad_density(html_content: str) -> dict:
         "is_high_density": is_high_density,
         "signatures": list(set(ad_signatures_found))[:5] # Sample of found signatures
     }
+
+def is_likely_cta(tag_name: str, classes: list, id_str: str, text: str) -> bool:
+    """
+    Returns True if an element looks like a call-to-action button 
+    or an external ad link.
+    """
+    if tag_name not in ['a', 'button']: return False
+    
+    combined = f"{' '.join(classes)} {id_str}".lower()
+    text_lower = text.lower().strip()
+    
+    # Positive signals
+    positive_patterns = [
+        "cta", "button", "btn", "order", "buy", "check", "get", 
+        "claim", "shop", "cart", "product", "checkout"
+    ]
+    
+    # Ad-specific positive signals
+    ad_patterns = ["offlink", "offer-link", "affiliate", "external-link"]
+    
+    if any(p in combined for p in positive_patterns + ad_patterns):
+        return True
+        
+    if any(p in text_lower for p in ["order now", "buy now", "check availability", "get yours", "claim"]):
+        return True
+        
+    return False

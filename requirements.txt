@@ -13,3 +13,4 @@ crawl4ai
 adblockparser
 python-Wappalyzer
 aiohttp
+httpx

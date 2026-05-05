@@ -1,4 +1,6 @@
 import requests
+import httpx
+import asyncio
 import re
 import os
 import concurrent.futures
@@ -254,6 +256,61 @@ def resolve_real_url(url: str) -> str:
     """Legacy wrapper for resolve_url that only returns the final string."""
     res = resolve_tracking_url(url)
     return res["final"]
+
+async def resolve_forensically_async(url: str, timeout: int = 15, max_redirects: int = 15) -> dict:
+    """
+    Forensically follows a redirect chain using HTTPX.
+    Captures full history, status codes, and final destination.
+    """
+    if not url or not url.startswith("http"):
+        return {"success": False, "url": url, "chain": []}
+
+    headers = {
+        "User-Agent": USER_AGENTS[0],
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/" # Human signal
+    }
+
+    chain = []
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=timeout,
+            max_redirects=max_redirects,
+            headers=headers
+        ) as client:
+            response = await client.get(url)
+            
+            # Reconstruct the chain from history
+            for r in response.history:
+                chain.append({
+                    "url": str(r.url),
+                    "status": r.status_code,
+                    "reason": r.reason_phrase
+                })
+            
+            # Final landing page
+            final_info = {
+                "url": str(response.url),
+                "status": response.status_code,
+                "reason": response.reason_phrase
+            }
+            chain.append(final_info)
+            
+            return {
+                "success": True,
+                "final_url": str(response.url),
+                "chain": chain,
+                "redirect_count": len(response.history)
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "url": url,
+            "error": str(e),
+            "chain": chain
+        }
 
 if __name__ == "__main__":
     # Test 1: Detect Outbrain tracking URL
