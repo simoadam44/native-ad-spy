@@ -206,6 +206,7 @@ async def deep_click_and_capture(
     total_scroll = 0
     try:
         page_height = await page.evaluate("document.body.scrollHeight")
+        page_height = min(page_height, 3000) # CAP height to prevent 120s timeout
     except Exception:
         page_height = 2000
     
