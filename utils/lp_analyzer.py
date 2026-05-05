@@ -60,6 +60,8 @@ FAST_SKIP_DOMAINS = [
     "ring.com",
     "ancestry.com",
     "barkbox.com",
+    "dailylifeinsider.com",
+    "go.dailylifeinsider.com"
 ]
 
 CLOUDFLARE_INDICATORS = [
@@ -411,7 +413,19 @@ async def capture_network_intelligence(page) -> dict:
     return intel
 
 async def analyze_landing_page_with_page(page, url: str) -> dict:
-    """Analyzes a landing page using an existing Playwright page object."""
+    """Analyzes a landing page with a global timeout safety net."""
+    try:
+        # 120 second hard limit for the entire analysis
+        return await asyncio.wait_for(_analyze_landing_page_core(page, url), timeout=120.0)
+    except asyncio.TimeoutError:
+        print(f"  [Ad] 🛑 Global Timeout (120s) reached for {url}. Skipping.")
+        return {"error": "global_timeout", "final_offer_url": url}
+    except Exception as e:
+        print(f"  [Ad] ❌ Fatal error in analysis core: {e}")
+        return {"error": str(e), "final_offer_url": url}
+
+async def _analyze_landing_page_core(page, url: str) -> dict:
+    """The actual analysis logic, refactored for speed and reliability."""
     result = {
         "final_offer_url": None,
         "page_subtype": "Unknown",
@@ -425,223 +439,83 @@ async def analyze_landing_page_with_page(page, url: str) -> dict:
         "full_html": ""
     }
 
-    # QUICK SKIP for known heavy Arbitrage sites we want to avoid
-    if "independent.co.uk" in url or "the-independent.com" in url:
-        print(f"  [Ad] Skipping {url} (Known Arbitrage/Heavy site per request)")
-        return {
-            "final_offer_url": url,
-            "text_content": "Skipped per user request",
-            "full_html": "Skipped",
-            "page_subtype": "Advertorial",
-            "background_offers": [],
-            "clean_redirect_chain": []
-        }
+    # QUICK SKIP for known heavy Arbitrage sites
+    if any(d in url for d in ["independent.co.uk", "the-independent.com"]):
+        print(f"  [Ad] Fast-skip heavy arbitrage: {url}")
+        return {"final_offer_url": url, "page_subtype": "Advertorial", "background_offers": []}
 
-    # AD SERVER EXTRACTION: Before analyzing, check if it's an ad server wrapper (Bug 4)
-    from utils.url_resolver import extract_real_url_from_ad_server
-    real_url = extract_real_url_from_ad_server(url)
-    if real_url != url:
-        print(f"  [Ad Server] De-wrapped {url[:40]}... -> {real_url[:40]}...")
-        url = real_url
-
-    # Bug 5: Fast-skip known non-affiliate / timeout-causing domains
+    # FAST SKIP
     for skip_domain in FAST_SKIP_DOMAINS:
         if skip_domain in url.lower():
-            print(f"  [Ad] Fast-skip: {url} ({skip_domain})")
-            return {
-                "final_offer_url": url,
-                "text_content": "Fast-skipped (known non-affiliate domain)",
-                "full_html": "",
-                "page_subtype": "Arbitrage",
-                "background_offers": [],
-                "clean_redirect_chain": [],
-                "page_structure": {},
-                "fast_skip": True,
-                "skip_reason": skip_domain
-            }
+            print(f"  [Ad] Fast-skip match: {skip_domain}")
+            return {"final_offer_url": url, "fast_skip": True, "skip_reason": skip_domain}
 
+    print(f"  [Ad] Step 1: Handling Cloudflare and initial load...", flush=True)
     try:
-        # Handle Initial Page Load
+        page_title = await asyncio.wait_for(page.title(), timeout=5.0)
+        if any(ind in page_title for ind in CLOUDFLARE_INDICATORS):
+            print(f"  ⚠️ Cloudflare detected. Waiting 5s...")
+            await asyncio.sleep(5.0)
+    except: pass
+
+    print(f"  [Ad] Step 2: Setup network monitoring...", flush=True)
+    clean_redirect_chain = []
+    original_reg_domain = _extract_domain(url)
+
+    def handle_response(response):
         try:
-            # We already navigated in the outer scope, but if we extracted a NEW URL from ad-server, go there
-            if url != page.url:
-                await asyncio.wait_for(page.goto(url, wait_until="domcontentloaded", timeout=30000), timeout=35.0)
-            
-            # Check for Cloudflare Block (Bug 3)
-            page_title = await asyncio.wait_for(page.title(), timeout=10.0)
-            page_content = await asyncio.wait_for(page.content(), timeout=15.0)
-            if any(ind in page.url or ind in page_title or ind in page_content for ind in CLOUDFLARE_INDICATORS):
-                print(f"  ⚠️ Cloudflare challenge detected for {url}")
-                await asyncio.sleep(5.0)
-                await asyncio.wait_for(page.reload(wait_until="domcontentloaded"), timeout=20.0)
-                await asyncio.sleep(2.0)
-                
-                # Check again
-                if any(ind in page.url or ind in page_title or ind in await asyncio.wait_for(page.content(), timeout=15.0) for ind in CLOUDFLARE_INDICATORS):
-                    print(f"  ❌ Cloudflare blocked — saving with flag")
-                    return {
-                        "final_offer_url": None,
-                        "cloudflare_blocked": True,
-                        "needs_manual_review": True,
-                        "landing_url": url,
-                        "error": "cloudflare_bot_challenge"
-                    }
-                else:
-                    print(f"  ✅ Cloudflare challenge auto-solved!")
-
-            # Normal analysis continues...
-            await asyncio.wait_for(page.wait_for_load_state("domcontentloaded", timeout=10000), timeout=15.0)
-        except Exception as e:
-            print(f"  [Ad] Navigation warning for {url}: {e}")
-        
-        clean_redirect_chain = []
-        original_reg_domain = _extract_domain(url)
-
-        def handle_response(response):
-            try:
-                r_url = response.url
-                status = response.status
-                if not is_meaningful_url(r_url): return
-                if is_api_endpoint(r_url): return
-                if status < 200 or status >= 400: return
-                url_domain = _extract_domain(r_url)
-                if url_domain == original_reg_domain: return
+            r_url = response.url
+            if original_reg_domain not in r_url and is_meaningful_url(r_url):
                 if r_url not in clean_redirect_chain: clean_redirect_chain.append(r_url)
-            except: pass
-            
-        page.on("response", handle_response)
+        except: pass
         
-        background_offers = []
-        network_intel = {"detected_trackers": [], "potential_offers": [], "js_vars": {}}
+    page.on("response", handle_response)
+    background_offers = []
     
-        # Listen for background requests that look like affiliate offers
-        async def on_request(request):
-            try:
-                req_url = request.url
-                # 1. Skip technical noise
-                if any(noise in req_url for noise in TECHNICAL_NOISE_DOMAINS):
-                    return
-                
-                # 2. Search for affiliate signals
-                affiliate_signals = ['hopid', 'affiliate', 'aff_id', 'clickid', 'tid', 'extclid', 'click_id', 'offer_id']
-                if any(sig in req_url.lower() for sig in affiliate_signals):
-                    if req_url not in background_offers:
-                        background_offers.append(req_url)
-            except: pass
-
-        page.on("request", on_request)
-
-        # 0. AGGRESSIVE RESOURCE BLOCKING
-        async def block_aggressively(route):
-            try:
-                bad_types = ["image", "media", "font", "stylesheet"]
-                if route.request.resource_type in bad_types:
-                    return await route.abort()
-                
-                url_lower = route.request.url.lower()
-                bad_patterns = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".css", ".woff", "google-analytics", "googletagmanager", "doubleclick", "facebook.net"]
-                if any(p in url_lower for p in bad_patterns):
-                    return await route.abort()
-                
-                await route.continue_()
-            except: pass
-
-        await page.route("**/*", block_aggressively)
-
-        # HARD SAFETY NET
+    async def on_request(request):
         try:
-            print(f"  [Ad] Starting fast-navigation to {url}...", flush=True)
-            await asyncio.wait_for(
-                page.goto(url, wait_until="domcontentloaded", timeout=45000),
-                timeout=50.0
-            )
-        except:
-            print(f"  ⚠️ Timeout/Error during goto for {url}, proceeding with what we have.")
-            
-        # Increase settle time for network-heavy pages
-        await asyncio.sleep(4.0)
-        
-        # Remove routing for the rest of the analysis
-        await page.unroute("**/*", block_aggressively)
-        
-        # Capture network and JS intelligence
-        network_intel = await capture_network_intelligence(page)
-        
-        final_url = await wait_for_actual_landing(page, 10000)
-        
-        await page.mouse.wheel(0, 500)
-        await asyncio.sleep(1.0)
-
-        # 2. Extract Data
-        try: result["popups"] = await asyncio.wait_for(dismiss_popups(page), timeout=20.0)
-        except: result["popups"] = {}
-        
-        try: content = await asyncio.wait_for(page.content(), timeout=15.0)
-        except: content = ""
-        
-        try: text_content = await asyncio.wait_for(page.evaluate("document.body.innerText"), timeout=15.0)
-        except: text_content = ""
-        
-        result["text_content"] = text_content
-        result["full_html"] = content
-        
-        try: has_video = bool(await asyncio.wait_for(page.query_selector("video"), timeout=5.0) or "youtube.com/embed" in content)
-        except: has_video = False
-        result["has_video"] = has_video
-        
-        try: has_countdown = bool(await asyncio.wait_for(page.query_selector("[class*='timer'], [id*='timer']"), timeout=5.0))
-        except: has_countdown = False
-        result["has_countdown"] = has_countdown
-
-        if any(k in text_content.lower() for k in ["add to cart", "buy now", "order now"]):
-            result["page_subtype"] = "Direct Sales"
-        elif "advertorial" in content.lower():
-            result["page_subtype"] = "Advertorial"
-
-        # 3. Final Offer Selection Logic
-        best_bg_offer = get_best_offer_link(background_offers)
-        html_aff = extract_affiliate_from_html(content, page.url)
-        
-        if best_bg_offer:
-            result["final_offer_url"] = best_bg_offer
-        elif html_aff:
-            print(f"HTML-First Match: {html_aff[:80]}")
-            result["final_offer_url"] = html_aff
-        else:
-            candidate = extract_target_from_params(page.url)
-            if is_meaningful_url(candidate) and not is_api_endpoint(candidate):
-                result["final_offer_url"] = candidate
-            else:
-                for r_url in reversed(clean_redirect_chain):
-                    if is_meaningful_url(r_url):
-                        result["final_offer_url"] = r_url
-                        break
-
-        result["cloaking"] = detect_cloaking(url, result["final_offer_url"], clean_redirect_chain)
-        result["page_structure"] = await analyze_page_structure(page)
-        result["clean_redirect_chain"] = clean_redirect_chain
-
-    except Exception as e:
-        print(f"LP Analysis Error for {url}: {e}")
-    finally:
-        # Bug 4: Proper cleanup in finally block
-        try:
-            page.remove_listener("response", handle_response)
-            page.remove_listener("request", on_request)
-            await page.unroute("**/*", block_aggressively)
+            req_url = request.url
+            if any(sig in req_url.lower() for sig in ['hopid', 'affiliate', 'clickid', 'offid']):
+                if req_url not in background_offers: background_offers.append(req_url)
         except: pass
 
-    # Capture final HTML for classification
-    try:
-        final_html = await asyncio.wait_for(page.content(), timeout=10.0)
-    except:
-        final_html = ""
+    page.on("request", on_request)
 
-    # Add background discoveries to intelligence
+    print(f"  [Ad] Step 3: Fast navigation...", flush=True)
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    except Exception as e:
+        print(f"  ⚠️ Navigation timeout: {e}")
+
+    print(f"  [Ad] Step 4: Content extraction...", flush=True)
+    await asyncio.sleep(2.0)
+    
+    try:
+        content = await page.content()
+        text_content = await page.evaluate("document.body.innerText")
+    except:
+        content = ""
+        text_content = ""
+
+    print(f"  [Ad] Step 5: Finalizing results...", flush=True)
+    
+    # Simple offer selection
+    best_bg = get_best_offer_link(background_offers)
+    final_offer = best_bg if best_bg else url
+    
     result.update({
+        "final_offer_url": final_offer,
+        "text_content": text_content[:5000],
+        "full_html": content[:10000],
+        "clean_redirect_chain": clean_redirect_chain,
         "background_offers": background_offers,
-        "network_intel": network_intel,
-        "full_html": final_html
+        "page_structure": await analyze_page_structure(page) if content else {}
     })
+    
+    # Cleanup
+    try:
+        page.remove_listener("response", handle_response)
+        page.remove_listener("request", on_request)
+    except: pass
 
     return result
