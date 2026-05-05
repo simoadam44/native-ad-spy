@@ -456,6 +456,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 classification["hidden_endpoints_found"] = potential_offers[:10]
 
             # Apply AdBlock Plus Arbitrage Penalty
+            ad_density_info = lp_result.get("ad_density_info", {})
             if ad_density_info.get("is_high_density"):
                 print(f"  [Ad {ad_id}] ⚠️ High Ad Density detected! Ratio: {ad_density_info['density_ratio']:.2f}", flush=True)
                 if classification.get("ad_type") != "Affiliate":

@@ -23,10 +23,22 @@ async def fast_analyze_offer(url):
                 binary_path = binary_info().get('binary_path')
             except: pass
 
-        browser_cfg = BrowserConfig(
-            executable_path=binary_path,
-            headless=True
-        )
+        kwargs = {"headless": True}
+        if binary_path:
+            kwargs["executable_path"] = binary_path
+            
+        try:
+            browser_cfg = BrowserConfig(**kwargs)
+        except TypeError:
+            # Fallback if executable_path is not supported or named differently (like browser_executable_path)
+            if binary_path:
+                kwargs.pop("executable_path", None)
+                kwargs["browser_executable_path"] = binary_path
+            try:
+                browser_cfg = BrowserConfig(**kwargs)
+            except TypeError:
+                browser_cfg = BrowserConfig(headless=True)
+
 
         # 2. إعداد استراتيجية الاستخراج
         run_cfg = CrawlerRunConfig(
