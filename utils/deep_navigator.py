@@ -536,14 +536,14 @@ async def find_real_offer_deep(
     clean_chain = click_result["clean_chain"]
     
     # PHASE 3: Validate the final URL
-        if not health["valid"]:
-            # Try to find better URL in the chain
-            from utils.url_blacklist import is_valid_offer_url
-            for item in reversed(clean_chain):
-                url = item["url"] if isinstance(item, dict) else item
-                if is_valid_offer_url(url) and url != landing_url:
-                    final_url = url
-                    break
+    from utils.url_blacklist import is_valid_offer_url
+    if not is_valid_offer_url(final_url):
+        # Try to find better URL in the chain
+        for item in reversed(clean_chain):
+            url = item["url"] if isinstance(item, dict) else item
+            if is_valid_offer_url(url) and url != landing_url:
+                final_url = url
+                break
     
     print(f"  [DeepNav] ✅ Final offer: {str(final_url)[:60]}")
     
