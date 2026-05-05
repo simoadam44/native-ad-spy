@@ -205,7 +205,7 @@ async def deep_click_and_capture(
     # Scroll down slowly (reading behavior)
     total_scroll = 0
     try:
-        page_height = await page.evaluate("document.body.scrollHeight")
+        page_height = await asyncio.wait_for(page.evaluate("document.body.scrollHeight"), timeout=3.0)
         page_height = min(page_height, 3000) # CAP height to prevent 120s timeout
     except Exception:
         page_height = 2000
@@ -251,12 +251,25 @@ async def deep_click_and_capture(
         (f"a[href*='{offer_link_url[:30]}']" if offer_link_url else None, "known url"),
     ]
     
+    for selector, label in CTA_SELECTORS:
+        if not selector: continue
+        try:
+            # Short timeout to avoid hanging
+            el = await asyncio.wait_for(page.query_selector(selector), timeout=1.5)
+            if el:
+                cta_element = el
+                cta_text = await el.inner_text()
+                print(f"  [DeepNav] Found CTA via {label}: '{cta_text.strip()[:30]}'", flush=True)
+                break
+        except Exception:
+            pass
+    
     # ── STEP 2.5: AdBlock Plus Forensic Fallback ───────────
     if not cta_element:
         print("  [DeepNav] Standard CTA search failed, using AdBlock Plus forensic fallback...", flush=True)
         try:
             # Evaluate elements in browser to find likely CTAs
-            best_match = await page.evaluate("""
+            best_match = await asyncio.wait_for(page.evaluate("""
                 () => {
                     const elements = Array.from(document.querySelectorAll('a, button'));
                     for (const el of elements) {
@@ -267,7 +280,7 @@ async def deep_click_and_capture(
                         
                         // We use a simplified version of is_likely_cta in JS for speed
                         const combined = (classes.join(" ") + " " + id).toLowerCase();
-                        const textLower = text.toLowerCase().strip();
+                        const textLower = text.toLowerCase().trim();
                         
                         if (combined.includes("cta") || combined.includes("button") || combined.includes("offlink") ||
                             textLower.includes("order now") || textLower.includes("buy now") || textLower.includes("check availability")) {
@@ -279,7 +292,7 @@ async def deep_click_and_capture(
                     }
                     return null;
                 }
-            """)
+            """), timeout=3.0)
             if best_match:
                 cta_element = await page.query_selector(best_match["selector"])
                 cta_text = best_match["text"]
