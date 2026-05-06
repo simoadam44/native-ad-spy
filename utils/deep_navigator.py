@@ -537,12 +537,47 @@ async def find_real_offer_deep(
         landing_url=landing_url
     )
     
-    if not click_result["success"]:
+    if not click_result["success"] or not click_result.get("final_url"):
+        print(f"  [DeepNav] Deep click failed/inconclusive. Falling back to Forensic JS scanning (LinkFinder mode)...", flush=True)
+        from utils.link_finder import LinkFinder, filter_potential_offers
+        lf = LinkFinder()
+        hidden_links = await lf.analyze_page_scripts(page, landing_url)
+        potential_offers = filter_potential_offers(hidden_links)
+        
+        if potential_offers:
+            print(f"  [DeepNav] LinkFinder found {len(potential_offers)} potential offers. Tracing the best one with HTTPX...", flush=True)
+            best_link = potential_offers[0]
+            httpx_res = await resolve_forensically_async(best_link)
+            
+            clean_chain = []
+            if httpx_res.get("chain"):
+                from utils.tech_analyzer import TechAnalyzer
+                tech = TechAnalyzer()
+                for c in httpx_res["chain"]:
+                    url_str = c["url"]
+                    item = {"url": url_str, "status": c.get("status")}
+                    if "google" not in url_str:
+                        site_tech = tech.analyze(url_str)
+                        if site_tech.get("tracking_software"):
+                            item["tracking_software"] = site_tech["tracking_software"]
+                            print(f"  [DeepNav] 🔍 Found tracker in HTTPX chain: {site_tech['tracking_software']} at {url_str[:40]}...")
+                    clean_chain.append(item)
+            else:
+                clean_chain = [{"url": best_link, "status": 200}]
+            
+            return {
+                "final_url": httpx_res.get("final_url", best_link),
+                "method": "link_finder",
+                "success": True,
+                "clean_chain": clean_chain,
+                "cta_text": "Hidden JS Link"
+            }
+            
         return {
             "final_url": None,
-            "method": "deep_click_failed",
+            "method": "deep_click_failed_and_no_hidden_links",
             "success": False,
-            "reason": click_result.get("reason"),
+            "reason": click_result.get("reason", "no_cta_found"),
             "clean_chain": []
         }
     
