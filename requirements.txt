@@ -14,3 +14,4 @@ adblockparser
 python-Wappalyzer
 aiohttp
 httpx
+setuptools

@@ -457,16 +457,27 @@ async def try_click_next_cta(page) -> bool:
                 
                 print(f"  [Retry] Clicking: {text.strip()[:40]}")
                 
-                await element.scroll_into_view_if_needed()
+                # 🛡️ Hardened scroll with timeout
+                try:
+                    await asyncio.wait_for(element.scroll_into_view_if_needed(), timeout=5.0)
+                except Exception as e:
+                    print(f"  [Retry] ⚠️ Scroll timeout (element might be invisible): {e}")
+                
                 await asyncio.sleep(0.5)
                 
                 try:
+                    # 🛡️ CHECK: Is page still open?
+                    if page.is_closed():
+                        return False
+                        
                     async with page.expect_navigation(
                         timeout=12000,
                         wait_until="domcontentloaded"
                     ):
                         await element.click()
-                except Exception:
+                except Exception as e:
+                    if "closed" in str(e).lower():
+                        return False
                     pass
                 
                 await asyncio.sleep(2.0)

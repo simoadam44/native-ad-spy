@@ -255,11 +255,21 @@ async def deep_click_and_capture(
         if not selector: continue
         try:
             # Short timeout to avoid hanging
-            el = await asyncio.wait_for(page.query_selector(selector), timeout=1.5)
-            if el:
+            elements = await asyncio.wait_for(page.query_selector_all(selector), timeout=1.5)
+            for el in elements:
+                text = await el.inner_text()
+                text_lower = text.lower().strip()
+                
+                # 🛡️ BLACKLIST: Avoid clicking legal/nav links that aren't the offer
+                if any(word in text_lower for word in ["disclaimer", "privacy", "terms of", "contact us", "about us", "cookie policy"]):
+                    continue
+                    
                 cta_element = el
-                cta_text = await el.inner_text()
+                cta_text = text
                 print(f"  [DeepNav] Found CTA via {label}: '{cta_text.strip()[:30]}'", flush=True)
+                break
+            
+            if cta_element:
                 break
         except Exception:
             pass
@@ -294,9 +304,15 @@ async def deep_click_and_capture(
                 }
             """), timeout=3.0)
             if best_match:
-                cta_element = await page.query_selector(best_match["selector"])
-                cta_text = best_match["text"]
-                print(f"  [DeepNav] Found via Forensic Fallback: '{cta_text}'")
+                # 🛡️ DOUBLE CHECK: Avoid disclaimer/legal links in fallback too
+                text_lower = best_match["text"].lower()
+                if any(word in text_lower for word in ["disclaimer", "privacy", "terms", "policy"]):
+                    print(f"  [DeepNav] ⚠️ Skipping Forensic Fallback match because it looks like a legal link: '{best_match['text']}'")
+                    cta_element = None
+                else:
+                    cta_element = await page.query_selector(best_match["selector"])
+                    cta_text = best_match["text"]
+                    print(f"  [DeepNav] Found via Forensic Fallback: '{cta_text}'")
         except Exception:
             pass
             
@@ -332,8 +348,12 @@ async def deep_click_and_capture(
             await page.mouse.move(center_x, center_y)
             await asyncio.sleep(random.uniform(0.1, 0.3))
         
-        # Scroll into view
-        await cta_element.scroll_into_view_if_needed()
+        # Scroll into view with a shorter timeout to avoid stalling
+        try:
+            await asyncio.wait_for(cta_element.scroll_into_view_if_needed(), timeout=5.0)
+        except Exception as e:
+            print(f"  [DeepNav] ⚠️ Scroll timeout (element might be invisible): {e}")
+        
         await asyncio.sleep(random.uniform(0.3, 0.7))
     except Exception as e:
         print(f"  [DeepNav] Error during mouse movement: {e}")
