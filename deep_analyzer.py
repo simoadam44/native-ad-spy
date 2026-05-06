@@ -514,10 +514,11 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                         offer_type = validation["offer_type"]
                         
                         # Extract intelligence from VALIDATED URL
+                        all_urls_for_intel = [r["url"] if isinstance(r, dict) else r for r in click_result.get("redirect_chain", [])]
                         deep_intel = extract_offer_intelligence(
                             landing_url=landing_url,
                             raw_final_url=final_offer_url,
-                            all_captured_urls=click_result.get("redirect_chain", [])
+                            all_captured_urls=all_urls_for_intel
                         )
                         
                         # Merge validation data
@@ -599,7 +600,9 @@ async def deep_analyze_ad(ad_id, landing_url, title):
 
             # CRITICAL: If the potential final URL is STILL an API/sync endpoint, try to recover from redirect chain
             if is_api_endpoint(potential_final) or not is_valid_offer_url(potential_final):
-                chain = click_result.get("redirect_chain", []) + bg_offers
+                raw_chain = click_result.get("redirect_chain", [])
+                chain_urls = [r["url"] if isinstance(r, dict) else r for r in raw_chain]
+                chain = chain_urls + bg_offers
                 recovered = False
                 for r_url in reversed(chain):
                     # Try to peel each URL in the chain too
