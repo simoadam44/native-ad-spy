@@ -400,4 +400,14 @@ def is_valid_offer_url(url: str) -> bool:
             return False
     
     return True
+
+def is_ad_tech_url(url: str) -> bool:
+    """Returns True if the URL belongs to an ad tech domain (analytics, pixels, sync)."""
+    if not url: return False
+    from urllib.parse import urlparse
+    domain = urlparse(url.lower()).netloc
+    for ad_tech in AD_TECH_DOMAINS:
+        if ad_tech in domain:
+            return True
+    return False
     

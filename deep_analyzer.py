@@ -38,6 +38,7 @@ from utils.offer_extractor import extract_offer_intelligence
 from utils.lp_analyzer import analyze_landing_page_with_page, click_cta_and_capture, analyze_page_structure, is_api_endpoint, extract_target_from_params
 from utils.url_blacklist import is_meaningful_url, is_valid_offer_url, is_intermediary_domain
 from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
+from utils.ultimate_resolver import resolve_offer_url
 from utils.tech_analyzer import TechAnalyzer
 from utils.link_finder import LinkFinder, filter_potential_offers
 
@@ -548,66 +549,27 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             try: detected_lang = detect(page_content[:500])
             except: pass
 
-            # 3. Final Offer URL Selection Logic (Hardened)
-            # Preference order: Network Intel -> HTML Extraction -> Click Result -> Current Page
-            
-            # Check background network captures first (AdPlexity style)
-            bg_offers = lp_result.get("background_offers", [])
-            network_final = None
-            if bg_offers:
-                # Use the last background offer that isn't a sync pixel (Bug 2)
-                for bg_url in reversed(bg_offers):
-                    if not is_api_endpoint(bg_url) and is_valid_offer_url(bg_url):
-                        network_final = bg_url
-                        break
 
-            # Build candidate list in priority order, rejecting trackers
-            cta_url = click_result.get("final_offer_url")
-            lp_url = lp_result.get("final_offer_url")  # HTML-First Match from page analysis
+            # 🚀 NEW: ULTIMATE OFFER RESOLUTION (6-Layer Architecture)
+            # This replaces all previous manual selection logic
+            print(f"  [Ad {ad_id}] Launching Ultimate Resolver...")
+            page_html = await page.content()
             
-            # Reject CTA result if it landed on a known tracker
-            if cta_url and (is_tracking_redirect(cta_url) or not is_valid_offer_url(cta_url)):
-                print(f"  [Ad {ad_id}] CTA landed on tracker/invalid: {cta_url[:60]}... falling back to HTML-First Match")
-                cta_url = None
+            offer_result = await resolve_offer_url(
+                landing_url=final_url,
+                landing_html=page_html,
+                ad_title=title
+            )
             
-            potential_final = network_final or intelligence.get("final_offer_url") or cta_url or lp_url or page.url
-            
-            # 🛡️ REFINEMENT: If it's an Affiliate ad, ensure final_offer is NOT the same as landing if better info exists
-            if final_ad_type == "Affiliate":
-                landing_domain = _extract_domain(final_url)
-                offer_domain = _extract_domain(potential_final)
-                if landing_domain == offer_domain and cta_url and _extract_domain(cta_url) != landing_domain:
-                    potential_final = cta_url
-                elif landing_domain == offer_domain and intelligence.get("final_offer_url"):
-                    potential_final = intelligence["final_offer_url"]
+            potential_final = offer_result["url"]
+            resolution_method = offer_result["method"]
+            layers_tried = offer_result["layers_tried"]
 
-            # PEELING STEP: If the URL looks like a tracker/API but has a target parameter, peel it
-            peeled = extract_target_from_params(potential_final)
-            if peeled != potential_final:
-                potential_final = peeled
-
-            # 🚀 NEW: FINAL DEEP RESOLVE for known trackers that survived
-            if is_tracking_redirect(potential_final) or is_intermediary_domain(potential_final):
-                 print(f"  [Deep Resolve] Following final tracker/bridge chain: {potential_final[:60]}...")
-                 
-                 # 🛡️ Note 4 Fix: For high-stealth trackers (like smeagol), use the active browser
-                 if "smeagol" in potential_final or "revcontent" in potential_final or "wellnessgaze" in potential_final:
-                     try:
-                         print(f"  [Deep Resolve] Using active browser for high-stealth resolve...", flush=True)
-                         # Navigate and wait for a few seconds to let redirects settle
-                         await page.goto(potential_final, wait_until="networkidle", timeout=15000)
-                         await asyncio.sleep(3)
-                         potential_final = page.url
-                         print(f"  [Deep Resolve] Browser reached: {potential_final[:60]}")
-                     except Exception as e:
-                         print(f"  [Deep Resolve] Browser resolve failed: {e}")
-                 else:
-                     # Standard HTTP resolution for others
-                     res = await asyncio.to_thread(resolve_tracking_url, potential_final)
-                     if res["resolved"] and not is_intermediary_domain(res["final"]):
-                         potential_final = res["final"]
-                         print(f"  [Deep Resolve] Reached: {potential_final[:60]}")
-                     else:
+            print(f"  [Ad {ad_id}] Offer resolved via: {resolution_method} (layers: {layers_tried})")
+            if potential_final:
+                print(f"  [Ad {ad_id}] Final Offer URL: {potential_final[:80]}")
+            else:
+                print(f"  [Ad {ad_id}] ⚠️ Failed to resolve offer URL.")
                          # If resolution failed or reached another tracker, try to find a destination param
                          peeled = extract_target_from_params(potential_final)
                          if peeled != potential_final:
