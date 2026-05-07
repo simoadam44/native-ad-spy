@@ -570,6 +570,7 @@ async def deep_analyze_ad(ad_id, landing_url, title):
                 print(f"  [Ad {ad_id}] Final Offer URL: {potential_final[:80]}")
             else:
                 print(f"  [Ad {ad_id}] ⚠️ Failed to resolve offer URL.")
+            
             # If resolution failed or reached another tracker, try to find a destination param
             if potential_final:
                 peeled = extract_target_from_params(potential_final)
