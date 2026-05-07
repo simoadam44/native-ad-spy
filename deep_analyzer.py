@@ -580,17 +580,29 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             # 🚀 NEW: FINAL DEEP RESOLVE for known trackers that survived
             if is_tracking_redirect(potential_final) or is_intermediary_domain(potential_final):
                  print(f"  [Deep Resolve] Following final tracker/bridge chain: {potential_final[:60]}...")
-                 # Wrap sync resolution in to_thread
-                 res = await asyncio.to_thread(resolve_tracking_url, potential_final)
                  
-                 if res["resolved"] and not is_intermediary_domain(res["final"]):
-                     potential_final = res["final"]
-                     print(f"  [Deep Resolve] Reached: {potential_final[:60]}")
+                 # 🛡️ Note 4 Fix: For high-stealth trackers (like smeagol), use the active browser
+                 if "smeagol" in potential_final or "revcontent" in potential_final or "wellnessgaze" in potential_final:
+                     try:
+                         print(f"  [Deep Resolve] Using active browser for high-stealth resolve...", flush=True)
+                         # Navigate and wait for a few seconds to let redirects settle
+                         await page.goto(potential_final, wait_until="networkidle", timeout=15000)
+                         await asyncio.sleep(3)
+                         potential_final = page.url
+                         print(f"  [Deep Resolve] Browser reached: {potential_final[:60]}")
+                     except Exception as e:
+                         print(f"  [Deep Resolve] Browser resolve failed: {e}")
                  else:
-                     # If resolution failed or reached another tracker, try to find a destination param
-                     peeled = extract_target_from_params(potential_final)
-                     if peeled != potential_final:
-                         potential_final = peeled
+                     # Standard HTTP resolution for others
+                     res = await asyncio.to_thread(resolve_tracking_url, potential_final)
+                     if res["resolved"] and not is_intermediary_domain(res["final"]):
+                         potential_final = res["final"]
+                         print(f"  [Deep Resolve] Reached: {potential_final[:60]}")
+                     else:
+                         # If resolution failed or reached another tracker, try to find a destination param
+                         peeled = extract_target_from_params(potential_final)
+                         if peeled != potential_final:
+                             potential_final = peeled
 
             # Check JS variables for hidden affiliate IDs
             js_vars = lp_result.get("network_intel", {}).get("js_vars", {})

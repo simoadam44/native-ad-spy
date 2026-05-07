@@ -445,8 +445,16 @@ async def try_click_next_cta(page) -> bool:
     
     for selector in CTA_SELECTORS:
         try:
+            # 🛡️ Guard: Check if page is still alive
+            if page.is_closed():
+                return False
+                
             element = await page.query_selector(selector)
             if element:
+                # 🛡️ Guard: Ensure element is still attached before clicking
+                if not await element.is_visible():
+                    continue
+
                 text = await element.text_content() or ""
                 # Skip non-CTA elements
                 skip_words = ["disclaimer", "privacy", "terms",

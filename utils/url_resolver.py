@@ -114,6 +114,8 @@ TRACKING_REDIRECT_DOMAINS = [
     "trkclikr.com",
     "servicer.idealmedia.io",
     "clck.idealmedia.io",
+    "wellnessgaze.com",
+    "go.wellnessgaze.com"
 ]
 
 AD_SERVER_URL_PARAMS = {

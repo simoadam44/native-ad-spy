@@ -102,7 +102,10 @@ STRICT_BLOCK_DOMAINS = [
     "converteai.net",                        # video player SaaS
     "c.mgid.com", "la-wf.taboola.com", "fundingchoicesmessages.google.com",
     "landerlab.io", "track.landerlab.io",
-    "challenges.cloudflare.com", "trkflstr.com", "optivell.site"
+    "challenges.cloudflare.com", "trkflstr.com", "optivell.site",
+    # 🛡️ Note 3 Fix: Tracking Pixels/APIs mistaken for landing pages
+    "omnisendlink.com", "omnisend.com", "liadm.com", "liveintent.com",
+    "wt.omnisendlink.com", "i6.liadm.com", "postrelease.com", "jadserve.postrelease.com"
 ]
 
 
@@ -126,7 +129,9 @@ INTERMEDIARY_DOMAINS = [
     "go.viewitquickly.online", "viewitquickly.online",  # Bug 2: causes 120s timeout
     "link.anti-aging.site", "anti-aging.site",          # Bug 2: tracker
     "ad.rejuvacare.com",                                 # Bug 2: confirmed from logs
-    "trkflstr.com", "optivell.site", "challenges.cloudflare.com"
+    "trkflstr.com", "optivell.site", "challenges.cloudflare.com",
+    # 🛡️ Note 4 Fix: Redirection bridges to follow
+    "go.wellnessgaze.com", "jadserve.postrelease.com", "smeagol.revcontent.com"
 ]
 
 # ══════════════════════════════════════
@@ -203,6 +208,9 @@ INVALID_OFFER_DOMAINS = {
     "trkflstr.com",
     "trkclikr.com",
     "optivell.site/opv-site",
+    # 🛡️ Note 1 Fix: Dead-end pages that are NOT offers
+    "wellnesspeek.com/disclaimer",
+    "disclaimer/", "privacy-policy/", "terms-conditions/"
 }
 
 INVALID_OFFER_PATH_PATTERNS = [

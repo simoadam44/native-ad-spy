@@ -237,9 +237,12 @@ async def deep_click_and_capture(
         (f"a[href*='prough-veridated']", "prough tracker"),
         (f"a[href*='clktrkservices']", "clktrkservices tracker"),
         (f"a[href*='trkflstr']", "trkflstr tracker"),
-        # Text-based CTAs
+        # Text-based CTAs (Case-insensitive)
         ("a:has-text('Order Now')", "Order Now text"),
         ("a:has-text('Buy Now')", "Buy Now text"),
+        ("a:has-text('Try Now')", "Try Now text"),
+        ("a:has-text('Shop Now')", "Shop Now text"),
+        ("a:has-text('Get Started')", "Get Started text"),
         ("a:has-text('Check Availability')", "Check Availability"),
         ("a:has-text('Get Yours')", "Get Yours"),
         ("a:has-text('Claim')", "Claim text"),
@@ -247,6 +250,11 @@ async def deep_click_and_capture(
         ("a:has-text('Watch Video')", "Watch Video text"),
         ("button:has-text('Order')", "Order button"),
         ("button:has-text('Buy')", "Buy button"),
+        ("button:has-text('Get')", "Get button"),
+        # Tailwind / Common Design patterns
+        (r"a.hover\:brightness-75", "Tailwind Button pattern"),
+        ("[class*='btn-primary']", "Primary button class"),
+        ("[class*='cta-button']", "CTA button class"),
         # If offer_link_url is known — find by href
         (f"a[href*='{offer_link_url[:30]}']" if offer_link_url else None, "known url"),
     ]
@@ -254,20 +262,39 @@ async def deep_click_and_capture(
     for selector, label in CTA_SELECTORS:
         if not selector: continue
         try:
-            # Short timeout to avoid hanging
-            elements = await asyncio.wait_for(page.query_selector_all(selector), timeout=1.5)
-            for el in elements:
-                text = await el.inner_text()
-                text_lower = text.lower().strip()
-                
-                # 🛡️ BLACKLIST: Avoid clicking legal/nav links that aren't the offer
-                if any(word in text_lower for word in ["disclaimer", "privacy", "terms of", "contact us", "about us", "cookie policy"]):
+            # 🛡️ Note 2 Fix: Search in ALL frames (iframes)
+            all_elements = []
+            for frame in page.frames:
+                try:
+                    # Short timeout to avoid hanging
+                    frame_elements = await asyncio.wait_for(frame.query_selector_all(selector), timeout=1.0)
+                    all_elements.extend(frame_elements)
+                except Exception:
                     continue
+            
+            for el in all_elements:
+                try:
+                    text = await el.inner_text()
+                    text_lower = text.lower().strip()
+                    href = await el.get_attribute("href") or ""
+                    href_lower = href.lower()
                     
-                cta_element = el
-                cta_text = text
-                print(f"  [DeepNav] Found CTA via {label}: '{cta_text.strip()[:30]}'", flush=True)
-                break
+                    # 🛡️ Note 1 Fix: STRICT BLACKLIST for legal/nav links
+                    # Skip if text OR URL contains dead-end words
+                    dead_end_words = ["disclaimer", "privacy", "terms of", "contact us", "about us", "cookie policy", "sitemap", "copyright"]
+                    if any(word in text_lower for word in dead_end_words) or any(word in href_lower for word in dead_end_words):
+                        continue
+                    
+                    # Skip if it's just a social share link
+                    if "facebook.com/sharer" in href_lower or "twitter.com/intent" in href_lower:
+                        continue
+                        
+                    cta_element = el
+                    cta_text = text
+                    print(f"  [DeepNav] Found CTA via {label}: '{cta_text.strip()[:30]}'", flush=True)
+                    break
+                except Exception:
+                    continue
             
             if cta_element:
                 break
