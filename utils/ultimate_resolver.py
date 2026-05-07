@@ -96,6 +96,7 @@ def layer1_static_extraction(html: str, base_url: str) -> str | None:
     AFFILIATE_PARAMS = [
         "hop=", "hopId=", "aff_id=", "affid=", "affiliate_id=",
         "affiliate=", "offer_id=", "offid=", "oid=",
+        "bf_lander=", "bf_offer=", "target_offer="
     ]
     for a in soup.find_all("a", href=True):
         href = a.get("href", "")
@@ -306,6 +307,7 @@ async def layer3_deep_pattern_scan(landing_url: str) -> str | None:
         ("oid=", 3), ("affiliate=", 4), ("checkout", 3),
         ("/vsl/", 3), ("/landers/", 3), ("/text.php", 3),
         ("clickbank", 5), ("digistore24", 5),
+        ("bf_lander", 6), ("bf_offer", 6), ("melodyeu", 4)
     ]
     
     scored = []
@@ -511,8 +513,10 @@ def layer5_extract_from_captures(browser_result: dict, landing_url: str) -> str 
         
         if is_valid_offer_url(url):
             score = 5
-            if any(s in url.lower() for s in ["hop=", "affid=", "aff_id=", "clickbank", "digistore"]):
+            if any(s in url.lower() for s in ["hop=", "affid=", "aff_id=", "clickbank", "digistore", "bf_offer"]):
                 score += 8
+            if "melodyeu" in url.lower():
+                score += 5
             candidates.append((url, f"network_{resp['status']}", score))
             
     if not candidates: return None

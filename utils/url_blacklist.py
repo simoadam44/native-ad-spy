@@ -394,7 +394,13 @@ def is_valid_offer_url(url: str) -> bool:
             if pattern in path:
                 return False
 
-    # Rule 4: Reject very short paths with no content
+    # Rule 4: Reject Intermediary Domains (Trackers/Bridges)
+    # They are NEVER final offers.
+    from utils.url_blacklist import is_intermediary_domain
+    if is_intermediary_domain(url):
+        return False
+    
+    # Rule 5: Reject very short paths with no content
     if path in ["", "/", "/index", "/index.html"]:
         if not any(p in url.lower() for p in ["aff", "hop", "offer", "product", "checkout", "clickid"]):
             return False

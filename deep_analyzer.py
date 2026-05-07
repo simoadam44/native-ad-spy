@@ -580,9 +580,12 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             # Check JS variables for hidden affiliate IDs
             js_vars = lp_result.get("network_intel", {}).get("js_vars", {})
             if js_vars.get("voluum_cid") and not intelligence.get("click_id"):
-                intelligence["click_id"] = js_vars["voluum_cid"]
+                intelligence["click_id"] = js_vars.get("voluum_cid")
                 intelligence["tracker_tool"] = "Voluum (JS)"
 
+            # 🛡️ Fix for bg_offers undefined
+            bg_offers = lp_result.get("background_offers", [])
+            
             # CRITICAL: If the potential final URL is STILL an API/sync endpoint, try to recover from redirect chain
             if is_api_endpoint(potential_final) or not is_valid_offer_url(potential_final):
                 raw_chain = click_result.get("redirect_chain", [])
