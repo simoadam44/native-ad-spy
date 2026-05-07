@@ -121,13 +121,22 @@ def clean_url_for_storage(url: str) -> str:
         return url
     
     # Step 1: Check if it's a tracking redirect
+    # 🛡️ Optimization: If it's already a meaningful content domain, or a known stealth domain
+    # that failed HTTP resolution earlier, skip redundant calls.
+    stealth_keywords = ["smeagol", "revcontent", "healthheadlines", "healthtrending"]
     if is_tracking_redirect(url):
-        result = resolve_tracking_url(url)
-        if result["resolved"]:
-            url = result["final"]
-            print(f"  ✅ Resolved tracking URL -> {url[:80]}")
+        # Skip if we already reached a final-looking page on these networks
+        if any(sk in url for sk in stealth_keywords) and ("index.php" in url or "lp" in url or "?" in url):
+            pass 
         else:
-            print(f"  ⚠️ Could not resolve tracking URL: {result.get('reason')}")
+            result = resolve_tracking_url(url)
+            if result["resolved"]:
+                url = result["final"]
+                print(f"  ✅ Resolved tracking URL -> {url[:80]}")
+            else:
+                # Only log error for non-stealth domains where we expect a redirect
+                if not any(sk in url for sk in stealth_keywords):
+                    print(f"  ⚠️ Could not resolve tracking URL: {result.get('reason')}")
     
     # Step 2: Remove tracking parameters from the resolved URL
     url = strip_tracking_params(url)

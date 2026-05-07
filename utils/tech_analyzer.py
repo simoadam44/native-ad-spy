@@ -47,7 +47,7 @@ class TechAnalyzer:
         }
 
         try:
-            # 1. تحليل Wappalyzer
+            # 1. تحليل Wappalyzer (البرمجي)
             if self.wappalyzer and WAPPALYZER_AVAILABLE:
                 try:
                     if html_content:
@@ -72,8 +72,8 @@ class TechAnalyzer:
                 except Exception as e:
                     print(f"⚠️ [Wappalyzer Runtime Error]: {e}")
             else:
-                if not WAPPALYZER_AVAILABLE:
-                    print("  [Tech] ⚠️ Wappalyzer not installed. Skipping deep tech scan.")
+                # 🚀 Fallback to CLI if Python library is missing or failed
+                results = self._analyze_with_cli(url, results)
 
             # 2. فحص يدوي للمقتنيات المخصصة (Custom Tracking Detection)
             content_to_check = html_content or ""
@@ -100,6 +100,46 @@ class TechAnalyzer:
         except Exception as e:
             print(f"⚠️ [TechAnalyzer Error]: {e}")
             return results
+
+    def _analyze_with_cli(self, url, results):
+        """استخدام Wappalyzer CLI (Node.js) كبديل"""
+        import subprocess
+        try:
+            # نحاول تشغيل الأمر ونتوقع مخرجات JSON
+            # npm install -g wappalyzer-cli
+            process = subprocess.run(
+                ["wappalyzer", url],
+                capture_output=True,
+                text=True,
+                timeout=20
+            )
+            if process.returncode == 0:
+                try:
+                    data = json.loads(process.stdout)
+                    # Wappalyzer CLI returns a list of apps or a structure
+                    apps = data.get("applications", []) or data.get("technologies", [])
+                    for app in apps:
+                        name = app.get("name")
+                        results["technologies"].append(name)
+                        
+                        cats = [c.get("name", "").lower() for c in app.get("categories", [])]
+                        if "cms" in cats:
+                            results["cms"] = name
+                            if name.lower() == "wordpress":
+                                results["is_wordpress"] = True
+                        if "analytics" in cats or "tracking" in cats:
+                            results["tracking_software"].append(name)
+                except: pass
+            else:
+                if not WAPPALYZER_AVAILABLE:
+                    # Print once if both fail
+                    pass 
+        except FileNotFoundError:
+            if not WAPPALYZER_AVAILABLE:
+                print("  [Tech] ⚠️ Wappalyzer (Python & CLI) not found. Skipping deep scan.")
+        except Exception:
+            pass
+        return results
 
 # نسخة سريعة للاستخدام المباشر
 def get_site_tech(url, html=None):

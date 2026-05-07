@@ -368,6 +368,10 @@ async def find_real_offer_with_retry(
         
         # STEP 2: Navigate to URL (if not already there)
         if page.url != url_to_check:
+            # 🛡️ Guard: Check if page is closed
+            if page.is_closed():
+                return {"valid": False, "reason": "target_closed"}
+                
             try:
                 await page.goto(url_to_check,
                                 wait_until="domcontentloaded",
