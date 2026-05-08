@@ -137,7 +137,10 @@ class TechAnalyzer:
                     pass 
         except FileNotFoundError:
             if not WAPPALYZER_AVAILABLE:
-                print("  [Tech] ⚠️ Wappalyzer (Python & CLI) not found. Skipping deep scan.")
+                # 🛡️ Anti-Spam: Only warn once per session (Observation 2 Fix)
+                if not getattr(TechAnalyzer, "_warned_cli_missing", False):
+                    print("  [Tech] ⚠️ Wappalyzer (Python & CLI) not found. Skipping deep scan.")
+                    TechAnalyzer._warned_cli_missing = True
         except Exception:
             pass
         return results

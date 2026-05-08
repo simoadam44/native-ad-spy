@@ -460,15 +460,31 @@ async def deep_click_and_capture(
                 "location": resp.get("location", "")
             })
     
-    # Analyze chain with Wappalyzer
+    # Analyze chain with Wappalyzer (Optimized)
     print(f"  [DeepNav] Analyzing redirect chain for affiliate networks...", flush=True)
     tech = TechAnalyzer()
+    
+    # 🛡️ Performance: Limit tech scan to meaningful unique domains and max 10 calls
+    seen_domains = set()
+    scan_count = 0
+    SKIP_DOMAINS = ["google", "facebook", "twitter", "linkedin", "apple", "microsoft", "cloudflare", "doubleclick"]
+
     for item in clean_chain:
-        if "google" not in item["url"]:
-            site_tech = tech.analyze(item["url"])
-            if site_tech.get("tracking_software"):
-                item["tracking_software"] = site_tech["tracking_software"]
-                print(f"  [DeepNav] 🔍 Found tracker in chain: {site_tech['tracking_software']} at {item['url'][:40]}...")
+        if scan_count >= 10: break
+        
+        url = item["url"]
+        domain = urlparse(url).netloc.lower()
+        
+        if domain in seen_domains: continue
+        if any(s in domain for s in SKIP_DOMAINS): continue
+        
+        seen_domains.add(domain)
+        site_tech = tech.analyze(url)
+        scan_count += 1
+        
+        if site_tech.get("tracking_software"):
+            item["tracking_software"] = site_tech["tracking_software"]
+            print(f"  [DeepNav] 🔍 Found tracker in chain: {site_tech['tracking_software']} at {url[:40]}...")
     
     print(f"  [DeepNav] Captured {len(clean_chain)} meaningful URLs")
     print(f"  [DeepNav] Final URL: {str(final_url)[:60]}")
