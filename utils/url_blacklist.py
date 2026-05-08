@@ -278,12 +278,28 @@ def is_prelander_domain(url: str) -> bool:
     
     return False
 
+import re
+from urllib.parse import unquote
+
+# ══════════════════════════════════════
+# AFFILIATE SIGNATURES (IDENTIFIERS)
+# ══════════════════════════════════════
+
+AFFILIATE_SIGNATURES = [
+    "aff_id=", "affid=", "affiliate=", "offer_id=", "offid=", "oid=",
+    "hop=", "hopId=", "tid=", "subid=", "subid1=", "subid2=",
+    "clickid=", "click_id=", "transaction_id=", "cid=",
+    "effp=", "ef_click_id=", "k_click_id=", "rtid=",
+    "rc_uuid=", "tblci=", "gclid=", "fbclid=", "ttclid=",
+    "bf_lander=", "bf_offer=", "target_offer=", "melodyeu",
+    "clickbank", "digistore", "maxbounty", "everflow",
+    "hasoffers", "tune.com", "go2cloud", "impactradius",
+    "sjv.io", "prf.hn", "anrdoezrs", "dpbolvw", "tkqlhce",
+]
+
 # ══════════════════════════════════════
 # MACRO / TEMPLATE DETECTION (PATTERN B)
 # ══════════════════════════════════════
-
-import re
-from urllib.parse import unquote
 
 def has_unresolved_macros(url: str) -> bool:
     """
