@@ -41,6 +41,7 @@ from utils.url_resolver import is_tracking_redirect, resolve_tracking_url
 from utils.ultimate_resolver import resolve_offer_url
 from utils.tech_analyzer import TechAnalyzer
 from utils.link_finder import LinkFinder, filter_potential_offers
+from utils.offer_validator import check_url_health
 
 # Supabase initialization
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
