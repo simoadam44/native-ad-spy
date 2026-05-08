@@ -106,13 +106,14 @@ class TechAnalyzer:
         import subprocess
         try:
             # نحاول تشغيل الأمر ونتوقع مخرجات JSON
-            # npm install -g wappalyzer-cli
-            process = subprocess.run(
-                ["wappalyzer", url],
-                capture_output=True,
-                text=True,
-                timeout=20
-            )
+            # npm install -g wappalyzer-cli OR use npx
+            cmd = ["wappalyzer", url]
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            
+            if process.returncode != 0:
+                # Try npx version
+                process = subprocess.run(["npx", "-y", "wappalyzer-cli", url], capture_output=True, text=True, timeout=30)
+
             if process.returncode == 0:
                 try:
                     data = json.loads(process.stdout)

@@ -298,7 +298,18 @@ async def layer3_deep_pattern_scan(landing_url: str) -> str | None:
         if any(skip in url.lower() for skip in SKIP_PATTERNS):
             continue
         if is_valid_offer_url(url):
-            valid_candidates.append((url, source, score))
+            # 🛡️ STRICT DOMAIN CHECK: Reject same-domain links unless they have high scores
+            # (Arbitrage sites often link to their own articles which look like offers)
+            from deep_analyzer import _extract_domain
+            lp_domain = _extract_domain(landing_url)
+            cand_domain = _extract_domain(url)
+            
+            if lp_domain and cand_domain == lp_domain:
+                # Same domain - usually not the real offer unless it's a direct sale
+                # We'll keep it with a very low base score
+                valid_candidates.append((url, source, 1))
+            else:
+                valid_candidates.append((url, source, score))
     
     # Boost score for affiliate signals
     AFFILIATE_SIGNALS = [

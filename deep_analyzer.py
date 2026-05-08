@@ -498,15 +498,24 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             click_result = {}
             offer_screenshot_url = None
             
-            print(f"  [Ad {ad_id}] Taking screenshot...", flush=True)
-            lp_screenshot_url = await take_and_store_screenshot(page, ad_id, "landing_page")
+            # 🛡️ Browser Health Check before screenshot
+            lp_screenshot_url = None
+            try:
+                if page and not page.is_closed():
+                    print(f"  [Ad {ad_id}] Taking screenshot...", flush=True)
+                    lp_screenshot_url = await take_and_store_screenshot(page, ad_id, "landing_page")
+            except Exception as se:
+                print(f"  [Ad {ad_id}] ⚠️ Screenshot failed or browser closed: {se}")
 
             if final_ad_type in ["Affiliate", "Manual Review Required"]:
                 print(f"  [Ad {ad_id}] Attempting CTA click...", flush=True)
                 click_result = await click_cta_and_capture(page, "Affiliate")
                 if click_result.get("cta_found"):
                     print(f"  [Ad {ad_id}] CTA found! Analyzing offer destination...", flush=True)
-                    offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
+                    try:
+                        if page and not page.is_closed():
+                            offer_screenshot_url = await take_and_store_screenshot(page, ad_id, "offer_page")
+                    except: pass
                     from utils.offer_validator import validate_and_classify_offer
                     
                     raw_offer_url = click_result.get("final_offer_url")
@@ -586,28 +595,20 @@ async def deep_analyze_ad(ad_id, landing_url, title):
             # 🛡️ Fix for bg_offers undefined
             bg_offers = lp_result.get("background_offers", [])
             
-            # CRITICAL: If the potential final URL is STILL an API/sync endpoint, try to recover from redirect chain
-            if is_api_endpoint(potential_final) or not is_valid_offer_url(potential_final):
-                raw_chain = click_result.get("redirect_chain", [])
-                chain_urls = [r["url"] if isinstance(r, dict) else r for r in raw_chain]
-                chain = chain_urls + bg_offers
-                recovered = False
-                for r_url in reversed(chain):
-                    # Try to peel each URL in the chain too
-                    peeled_r = extract_target_from_params(r_url)
-                    target_r = peeled_r if peeled_r != r_url else r_url
-                    
-                    if not is_api_endpoint(target_r) and is_valid_offer_url(target_r) and not is_intermediary_domain(target_r):
-                        potential_final = target_r
-                        recovered = True
-                        break
-                if not recovered:
-                    # Fallback to the landing page ONLY if it's meaningful
-                    if is_meaningful_url(final_url):
-                        potential_final = final_url
-                    else:
-                        # Absolute last resort: the original landing_url
-                        potential_final = landing_url 
+            # 🛡️ STRICT CERTAINTY POLICY (Observation 1)
+            # If the Ultimate Resolver failed to find a valid product/offer URL,
+            # we do NOT guess or fallback to landing pages.
+            # We mark it as None to avoid polluting the database with wrong links.
+            
+            if not potential_final or not is_valid_offer_url(potential_final):
+                print(f"  [Ad {ad_id}] ⚠️ No valid offer found after 6 layers. Storing as NULL.")
+                potential_final = None
+            else:
+                # One last health check for the winner
+                health = check_url_health(potential_final)
+                if not health["valid"]:
+                    print(f"  [Ad {ad_id}] ⚠️ Final candidate failed health check. Storing as NULL.")
+                    potential_final = None
 
             # 🛡️ BOT CHECK: If we are on a Cloudflare challenge page, mark it
             page_title = await page.title()
