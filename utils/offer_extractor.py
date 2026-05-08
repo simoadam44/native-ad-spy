@@ -155,7 +155,8 @@ def decode_voluumdata(value: str) -> dict:
 def extract_revcontent_params(url: str) -> dict:
     from urllib.parse import parse_qs, urlparse
     params = parse_qs(urlparse(url).query)
-    return {
+    
+    res = {
         "click_id": params.get("c", [None])[0],
         "widget_id": params.get("widget_id", [None])[0],
         "content_id": params.get("content_id", [None])[0],
@@ -166,6 +167,115 @@ def extract_revcontent_params(url: str) -> dict:
         "tracker": "Custom/In-house" if params.get("lptoken") else None,
         "traffic_source": "Revcontent"
     }
+
+    # 🛡️ PATTERN C: wellnesspeek.com cep= decode
+    cep_value = params.get("cep", [None])[0]
+    if cep_value and len(cep_value) > 500:
+        decoded_cep = decode_wellnesspeek_cep(cep_value)
+        if decoded_cep["success"] and decoded_cep["best_url"]:
+            res["offer_url_from_cep"] = decoded_cep["best_url"]
+            res["method"] = "wellnesspeek_cep_decode"
+            print(f"  [cep-decode] Found offer: {decoded_cep['best_url'][:60]}")
+            
+    return res
+
+def decode_wellnesspeek_cep(cep_value: str) -> dict:
+    """
+    wellnesspeek.com uses cep= as URL-encoded Base64 JSON
+    containing the full app configuration.
+    """
+    import base64, json
+    from urllib.parse import unquote
+    
+    try:
+        # Step 1: URL decode
+        decoded_url = unquote(cep_value)
+        
+        # Step 2: Base64 decode (with padding fix)
+        padding = 4 - len(decoded_url) % 4
+        if padding != 4:
+            decoded_url += "=" * padding
+        
+        decoded_bytes = base64.b64decode(decoded_url)
+        json_str = decoded_bytes.decode("utf-8")
+        
+        # Step 3: Parse JSON
+        data = json.loads(json_str)
+        
+        # Step 4: Extract offer URLs from nested structure
+        offer_urls = []
+        
+        def find_urls_recursive(obj, depth=0):
+            if depth > 8:
+                return
+            if isinstance(obj, str):
+                if obj.startswith("http") and len(obj) > 20:
+                    offer_urls.append(obj)
+            elif isinstance(obj, dict):
+                # Priority keys that likely contain offer URL
+                OFFER_KEYS = [
+                    "offerUrl", "offer_url", "redirectUrl",
+                    "redirect_url", "finalUrl", "destination",
+                    "href", "url", "link", "checkoutUrl",
+                    "productUrl", "buyUrl",
+                ]
+                for key in OFFER_KEYS:
+                    if key in obj and isinstance(obj[key], str):
+                        val = obj[key]
+                        if val.startswith("http"):
+                            offer_urls.insert(0, val)  # High priority
+                
+                for v in obj.values():
+                    find_urls_recursive(v, depth+1)
+            elif isinstance(obj, list):
+                for item in obj:
+                    find_urls_recursive(item, depth+1)
+        
+        find_urls_recursive(data)
+        
+        # Filter: remove pre-lander domains and trackers
+        from utils.url_blacklist import is_valid_offer_url
+        valid = [u for u in offer_urls if is_valid_offer_url(u)]
+        
+        return {
+            "success": True,
+            "offer_urls": valid,
+            "best_url": valid[0] if valid else None
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def clean_macro_params(url: str) -> str:
+    """
+    Remove unresolved macro parameters from URL.
+    Replace {!xxx!} values with empty string (Pattern B/F).
+    """
+    import re
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    
+    try:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        
+        cleaned = {}
+        for k, v_list in params.items():
+            clean_vals = []
+            for v in v_list:
+                decoded = unquote(v)
+                # If value contains unresolved macro → use empty
+                if re.search(r'\{[^}]+\}|__[A-Z]+__', decoded):
+                    clean_vals.append("")
+                else:
+                    clean_vals.append(v)
+            cleaned[k] = clean_vals
+        
+        new_query = urlencode(cleaned, doseq=True)
+        return urlunparse((
+            parsed.scheme, parsed.netloc, parsed.path,
+            parsed.params, new_query, parsed.fragment
+        ))
+    except:
+        return url
 
 def decode_clickbank(url: str) -> dict:
     from urllib.parse import parse_qs, urlparse

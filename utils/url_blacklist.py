@@ -144,6 +144,7 @@ INVALID_EXTENSIONS = {
     ".js", ".css", ".woff", ".woff2", ".ttf", ".eot",
     ".mp4", ".webm", ".mp3", ".wav",
     ".pdf", ".zip", ".gz",
+    ".avif", ".m3u8", ".ts", # Added Case 6 video/media
 }
 
 # Confirmed tracking domains that need browser click to resolve:
@@ -201,6 +202,7 @@ INVALID_OFFER_DOMAINS = {
     "go.besyner.com/feeder",
     # Production run 2026-05-01: non-offer URLs found in redirect chains
     "youtube.com/generate_204",  # tracking pixel masquerading as offer
+    "assets.checkoutchamp.com",  # CDN assets only (NOT checkout pages)
     "a.vturb.net",               # video CDN endpoint
     "vturb.net",
     "challenges.cloudflare.com",
@@ -234,61 +236,81 @@ INVALID_OFFER_EXACT_PATHS = {
 }
 
 # ══════════════════════════════════════
-# BLACKLIST B: URL Patterns to ignore
-# Match against full URL string
+# PRE-LANDER DETECTION (PATTERN A/E)
 # ══════════════════════════════════════
 
-AD_TECH_URL_PATTERNS = [
-    # Cookie sync patterns
-    "/usersync/", "/sync?", "/cookie_sync",
-    "/user_sync", "/usermatch", "/getuid",
-    "/redirectuser", "taboola_hm=",
-    "gdpr_consent=", "/rtb-h/",
-    
-    # Header bidding patterns
-    "/header/auction", "/OpenRTB/",
-    "/fastlane.json", "/prebid-request",
-    "/gampad/ads", "/pcs/view",
-    "pbjs", "prebid", "hb_bidder",
-    
-    # Analytics patterns
-    "event=bidRequested", "event=pv",
-    "event=no_fill", "site/events",
-    
-    # Static assets / Media streams
-    ".jpg", ".jpeg", ".png", ".gif", ".svg",
-    ".css", ".js", ".woff", ".woff2",
-    ".ts", ".m3u8", ".mp4", ".mp3", ".webm",
-    "/wp-content/uploads/",
-    "/libtrc/static/thumbnails/",
-    "image/fetch/",
-    "/sellerhop?", "/trusted-badge/", "/pixel/register/trigger/",
-    "analytics.google.com/g/collect", "events.devcycle.com",
-    "us.i.posthog.com", "bam.nr-data.net",
-    "/tr/", "/collect?", "/pixel?", "/track?", "/log?", "/events?",
-    "/Track/", "/providersApi/", "/embeddable/config",
-    "/cdn-cgi/",  # Cloudflare RUM / monitoring endpoints
-    "cachedClickId", "marketerId", "/view?clickid=", "hcaptcha", "recaptcha", "getcaptcha",
-    "VideoBidRequestHandlerServlet", "liveVideo.php", "/report?tntId=", "/bql.php?",
-    "collect?", "/collect/", "events?", "site/events", "trk.profitorapi.com", "landerlab.io/cf/cv",
-    "challenges.cloudflare.com", "/cdn-cgi/challenge-platform/"
-]
+KNOWN_PRELANDER_DOMAINS = {
+    "smarthealthpractices.com",
+    "healthheadlines.org",    # confirmed from logs
+    "healthheadlines.info",   # confirmed from logs
+    "wellnesspeek.com",       # confirmed from logs
+    "smarterlivingdaily.org", # confirmed from logs
+    "novatrendnews.com",      # confirmed from logs
+    "healthierlivingtips.org",# confirmed from logs
+    "dailylifeinsider.com",
+    "lifetechadviser.com",
+    "healthfrontline.org",    # Case 2 landing page
+}
 
+def is_prelander_domain(url: str) -> bool:
+    """
+    Returns True if URL is a known pre-lander/advertorial.
+    These pages need ANOTHER click-through to reach real offer.
+    """
+    if not url: return False
+    from urllib.parse import urlparse
+    domain = urlparse(url).netloc.lower().replace("www.", "")
+    
+    # Check known domains
+    if domain in KNOWN_PRELANDER_DOMAINS:
+        return True
+    
+    # Check URL params that indicate pre-lander
+    # (cep= + lptoken= + widget_id= = definitely pre-lander)
+    PRELANDER_PARAM_COMBO = [
+        ("cep=", "lptoken="),    # Revcontent pre-lander
+        ("cep=", "widget_id="),  # Revcontent pre-lander
+        ("cep=", "boost_id="),   # Revcontent pre-lander
+    ]
+    for p1, p2 in PRELANDER_PARAM_COMBO:
+        if p1 in url and p2 in url:
+            return True
+    
+    return False
 
 # ══════════════════════════════════════
-# WHITELIST: Patterns that are ALWAYS meaningful
-# (Priority override for long URLs)
+# MACRO / TEMPLATE DETECTION (PATTERN B)
 # ══════════════════════════════════════
 
-AFFILIATE_SIGNATURES = [
-    "lptoken=", "clickid=", "subid=", "affid=", "hop=", 
-    "utm_campaign=", "utm_content=", "cep=", "widget_id=", 
-    "content_id=", "boost_id=", "click_id=", "affiliate_id=",
-    "offer_id=", "cbid=", "tblci=", "ob_click_id=",
-    "aff_id", "aff_click_id", "req_id", "sub1", "sub2", "sub3", "transaction_id",
-    "voluumdata=", "voluum", "bsl=", "click/", "/click?", "/outgoing", "/goto/", "/redir/",
-    "track.", "clck."
-]
+import re
+from urllib.parse import unquote
+
+def has_unresolved_macros(url: str) -> bool:
+    """
+    Detects URLs with unresolved template placeholders.
+    These are invalid and should be discarded.
+    """
+    if not url: return False
+    decoded = unquote(url)
+    
+    MACRO_PATTERNS = [
+        r'\{![^}]+!\}',      # {!subid!} pattern (mwebtracker)
+        r'\$\{[^}]+\}',      # ${variable} pattern
+        r'__[A-Z_]+__',      # __CLICK_ID__ pattern
+        r'\[TAG:[^\]]+\]',   # [TAG:xxx] pattern
+        r'\{\{[^}]+\}\}',    # {{variable}} pattern
+        r'%7B%21[^%]+%21%7D', # URL-encoded {!xxx!}
+        r'%7Bsubid%7D',       # URL-encoded {subid}
+        r'REPLACE_ME',
+        r'YOUR_CLICK_ID',
+        r'INSERT_HERE',
+    ]
+    
+    for pattern in MACRO_PATTERNS:
+        if re.search(pattern, decoded, re.I):
+            return True
+    
+    return False
 
 def is_meaningful_url(url: str) -> bool:
     """
@@ -366,6 +388,10 @@ def is_valid_offer_url(url: str) -> bool:
     if not url or not url.startswith("http"):
         return False
     
+    # Rule 0: Reject unresolved macros
+    if has_unresolved_macros(url):
+        return False
+        
     from urllib.parse import urlparse
     parsed = urlparse(url.lower())
     path = parsed.path

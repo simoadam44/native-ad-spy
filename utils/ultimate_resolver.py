@@ -4,9 +4,10 @@ from urllib.parse import urlparse, parse_qs, unquote
 from playwright.async_api import async_playwright
 
 # Import existing utilities
-from utils.url_blacklist import is_valid_offer_url, is_ad_tech_url
+from utils.url_blacklist import is_valid_offer_url, is_ad_tech_url, is_prelander_domain
 from utils.offer_validator import check_url_health
 from utils.ghost_browser import get_profile
+from utils.offer_extractor import extract_revcontent_app_config
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LAYER 1: HTML Static Extraction
@@ -20,6 +21,12 @@ def layer1_static_extraction(html: str, base_url: str) -> str | None:
     """
     if not html:
         return None
+
+    # 🛡️ FIX 3: Check cep= app config on the landing URL itself
+    config = extract_revcontent_app_config(base_url)
+    if config.get("offer_url_from_cep"):
+        print(f"  [L1] Found offer via cep-decode: {config['offer_url_from_cep'][:60]}")
+        return config["offer_url_from_cep"]
     
     soup = BeautifulSoup(html, "html.parser")
     candidates = []
@@ -341,6 +348,124 @@ async def layer3_deep_pattern_scan(landing_url: str) -> str | None:
 # LAYER 4: Playwright + CloakBrowser
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+MAX_CLICK_DEPTH = 3  # Max pre-lander chain depth
+
+async def follow_prelander_chain(
+    page,
+    current_url: str,
+    landing_url: str,
+    depth: int = 0
+) -> str | None:
+    """
+    Follows the chain: pre-lander → pre-lander → real offer
+    Keeps clicking CTAs until reaching a valid offer page or hitting max depth.
+    """
+    if depth >= MAX_CLICK_DEPTH:
+        print(f"  [Chain] Max depth reached at: {current_url[:50]}")
+        return current_url
+    
+    # If current URL is NOT a pre-lander → it's the real offer
+    if not is_prelander_domain(current_url):
+        if is_valid_offer_url(current_url):
+            print(f"  [Chain] ✅ Real offer at depth {depth}: {current_url[:60]}")
+            return current_url
+    
+    print(f"  [Chain] Pre-lander at depth {depth}: {current_url[:60]}")
+    print(f"  [Chain] Clicking through to next level...")
+    
+    # Navigate to pre-lander if not already there
+    if page.url != current_url:
+        try:
+            await page.goto(current_url, wait_until="domcontentloaded", timeout=25000)
+            await asyncio.sleep(2.0)
+        except Exception as e:
+            print(f"  [Chain] Nav error: {e}")
+            return current_url
+    
+    # Check cep= app config decode first (wellnesspeek pattern)
+    url = page.url
+    config_result = extract_revcontent_app_config(url)
+    if config_result.get("offer_url_from_cep"):
+        offer = config_result["offer_url_from_cep"]
+        return await follow_prelander_chain(page, offer, landing_url, depth+1)
+    
+    # Try static extraction on this pre-lander page
+    try:
+        html = await page.content()
+        static = layer1_static_extraction(html, url)
+        if static and not static.startswith("__TRACKER__"):
+            if not is_prelander_domain(static):
+                return await follow_prelander_chain(page, static, landing_url, depth+1)
+    except: pass
+    
+    # Human warm-up on this page
+    for _ in range(random.randint(2, 4)):
+        await page.mouse.wheel(0, random.randint(150, 350))
+        await asyncio.sleep(random.uniform(0.3, 0.7))
+    await asyncio.sleep(random.uniform(1.0, 2.5))
+    
+    # Find CTA on this pre-lander
+    CTA_SELECTORS = [
+        "a.offlink", "a.offer_link", "a[class*='offlink']", "a[class*='offer-link']",
+        "a[class*='cta']", "a[class*='buy']", "a:has-text('Order Now')",
+        "a:has-text('Buy Now')", "a:has-text('Get Yours')", "a:has-text('Claim')",
+        "a:has-text('Check Availability')", "a:has-text('Try It')", "a:has-text('Start')",
+        "button:has-text('Order')", "button:has-text('Buy')", "button:has-text('Get')",
+        "button:has-text('Yes')", "[data-offer]",
+    ]
+    
+    cta = None
+    for selector in CTA_SELECTORS:
+        try:
+            el = await page.query_selector(selector)
+            if el and await el.is_visible():
+                text = await el.text_content() or ""
+                skip = ["disclaimer","privacy","terms","cookie","unsubscribe","©","sitemap"]
+                if not any(s in text.lower() for s in skip):
+                    cta = el
+                    break
+        except: continue
+    
+    if not cta:
+        print(f"  [Chain] No CTA found at depth {depth}")
+        return current_url
+    
+    # Click CTA
+    try:
+        new_tab_url = None
+        async def capture_new_tab(new_page):
+            nonlocal new_tab_url
+            try:
+                await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
+                new_tab_url = new_page.url
+            except: pass
+        
+        page.context.on("page", capture_new_tab)
+        
+        await cta.scroll_into_view_if_needed()
+        await asyncio.sleep(0.5)
+        
+        try:
+            async with page.expect_navigation(timeout=15000, wait_until="domcontentloaded"):
+                await cta.click()
+        except:
+            await cta.click(timeout=5000)
+            await asyncio.sleep(4.0)
+        
+        # Check for new tab
+        if new_tab_url and new_tab_url != current_url:
+            return await follow_prelander_chain(page, new_tab_url, landing_url, depth+1)
+        
+        # Check current page
+        new_url = page.url
+        if new_url and new_url != current_url:
+            return await follow_prelander_chain(page, new_url, landing_url, depth+1)
+    
+    except Exception as e:
+        print(f"  [Chain] Click error: {e}")
+    
+    return current_url
+
 async def layer4_browser_click(
     landing_url: str,
     tracker_url: str = None
@@ -428,56 +553,16 @@ async def layer4_browser_click(
             await page.goto(landing_url, wait_until="domcontentloaded", timeout=40000)
             await asyncio.sleep(2.0)
             
-            # Human scrolling
-            for _ in range(random.randint(3, 6)):
-                step = random.randint(150, 400)
-                await page.mouse.wheel(0, step)
-                await asyncio.sleep(random.uniform(0.3, 0.7))
+            # 🛡️ FIX 5: Use Multi-level click-through for pre-landers
+            final_url = await follow_prelander_chain(
+                page=page,
+                current_url=page.url,
+                landing_url=landing_url,
+                depth=0
+            )
             
-            # Find CTA
-            CTA_SELECTORS = [
-                "a.offlink", "a.offer_link", "a[class*='offlink']", "a[class*='offer-link']",
-                "a[class*='cta']", "a[class*='buy']", "a[class*='order']",
-                "a:has-text('Order Now')", "a:has-text('Buy Now')", "a:has-text('Get Yours')",
-                "a:has-text('Claim')", "a:has-text('Check Availability')",
-                "button:has-text('Order Now')", "button:has-text('Buy Now')",
-            ]
-            
-            if tracker_url:
-                tracker_domain = urlparse(tracker_url).netloc
-                CTA_SELECTORS.insert(0, f"a[href*='{tracker_domain}']")
-            
-            cta_element = None
-            for selector in CTA_SELECTORS:
-                try:
-                    el = await page.query_selector(selector)
-                    if el and await el.is_visible():
-                        cta_element = el
-                        cta_text = (await el.text_content() or "").strip()[:30]
-                        break
-                except: continue
-            
-            if cta_element:
-                print(f"  [L4] Clicking CTA: '{cta_text}'")
-                try:
-                    # Move mouse to CTA
-                    box = await cta_element.bounding_box()
-                    if box:
-                        await page.mouse.move(box['x'] + box['width']/2, box['y'] + box['height']/2)
-                        await asyncio.sleep(0.3)
-                    
-                    async with page.expect_navigation(timeout=20000, wait_until="domcontentloaded"):
-                        await cta_element.click()
-                except:
-                    # Fallback to direct click
-                    try: await cta_element.click(timeout=5000)
-                    except: pass
-                
-                await asyncio.sleep(4.0)
-                try: await page.wait_for_load_state("networkidle", timeout=8000)
-                except: pass
-            
-            final_url = page.url
+            # Additional responses might have been captured during the chain
+            await asyncio.sleep(2.0)
             
             await page.close()
             await context.close()

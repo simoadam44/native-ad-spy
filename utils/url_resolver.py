@@ -115,7 +115,8 @@ TRACKING_REDIRECT_DOMAINS = [
     "servicer.idealmedia.io",
     "clck.idealmedia.io",
     "wellnessgaze.com",
-    "go.wellnessgaze.com"
+    "go.wellnessgaze.com",
+    "mwebtrackerhq.com",  # needs macro replacement by ad server (Pattern B/F)
 ]
 
 AD_SERVER_URL_PARAMS = {
