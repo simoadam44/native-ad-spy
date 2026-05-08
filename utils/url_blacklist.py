@@ -1,4 +1,20 @@
 # ══════════════════════════════════════
+# AFFILIATE SIGNATURES (IDENTIFIERS)
+# ══════════════════════════════════════
+
+AFFILIATE_SIGNATURES = [
+    "aff_id=", "affid=", "affiliate=", "offer_id=", "offid=", "oid=",
+    "hop=", "hopId=", "tid=", "subid=", "subid1=", "subid2=",
+    "clickid=", "click_id=", "transaction_id=", "cid=",
+    "effp=", "ef_click_id=", "k_click_id=", "rtid=",
+    "rc_uuid=", "tblci=", "gclid=", "fbclid=", "ttclid=",
+    "bf_lander=", "bf_offer=", "target_offer=", "melodyeu",
+    "clickbank", "digistore", "maxbounty", "everflow",
+    "hasoffers", "tune.com", "go2cloud", "impactradius",
+    "sjv.io", "prf.hn", "anrdoezrs", "dpbolvw", "tkqlhce",
+]
+
+# ══════════════════════════════════════
 # BLACKLIST A: Domains to ALWAYS ignore
 # These are Ad Tech infrastructure only (Cookie matching, Header bidding)
 # ══════════════════════════════════════
@@ -281,21 +297,8 @@ def is_prelander_domain(url: str) -> bool:
 import re
 from urllib.parse import unquote
 
-# ══════════════════════════════════════
-# AFFILIATE SIGNATURES (IDENTIFIERS)
-# ══════════════════════════════════════
-
-AFFILIATE_SIGNATURES = [
-    "aff_id=", "affid=", "affiliate=", "offer_id=", "offid=", "oid=",
-    "hop=", "hopId=", "tid=", "subid=", "subid1=", "subid2=",
-    "clickid=", "click_id=", "transaction_id=", "cid=",
-    "effp=", "ef_click_id=", "k_click_id=", "rtid=",
-    "rc_uuid=", "tblci=", "gclid=", "fbclid=", "ttclid=",
-    "bf_lander=", "bf_offer=", "target_offer=", "melodyeu",
-    "clickbank", "digistore", "maxbounty", "everflow",
-    "hasoffers", "tune.com", "go2cloud", "impactradius",
-    "sjv.io", "prf.hn", "anrdoezrs", "dpbolvw", "tkqlhce",
-]
+import re
+from urllib.parse import unquote
 
 # ══════════════════════════════════════
 # MACRO / TEMPLATE DETECTION (PATTERN B)
