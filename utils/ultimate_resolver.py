@@ -1,7 +1,7 @@
 import re, httpx, asyncio, random, json
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, unquote
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Error as PlaywrightError
 
 # Import existing utilities
 from utils.url_blacklist import is_valid_offer_url, is_ad_tech_url, is_prelander_domain, is_intermediary_domain
@@ -9,6 +9,172 @@ from utils.offer_validator import check_url_health
 from utils.ghost_browser import get_profile
 from utils.offer_extractor import extract_revcontent_app_config
 from utils.url_resolver import resolve_forensically_async
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# BROWSER MANAGEMENT WITH RESILIENCE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class BrowserSession:
+    """Manages browser lifecycle with automatic recovery and request interception."""
+    def __init__(self, playwright_instance, profile):
+        self.p = playwright_instance
+        self.profile = profile
+        self.browser = None
+        self.context = None
+        self.page = None
+        self.is_closed = False
+
+    async def ensure_active(self):
+        """Ensures the browser and page are open and responsive."""
+        if self.is_closed:
+            raise RuntimeError("Session marked as closed")
+            
+        if not self.browser or not self.browser.is_connected():
+            print("  [Browser] Launching browser...")
+            # Check CloakBrowser binary path
+            cloak_binary = None
+            try:
+                from cloakbrowser._binary import get_binary_path
+                cloak_binary = get_binary_path()
+            except: pass
+            
+            launch_kwargs = {
+                "headless": True,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    f"--window-size={self.profile['viewport']['width']},{self.profile['viewport']['height']}",
+                ]
+            }
+            if cloak_binary: launch_kwargs["executable_path"] = cloak_binary
+            
+            self.browser = await self.p.chromium.launch(**launch_kwargs)
+            self.context = None 
+            
+        if not self.context:
+            print("  [Browser] Creating new context...")
+            self.context = await self.browser.new_context(
+                user_agent=self.profile["user_agent"],
+                viewport=self.profile["viewport"],
+                locale=self.profile["locale"],
+                timezone_id=self.profile["timezone"],
+                extra_http_headers={"Accept-Language": self.profile["accept_language"]}
+            )
+            # Enable Request Interception for performance
+            await self.context.route("**/*", self._intercept_requests)
+            self.page = None 
+            
+        if not self.page or self.page.is_closed():
+            print("  [Browser] Opening new page...")
+            self.page = await self.context.new_page()
+            
+        return self.page
+
+    async def _intercept_requests(self, route):
+        """Blocks media and ad-tech domains to speed up resolution."""
+        url = route.request.url.lower()
+        
+        # 1. Block media types (images, videos, fonts)
+        MEDIA_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".mp4", ".woff", ".woff2", ".ttf", ".ico"]
+        if any(url.endswith(ext) for ext in MEDIA_EXTS) or any(ext + "?" in url for ext in MEDIA_EXTS):
+            return await route.abort()
+            
+        # 2. Block infrastructure and ad-tech (centralized in url_blacklist)
+        if is_ad_tech_url(url) or any(d in url for d in ["google-analytics", "googletagmanager", "facebook.net", "doubleclick.net"]):
+            return await route.abort()
+            
+        await route.continue_()
+
+    async def close(self):
+        """Gracefully closes all resources."""
+        self.is_closed = True
+        try:
+            if self.browser:
+                await self.browser.close()
+        except: pass
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# LAYER 0: Mandatory Surface Scan (Simple-First)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def layer0_simple_mandatory_scan(html: str, base_url: str) -> str | None:
+    """
+    Rapidly scans HTML for obvious affiliate/offer links.
+    Incorporates logic from the 'Simple Extraction Tool' (Layer 0).
+    Zero network overhead. Prevents over-calculation fatigue.
+    """
+    if not html: return None
+    
+    soup = BeautifulSoup(html, "html.parser")
+    
+    # 1. Patterns from the Simple Tool
+    COMMON_PATTERNS = [
+        'a[data-offer]', '.offer-link', '.deal-link', '[href*="offer"]',
+        '[href*="deal"]', '[href*="promo"]', '[href*="aff"]', '.btn-offer',
+        '.affiliate-link', '.product-link', 'a[href*="click"]', '.cta-button',
+        '.buy-button', '.shop-now', '.get-deal', '.get-offer', '.claim-btn',
+        '.claim-offer', '.discount-link'
+    ]
+    
+    # 2. Offer Keywords for Validation (from Simple Tool's isValidOfferUrl)
+    OFFER_KEYWORDS = [
+        'offer', 'deal', 'promo', 'aff', 'click', 'ref', 'link', 
+        'product', 'buy', 'shop', 'checkout', 'cart', 'order', 
+        'sale', 'discount'
+    ]
+    
+    from utils.url_blacklist import AFFILIATE_SIGNATURES, is_ad_tech_url
+    
+    candidates = []
+    seen_urls = set()
+    
+    # First pass: Check known patterns (High Confidence)
+    for pattern in COMMON_PATTERNS:
+        try:
+            elements = soup.select(pattern)
+            for el in elements:
+                href = el.get("href", "").strip()
+                if not href or not href.startswith("http") or href in seen_urls: continue
+                if is_ad_tech_url(href): continue
+                
+                # Check for affiliate signatures in URL
+                score = 10 if any(sig.lower() in href.lower() for sig in AFFILIATE_SIGNATURES) else 5
+                candidates.append((href, score, pattern))
+                seen_urls.add(href)
+        except: continue
+
+    # Second pass: Fallback to all links with keywords
+    if not candidates:
+        for a in soup.find_all("a", href=True):
+            href = a.get("href", "").strip()
+            if not href or not href.startswith("http") or href in seen_urls: continue
+            if is_ad_tech_url(href): continue
+            
+            # Check keywords in URL path/search
+            path_lower = href.lower()
+            if any(kw in path_lower for kw in OFFER_KEYWORDS):
+                candidates.append((href, 3, "generic_keyword"))
+                seen_urls.add(href)
+            elif "=" in href and len(href) > 25: # Potential tracking URL
+                candidates.append((href, 2, "potential_tracker"))
+                seen_urls.add(href)
+
+    if candidates:
+        # Sort by score (High confidence first)
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        best_url, best_score, source = candidates[0]
+        
+        # Mandatory Protocol: If score is high, it's the "Golden Link"
+        if best_score >= 8:
+            print(f"  [L0] Golden Link found via {source}: {best_url[:60]}")
+            return best_url
+        
+        # If moderate confidence, return the best one found
+        print(f"  [L0] Moderate candidate found ({source}): {best_url[:60]}")
+        return best_url
+        
+    return None
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LAYER 1: HTML Static Extraction
@@ -472,19 +638,8 @@ async def layer4_browser_click(
     tracker_url: str = None
 ) -> dict:
     """
-    Full browser simulation using CloakBrowser binary if available.
+    Full browser simulation with resilience and resource interception.
     """
-    # Get CloakBrowser binary path
-    try:
-        from cloakbrowser._binary import get_binary_path
-        cloak_binary = get_binary_path()
-        using_cloak = True
-        print("  [L4] Using CloakBrowser binary ✅")
-    except (ImportError, Exception):
-        cloak_binary = None
-        using_cloak = False
-        print("  [L4] CloakBrowser not available, using standard Playwright")
-    
     profile = get_profile(device_type="desktop", country="us")
     
     all_responses = []
@@ -493,41 +648,13 @@ async def layer4_browser_click(
     final_url = None
     
     async with async_playwright() as p:
-        launch_kwargs = {
-            "headless": True,
-            "args": [
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                f"--window-size={profile['viewport']['width']},"
-                f"{profile['viewport']['height']}",
-            ]
-        }
-        
-        if cloak_binary:
-            launch_kwargs["executable_path"] = cloak_binary
+        session = BrowserSession(p, profile)
         
         try:
-            browser = await p.chromium.launch(**launch_kwargs)
-            context = await browser.new_context(
-                user_agent=profile["user_agent"],
-                viewport=profile["viewport"],
-                locale=profile["locale"],
-                timezone_id=profile["timezone"],
-                extra_http_headers={
-                    "Accept-Language": profile["accept_language"],
-                }
-            )
+            # 1. Start session
+            page = await session.ensure_active()
             
-            if not using_cloak:
-                await context.add_init_script(f"""
-                    Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
-                    window.chrome = {{runtime: {{}}}};
-                    Object.defineProperty(navigator, 'plugins', {{get: () => [1,2,3]}});
-                    Object.defineProperty(navigator, 'platform', {{get: () => '{profile.get("platform","Win32")}'}});
-                """)
-            
-            # Monitor new tabs
+            # 2. Monitor new tabs
             async def on_new_page(new_page):
                 try:
                     await new_page.wait_for_load_state("domcontentloaded", timeout=10000)
@@ -537,11 +664,9 @@ async def layer4_browser_click(
                         print(f"  [L4] New tab: {url[:60]}")
                 except: pass
             
-            context.on("page", on_new_page)
+            session.context.on("page", on_new_page)
             
-            page = await context.new_page()
-            
-            # Monitor network
+            # 3. Monitor network
             def on_response(response):
                 url = response.url
                 SKIP = [".css", ".js", ".png", ".jpg", ".gif", ".woff", "google-analytics", "doubleclick"]
@@ -550,11 +675,19 @@ async def layer4_browser_click(
             
             page.on("response", on_response)
             
-            # Navigate
-            await page.goto(landing_url, wait_until="domcontentloaded", timeout=40000)
+            # 4. Navigate with retry logic
+            try:
+                await page.goto(landing_url, wait_until="domcontentloaded", timeout=40000)
+            except PlaywrightError as e:
+                if "closed" in str(e).lower():
+                    print("  [L4] Connection lost. Recovering...")
+                    page = await session.ensure_active()
+                    await page.goto(landing_url, wait_until="domcontentloaded", timeout=40000)
+                else: raise e
+                
             await asyncio.sleep(2.0)
             
-            # 🛡️ FIX 5: Use Multi-level click-through for pre-landers
+            # 5. Multi-level click-through for pre-landers
             final_url = await follow_prelander_chain(
                 page=page,
                 current_url=page.url,
@@ -562,15 +695,12 @@ async def layer4_browser_click(
                 depth=0
             )
             
-            # Additional responses might have been captured during the chain
             await asyncio.sleep(2.0)
-            
-            await page.close()
-            await context.close()
-            await browser.close()
             
         except Exception as e:
             print(f"  [L4] Browser error: {e}")
+        finally:
+            await session.close()
             
     return {
         "final_url": final_url,
@@ -672,25 +802,59 @@ async def layer6_validate_and_fix(url: str, all_captured: list) -> str | None:
 
 async def resolve_offer_url(landing_url: str, landing_html: str = None, ad_title: str = "") -> dict:
     """
-    Master resolver — tries all 6 layers in sequence.
+    Master resolver — implementing 'Simple-First' Mandatory Protocol.
+    Retries 10 times with delay as per requirements.
     """
     print(f"\n  [Resolver] Starting for: {landing_url[:60]}")
     
-    # ── LAYER 1: Static HTML ─────────────────────────────────
-    if landing_html:
-        l1 = layer1_static_extraction(landing_html, landing_url)
-        if l1 and not l1.startswith("__TRACKER__"):
-            v = await layer6_validate_and_fix(l1, [])
-            if v: return {"url": v, "method": "layer1_static", "layers_tried": 1}
-        tracker_hint = l1.replace("__TRACKER__:", "") if l1 and l1.startswith("__TRACKER__") else None
-    else: tracker_hint = None
+    MAX_ATTEMPTS = 20
+    RETRY_DELAY = 3 # seconds
     
-    # ── LAYER 2: HTTPX Redirect ──────────────────────────────
-    l2 = await layer2_httpx_redirect(landing_url)
-    if l2:
-        v = await layer6_validate_and_fix(l2, [])
-        if v: return {"url": v, "method": "layer2_httpx", "layers_tried": 2}
-        
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            print(f"  [Resolver] Attempt {attempt}/{MAX_ATTEMPTS} after {RETRY_DELAY}s delay...")
+            await asyncio.sleep(RETRY_DELAY)
+
+        # ── LAYER 0: Mandatory Surface Scan (Simple-First) ───────
+        # Note: If landing_html is provided externally, we use it. 
+        # If it fails, we fetch fresh HTML in subsequent attempts if needed.
+        current_html = landing_html
+        if not current_html:
+            try:
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    resp = await client.get(landing_url)
+                    current_html = resp.text
+            except: pass
+
+        if current_html:
+            l0 = layer0_simple_mandatory_scan(current_html, landing_url)
+            if l0:
+                health = await check_url_health(l0)
+                if health.get("is_healthy") or health.get("valid"):
+                    print(f"  [Resolver] ✅ L0_Simple_Scan Success on attempt {attempt}: {l0[:60]}")
+                    return {"url": l0, "method": "L0_Simple_Scan", "layers_tried": 0, "attempts": attempt}
+
+        # If it's the first attempt and L0 failed, try other layers immediately
+        # OR if we've reached the end of simple attempts, escalate.
+        if attempt == 1:
+            # ── LAYER 1: Static HTML Analysis ────────────────────────
+            if current_html:
+                l1 = layer1_static_extraction(current_html, landing_url)
+                if l1 and not l1.startswith("__TRACKER__"):
+                    v = await layer6_validate_and_fix(l1, [])
+                    if v: return {"url": v, "method": "layer1_static", "layers_tried": 1, "attempts": attempt}
+                tracker_hint = l1.replace("__TRACKER__:", "") if l1 and l1.startswith("__TRACKER__") else None
+            else: tracker_hint = None
+            
+            # ── LAYER 2: HTTPX Redirect ──────────────────────────────
+            l2 = await layer2_httpx_redirect(landing_url)
+            if l2:
+                v = await layer6_validate_and_fix(l2, [])
+                if v: return {"url": v, "method": "layer2_httpx", "layers_tried": 2, "attempts": attempt}
+
+    # ── FINAL ESCALATION: Playwright (If all 10 L0-L2 attempts failed) ────
+    print(f"  [Resolver] L0-L2 failed after {MAX_ATTEMPTS} attempts. Escalating to Browser...")
+    
     # ── LAYER 3: Deep Pattern Scan ───────────────────────────
     l3 = await layer3_deep_pattern_scan(landing_url)
     if l3:
@@ -698,7 +862,7 @@ async def resolve_offer_url(landing_url: str, landing_html: str = None, ad_title
         if v: return {"url": v, "method": "layer3_deep_scan", "layers_tried": 3}
         
     # ── LAYER 4 & 5: Browser Click & Capture Analysis ────────
-    browser_result = await layer4_browser_click(landing_url, tracker_hint)
+    browser_result = await layer4_browser_click(landing_url)
     all_captured = [r["url"] for r in browser_result.get("all_responses", [])] + browser_result.get("new_tab_urls", [])
     
     l5 = layer5_extract_from_captures(browser_result, landing_url)
@@ -710,4 +874,4 @@ async def resolve_offer_url(landing_url: str, landing_html: str = None, ad_title
     l6 = await layer6_validate_and_fix(None, all_captured)
     if l6: return {"url": l6, "method": "layer6_fallback", "layers_tried": 6}
     
-    return {"url": None, "method": "failed", "layers_tried": 6}
+    return {"url": None, "method": "failed", "layers_tried": 6, "attempts": MAX_ATTEMPTS}
