@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from utils.url_resolver import resolve_forensically_async
 from utils.tech_analyzer import TechAnalyzer
 from utils.adblock_detector import is_likely_cta
+from utils.url_blacklist import is_valid_offer_url
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PART 1: Find the offer link in HTML
@@ -506,34 +507,8 @@ async def deep_click_and_capture(
 def _looks_like_offer_url(url: str) -> bool:
     """
     Quick heuristic: does this URL look like a real offer page?
-    Not a tracker, not a pixel, not an ad tech URL.
     """
-    url_lower = url.lower()
-    
-    OFFER_SIGNALS = [
-        "hop=", "hopId=", "aff_id=", "affid=", "affiliate",
-        "offer_id=", "offid=", "oid=",
-        "checkout", "order", "buy", "cart", "shop",
-        "/vsl/", "/landers/", "/text.php",
-        "clickbank", "digistore", "maxbounty",
-    ]
-    
-    BAD_SIGNALS = [
-        "google-analytics", "doubleclick", "cookie",
-        "sync", "pixel", "beacon", "prebid", "rubicon",
-        "taboola.com/sg", "sync.taboola",
-        "cloudflare.com/cdn-cgi",
-        ".css", ".js", ".jpg", ".png", ".gif",
-    ]
-    
-    if any(bad in url_lower for bad in BAD_SIGNALS):
-        return False
-    
-    if any(good in url_lower for good in OFFER_SIGNALS):
-        return True
-    
-    # Check if domain changed significantly (cloaking detection)
-    return True  # Allow for post-filtering
+    return is_valid_offer_url(url)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

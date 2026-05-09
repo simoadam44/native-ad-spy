@@ -1,6 +1,7 @@
 import asyncio
 import requests
 from urllib.parse import urlparse
+from utils.url_blacklist import is_valid_offer_url, is_ad_tech_url
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LAYER 1: HTTP & Content Weight Check
@@ -14,6 +15,10 @@ def check_url_health(url: str) -> dict:
     if not url or not url.startswith("http"):
         return {"valid": False, "reason": "invalid_url_format"}
     
+    # 🛡️ EARLY EXIT: Don't even hit ad-tech infrastructure
+    if is_ad_tech_url(url):
+        return {"valid": False, "reason": "ad_tech_infrastructure"}
+
     try:
         response = requests.get(
             url,
@@ -48,7 +53,6 @@ def check_url_health(url: str) -> dict:
         # Check if we were redirected to a known bad domain
         final_url = response.url
         if final_url != url:
-            from utils.url_blacklist import is_valid_offer_url
             if not is_valid_offer_url(final_url):
                 return {
                     "valid": False,

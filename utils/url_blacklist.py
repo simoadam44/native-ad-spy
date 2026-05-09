@@ -97,6 +97,7 @@ STRICT_BLOCK_DOMAINS = [
     "zendesk.com", "intercom.io", "tawk.to", "crisp.chat",
     # CDN / media delivery
     "b-cdn.net", "bunnycdn.com", "gstatic.com", "googlesyndication.com",
+    "googleapis.com", "fonts.googleapis.com", "fonts.gstatic.com",
     # Nonprofit / donation tracking
     "everyaction.com", "actionnetwork.org",
     # Checkout platform APIs (backend, not landing pages)
@@ -122,6 +123,16 @@ STRICT_BLOCK_DOMAINS = [
     # 🛡️ Note 3 Fix: Tracking Pixels/APIs mistaken for landing pages
     "omnisendlink.com", "omnisend.com", "liadm.com", "liveintent.com",
     "wt.omnisendlink.com", "i6.liadm.com", "postrelease.com", "jadserve.postrelease.com"
+]
+
+# ══════════════════════════════════════
+# AD TECH URL PATTERNS
+# ══════════════════════════════════════
+AD_TECH_URL_PATTERNS = [
+    "/pixel", "/sync", "/match", "/collect", "/track", "/event",
+    "analytics", "gtm.js", "analytics.js", "ga.js", "fbevents.js",
+    "generate_204", "ptrack", "collect?v=", "google-analytics",
+    "pagead/1p-user-list", "activityi", "b1sync", "csync",
 ]
 
 
@@ -402,7 +413,7 @@ def is_intermediary_domain(url: str) -> bool:
 def is_valid_offer_url(url: str) -> bool:
     """
     Returns True only if URL could be a real offer/product page.
-    Returns False for images, pixels, CDN scripts, ad tech.
+    Returns False for images, pixels, CDN scripts, ad tech, and infrastructure.
     """
     if not url or not url.startswith("http"):
         return False
@@ -415,40 +426,57 @@ def is_valid_offer_url(url: str) -> bool:
     parsed = urlparse(url.lower())
     path = parsed.path
     domain = parsed.netloc
+    url_lower = url.lower()
     
-    # Rule 1: Reject by file extension
+    # Rule 1: Reject by file extension (aggressive)
     for ext in INVALID_EXTENSIONS:
         if path.endswith(ext):
             return False
-        if ext + "?" in url.lower():  # image.webp?hopId=...
+        if ext + "?" in url_lower:  # image.webp?hopId=...
             return False
-    
-    # Rule 2: Reject by known invalid domain
+        if ext + "&" in url_lower:
+            return False
+            
+    # Rule 2: Reject by STRICT block domains
+    for blocked in STRICT_BLOCK_DOMAINS:
+        if blocked in domain or blocked in url_lower:
+            return False
+            
+    # Rule 3: Reject by AD TECH domains
+    for ad_tech in AD_TECH_DOMAINS:
+        if ad_tech in domain:
+            return False
+            
+    # Rule 4: Reject by Intermediary Domains (Trackers/Bridges)
+    if is_intermediary_domain(url):
+        return False
+
+    # Rule 5: Reject by known invalid domains
     for invalid in INVALID_OFFER_DOMAINS:
-        if invalid in domain or invalid in url.lower():
+        if invalid in domain or invalid in url_lower:
             return False
     
-    # Rule 3: Reject by path pattern (unless has affiliate params)
+    # Rule 6: Reject by path pattern (unless has strong affiliate params)
     params_str = parsed.query
-    has_affiliate_params = any(p in params_str for p in ["aff_id", "affid", "hop=", "offer_id", "affiliate_id"])
+    # Strong params that might override some path blocks
+    has_strong_aff_params = any(p in params_str for p in ["aff_id", "affid", "hop=", "offer_id", "affiliate_id", "clickid=", "click_id="])
     
-    if not has_affiliate_params:
+    if not has_strong_aff_params:
         if path in INVALID_OFFER_EXACT_PATHS:
             return False
         for pattern in INVALID_OFFER_PATH_PATTERNS:
             if pattern in path:
                 return False
-
-    # Rule 4: Reject Intermediary Domains (Trackers/Bridges)
-    # They are NEVER final offers.
-    from utils.url_blacklist import is_intermediary_domain
-    if is_intermediary_domain(url):
-        return False
     
-    # Rule 5: Reject very short paths with no content
+    # Rule 7: Reject generic/empty paths with no content indicators
     if path in ["", "/", "/index", "/index.html"]:
-        if not any(p in url.lower() for p in ["aff", "hop", "offer", "product", "checkout", "clickid"]):
+        if not any(p in url_lower for p in ["aff", "hop", "offer", "product", "checkout", "clickid", "order"]):
             return False
+            
+    # Rule 8: Specific blocks for infrastructure
+    INFRA_BLOCKS = ["google-analytics", "googletagmanager", "facebook.com/tr", "google.com/recaptcha", "googleapis.com", "gstatic.com"]
+    if any(ib in url_lower for ib in INFRA_BLOCKS):
+        return False
     
     return True
 

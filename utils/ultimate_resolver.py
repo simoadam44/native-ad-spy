@@ -4,10 +4,11 @@ from urllib.parse import urlparse, parse_qs, unquote
 from playwright.async_api import async_playwright
 
 # Import existing utilities
-from utils.url_blacklist import is_valid_offer_url, is_ad_tech_url, is_prelander_domain
+from utils.url_blacklist import is_valid_offer_url, is_ad_tech_url, is_prelander_domain, is_intermediary_domain
 from utils.offer_validator import check_url_health
 from utils.ghost_browser import get_profile
 from utils.offer_extractor import extract_revcontent_app_config
+from utils.url_resolver import resolve_forensically_async
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LAYER 1: HTML Static Extraction
@@ -649,7 +650,20 @@ async def layer6_validate_and_fix(url: str, all_captured: list) -> str | None:
             if health["valid"]:
                 print(f"  [L6] Alternative found: {candidate[:60]}")
                 return candidate
-                
+    
+    # 🕵️ DEEP FORENSICS: If we have a tracker but no final offer, try to resolve it
+    for candidate in reversed(all_captured):
+        if is_intermediary_domain(candidate):
+            print(f"  [L6] Found potential tracker to resolve: {candidate[:60]}")
+            resolution = await resolve_forensically_async(candidate)
+            if resolution["success"]:
+                final = resolution["final_url"]
+                if is_valid_offer_url(final):
+                    health = check_url_health(final)
+                    if health["valid"]:
+                        print(f"  [L6] Forensic resolution successful: {final[:60]}")
+                        return final
+                        
     return None
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
