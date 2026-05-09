@@ -152,7 +152,7 @@ def decode_voluumdata(value: str) -> dict:
     except Exception:
         return {}
 
-def extract_revcontent_params(url: str) -> dict:
+def extract_revcontent_app_config(url: str) -> dict:
     from urllib.parse import parse_qs, urlparse
     params = parse_qs(urlparse(url).query)
     
@@ -804,7 +804,7 @@ def extract_offer_intelligence(
             decoded.update(d)
 
         if "cep" in params:
-            d = extract_revcontent_params(url)
+            d = extract_revcontent_app_config(url)
             decoded.update({k:v for k,v in d.items() if v})
 
         if "effp" in params or "djpcraze.com" in url:
